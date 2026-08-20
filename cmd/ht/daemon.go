@@ -28,7 +28,7 @@ func newDaemonCmd() *cobra.Command {
 				return err
 			}
 			defer cleanup()
-			ln, err := daemon.Listen(config.SocketPath())
+			ln, err := daemon.Listen(config.SocketPath(), config.LockPath())
 			if err != nil {
 				return err
 			}

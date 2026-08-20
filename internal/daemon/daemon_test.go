@@ -10,7 +10,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -311,7 +313,7 @@ func TestEventHookRunsAndCannotFailTheWrite(t *testing.T) {
 func TestSocketIsPrivateAndAnswers(t *testing.T) {
 	d := newDaemon(t, nil)
 	path := config.SocketPath()
-	ln, err := Listen(path)
+	ln, err := Listen(path, config.LockPath())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
@@ -348,12 +350,12 @@ func TestSocketIsPrivateAndAnswers(t *testing.T) {
 func TestListenRefusesASecondDaemon(t *testing.T) {
 	newDaemon(t, nil)
 	path := config.SocketPath()
-	ln, err := Listen(path)
+	ln, err := Listen(path, config.LockPath())
 	if err != nil {
 		t.Fatalf("Listen: %v", err)
 	}
 	defer ln.Close()
-	if _, err := Listen(path); err == nil {
+	if _, err := Listen(path, config.LockPath()); err == nil {
 		t.Fatal("a second Listen on a live socket must fail")
 	}
 }
@@ -365,7 +367,7 @@ func TestListenClearsAStaleSocket(t *testing.T) {
 	if err := os.WriteFile(path, []byte("stale"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	ln, err := Listen(path)
+	ln, err := Listen(path, config.LockPath())
 	if err != nil {
 		t.Fatalf("Listen over a stale socket: %v", err)
 	}
@@ -763,4 +765,141 @@ func sweptEvents(t *testing.T, d *Daemon) []string {
 		}
 	}
 	return out
+}
+
+// inodeOf identifies a file by device and inode, so a test can tell "the same
+// file" from "a new file at the same path".
+func inodeOf(t *testing.T, path string) [2]uint64 {
+	t.Helper()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatalf("stat %s: no syscall.Stat_t", path)
+	}
+	return [2]uint64{uint64(st.Dev), uint64(st.Ino)}
+}
+
+// §2.3: one daemon per store. A daemon that has taken the lock but has not
+// bound yet is still the daemon; a second start must refuse BEFORE it clears
+// the socket path, or it unlinks a socket the winner is about to own.
+func TestListenRefusesWhileAnotherDaemonHoldsTheLock(t *testing.T) {
+	newDaemon(t, nil)
+	sock, lock := config.SocketPath(), config.LockPath()
+	// What a daemon that died leaves behind, and what the winner is about to
+	// clear for itself.
+	if err := os.WriteFile(sock, []byte("left by a dead daemon"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	held, err := os.OpenFile(lock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatalf("open lock: %v", err)
+	}
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatalf("flock: %v", err)
+	}
+
+	before := inodeOf(t, sock)
+	ln, err := Listen(sock, lock)
+	if err == nil {
+		ln.Close()
+		t.Fatal("Listen bound while another daemon held the lock")
+	}
+	if ce, ok := err.(*codes.Error); !ok || ce.Code != codes.Conflict {
+		t.Fatalf("err = %v, want CONFLICT", err)
+	}
+	if after := inodeOf(t, sock); after != before {
+		t.Fatalf("the refused Listen replaced the socket path: %v then %v", before, after)
+	}
+
+	// And once the holder lets go, the same call clears the stale file and
+	// binds — the refusal is about the lock, not about the path.
+	held.Close()
+	ln, err = Listen(sock, lock)
+	if err != nil {
+		t.Fatalf("Listen after the lock was released: %v", err)
+	}
+	ln.Close()
+}
+
+// §2.3: the lock is the daemon's own file under the state dir, at 0600 like
+// everything else there (§3.5).
+func TestTheLockFileIsPrivateAndUnderTheStateDir(t *testing.T) {
+	newDaemon(t, nil)
+	lock := config.LockPath()
+	if dir := filepath.Dir(lock); dir != config.StateDir() {
+		t.Fatalf("lock lives in %s, want the state dir %s", dir, config.StateDir())
+	}
+	if err := os.WriteFile(lock, nil, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	ln, err := Listen(config.SocketPath(), lock)
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer ln.Close()
+	info, err := os.Stat(lock)
+	if err != nil {
+		t.Fatalf("the daemon did not keep a lock file: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("lock mode = %o, want 600 (§3.5)", perm)
+	}
+}
+
+// §2.3: N daemons starting at once elect exactly one. This is the interleaving
+// the lock exists for — two starts that both pass a liveness check before
+// either binds — so it is run many times rather than once.
+func TestConcurrentListensElectOneDaemon(t *testing.T) {
+	newDaemon(t, nil)
+	sock, lock := config.SocketPath(), config.LockPath()
+	const rounds, racers = 100, 8
+	for round := 0; round < rounds; round++ {
+		var wg sync.WaitGroup
+		won := make(chan net.Listener, racers)
+		lost := make(chan error, racers)
+		start := make(chan struct{})
+		for i := 0; i < racers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				ln, err := Listen(sock, lock)
+				if err != nil {
+					lost <- err
+					return
+				}
+				won <- ln
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(won)
+		close(lost)
+
+		winners := []net.Listener{}
+		for ln := range won {
+			winners = append(winners, ln)
+		}
+		if len(winners) != 1 {
+			for _, ln := range winners {
+				ln.Close()
+			}
+			t.Fatalf("round %d: %d daemons bound, want exactly 1", round, len(winners))
+		}
+		for err := range lost {
+			if got, ok := err.(*codes.Error); !ok || got.Code != codes.Conflict {
+				t.Fatalf("round %d: a losing start returned %v, want CONFLICT", round, err)
+			}
+		}
+		// The winner is the one on the path: a dial reaches it.
+		conn, err := net.DialTimeout("unix", sock, time.Second)
+		if err != nil {
+			t.Fatalf("round %d: nothing is listening on the socket the winner bound: %v", round, err)
+		}
+		conn.Close()
+		winners[0].Close()
+	}
 }

@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -78,9 +79,31 @@ func New(s *store.Store, cfg *config.Config, h *herdrclient.Client) *Daemon {
 	}
 }
 
-// Listen opens the socket at 0600 (§3.5). A stale socket file from a daemon
-// that died is removed only after a connect proves nobody is listening.
-func Listen(path string) (net.Listener, error) {
+// lockedListener is a listener that also holds the daemon's exclusive lock.
+// Closing it releases both, and so does the process ending: the kernel drops
+// an flock with the descriptor, which is why a daemon killed outright leaves
+// nothing for the next one to clean up.
+type lockedListener struct {
+	net.Listener
+	lock *os.File
+}
+
+func (l *lockedListener) Close() error {
+	err := l.Listener.Close()
+	l.lock.Close()
+	return err
+}
+
+// Listen opens the socket at 0600 (§3.5), holding an exclusive lock on lock
+// across the whole clear-and-bind so that only one daemon per store can be in
+// it (§2.3). Without the lock two starts could both find no daemon listening,
+// and the second would unlink the socket the first had just bound: two live
+// daemons on one store, one of them unreachable forever.
+//
+// A stale socket file from a daemon that died is removed only after the lock
+// is ours AND a connect proves nobody is listening — the second check is what
+// keeps this honest against a daemon from an older build that holds no lock.
+func Listen(path, lock string) (net.Listener, error) {
 	// A Unix socket path has a hard length limit in the kernel (104 bytes on
 	// darwin, 108 on linux), and the failure it produces otherwise is a bare
 	// "invalid argument" that says nothing about the cause.
@@ -89,22 +112,41 @@ func Listen(path string) (net.Listener, error) {
 			"socket path is %d characters, past what a unix socket allows: set TASKS_STATE_DIR to something shorter (%s)",
 			len(path), path)
 	}
+	held, err := os.OpenFile(lock, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, codes.Errorf(codes.Unavailable, "open the daemon lock %s: %v", lock, err)
+	}
+	if err := syscall.Flock(int(held.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		held.Close()
+		return nil, codes.Errorf(codes.Conflict,
+			"another daemon holds %s; that one is the daemon for this store", lock)
+	}
+	// The file may predate this build, or have been created with a looser
+	// umask; the lock is only as private as the state dir it names.
+	if err := os.Chmod(lock, 0o600); err != nil {
+		held.Close()
+		return nil, codes.Errorf(codes.Unavailable, "restrict %s to this user: %v", lock, err)
+	}
 	if conn, err := net.DialTimeout("unix", path, 300*time.Millisecond); err == nil {
 		conn.Close()
+		held.Close()
 		return nil, codes.Errorf(codes.Conflict, "a daemon is already listening on %s", path)
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		held.Close()
 		return nil, codes.Errorf(codes.Unavailable, "clear stale socket %s: %v", path, err)
 	}
 	ln, err := net.Listen("unix", path)
 	if err != nil {
+		held.Close()
 		return nil, codes.Errorf(codes.Unavailable, "listen on %s: %v", path, err)
 	}
 	if err := os.Chmod(path, 0o600); err != nil {
 		ln.Close()
+		held.Close()
 		return nil, codes.Errorf(codes.Unavailable, "restrict %s to this user: %v", path, err)
 	}
-	return ln, nil
+	return &lockedListener{Listener: ln, lock: held}, nil
 }
 
 // Serve accepts connections until ctx is done. Each connection carries one

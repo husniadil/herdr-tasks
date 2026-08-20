@@ -28,37 +28,41 @@ type DoctorReport struct {
 	Fingerprint string `json:"fingerprint"`
 	// Build is which binary this daemon is running (§13.3), which the
 	// fingerprint above cannot say: a changed rule keeps the surface.
-	Build           verbs.Build `json:"build"`
-	Plugin          string      `json:"plugin"`
-	Binary          string      `json:"binary"`
-	StateDir        string      `json:"state_dir"`
-	ConfigDir       string      `json:"config_dir"`
-	ConfigFile      string      `json:"config_file"`
-	ConfigPresent   bool        `json:"config_present"`
-	SocketPath      string      `json:"socket_path"`
-	SocketLive      bool        `json:"socket_live"`
-	Project         string      `json:"project"`
-	Principal       string      `json:"principal"`
-	Harness         string      `json:"harness,omitempty"`
-	HerdrBin        string      `json:"herdr_bin"`
-	HerdrReachable  bool        `json:"herdr_reachable"`
-	HerdrProtocol   int         `json:"herdr_protocol,omitempty"`
-	HerdrRequests   []string    `json:"herdr_requests,omitempty"`
-	HerdrEvents     []string    `json:"herdr_events,omitempty"`
-	GateConfigured  bool        `json:"gate_configured"`
-	GateCommand     []string    `json:"gate_command,omitempty"`
-	HookConfigured  bool        `json:"hook_configured"`
-	HookCommand     []string    `json:"hook_command,omitempty"`
-	LeaseSeconds    int64       `json:"lease_seconds"`
-	SweepSeconds    int64       `json:"sweep_seconds"`
-	SchemaVersion   int64       `json:"schema_version"`
-	GatedVerbs      []string    `json:"gated_verbs"`
-	MCPTools        []string    `json:"mcp_tools"`
-	Degraded        []string    `json:"degraded"`
-	TrustBoundary   string      `json:"trust_boundary"`
-	ParkedWaiting   int         `json:"parked_waiting"`
-	TasksInProject  int         `json:"tasks_in_project"`
-	LeasesOutstands int         `json:"leases_outstanding"`
+	Build         verbs.Build `json:"build"`
+	Plugin        string      `json:"plugin"`
+	Binary        string      `json:"binary"`
+	StateDir      string      `json:"state_dir"`
+	ConfigDir     string      `json:"config_dir"`
+	ConfigFile    string      `json:"config_file"`
+	ConfigPresent bool        `json:"config_present"`
+	SocketPath    string      `json:"socket_path"`
+	SocketLive    bool        `json:"socket_live"`
+	// LockPath is the file whose flock elects the one daemon (§2.3). An
+	// operator debugging a daemon that will not start needs to know which file
+	// the other one is holding.
+	LockPath        string   `json:"lock_path"`
+	Project         string   `json:"project"`
+	Principal       string   `json:"principal"`
+	Harness         string   `json:"harness,omitempty"`
+	HerdrBin        string   `json:"herdr_bin"`
+	HerdrReachable  bool     `json:"herdr_reachable"`
+	HerdrProtocol   int      `json:"herdr_protocol,omitempty"`
+	HerdrRequests   []string `json:"herdr_requests,omitempty"`
+	HerdrEvents     []string `json:"herdr_events,omitempty"`
+	GateConfigured  bool     `json:"gate_configured"`
+	GateCommand     []string `json:"gate_command,omitempty"`
+	HookConfigured  bool     `json:"hook_configured"`
+	HookCommand     []string `json:"hook_command,omitempty"`
+	LeaseSeconds    int64    `json:"lease_seconds"`
+	SweepSeconds    int64    `json:"sweep_seconds"`
+	SchemaVersion   int64    `json:"schema_version"`
+	GatedVerbs      []string `json:"gated_verbs"`
+	MCPTools        []string `json:"mcp_tools"`
+	Degraded        []string `json:"degraded"`
+	TrustBoundary   string   `json:"trust_boundary"`
+	ParkedWaiting   int      `json:"parked_waiting"`
+	TasksInProject  int      `json:"tasks_in_project"`
+	LeasesOutstands int      `json:"leases_outstanding"`
 }
 
 // Doctor builds the report. Every failure here is a line in Degraded, never an
@@ -77,6 +81,7 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 		ConfigFile:    cfg.Path,
 		ConfigPresent: cfg.Present,
 		SocketPath:    config.SocketPath(),
+		LockPath:      config.LockPath(),
 		Project:       req.Project,
 		Principal:     string(by.Principal),
 		Harness:       by.Harness,

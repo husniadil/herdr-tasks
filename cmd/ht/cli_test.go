@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -744,4 +745,71 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 	if strings.Contains(stdout, "--all-projects") {
 		t.Fatalf("a full board carried the empty state: %q", stdout)
 	}
+}
+
+// §2.3: the daemon lock is named where an operator debugging a wedged daemon
+// will look — beside the socket, in both surfaces of `ht doctor`.
+func TestDoctorNamesTheDaemonLock(t *testing.T) {
+	w := newWorld(t)
+	doc := w.json(w.env(), "doctor")
+	lock, ok := doc["lock_path"].(string)
+	if !ok || lock == "" {
+		t.Fatalf("doctor --json does not name the lock: %v", doc)
+	}
+	want := filepath.Join(w.state, "tasks.lock")
+	if lock != want {
+		t.Fatalf("lock_path = %q, want %q", lock, want)
+	}
+	stdout, _, status := w.run(w.env(), "doctor")
+	if status != 0 {
+		t.Fatalf("doctor exited %d", status)
+	}
+	if !strings.Contains(stdout, want) {
+		t.Fatalf("the prose doctor does not name the lock:\n%s", stdout)
+	}
+}
+
+// §2.3: flock is released by the kernel when the holder dies, so a daemon
+// killed outright must leave nothing for the next one to clear by hand — no
+// stale-lock timeout, no manual unlink.
+func TestAKilledDaemonDoesNotWedgeTheNextOne(t *testing.T) {
+	w := newWorld(t)
+	sock := filepath.Join(w.state, "tasks.sock")
+
+	first := exec.Command(w.bin, "daemon")
+	first.Dir, first.Env = w.project, w.env()
+	if err := first.Start(); err != nil {
+		t.Fatalf("start the daemon: %v", err)
+	}
+	if !waitForSocket(t, sock, 5*time.Second) {
+		first.Process.Kill()
+		t.Fatal("the first daemon never listened")
+	}
+	if err := first.Process.Signal(syscall.SIGKILL); err != nil {
+		t.Fatalf("kill: %v", err)
+	}
+	first.Process.Wait()
+	// SIGKILL leaves the socket file behind: that is the state the next
+	// daemon has to survive.
+	if _, err := os.Stat(sock); err != nil {
+		t.Fatalf("precondition: the killed daemon should have left its socket: %v", err)
+	}
+
+	doc := w.json(w.env(), "task", "list")
+	if doc["count"] != float64(0) {
+		t.Fatalf("the next daemon did not serve: %v", doc)
+	}
+}
+
+func waitForSocket(t *testing.T, path string, within time.Duration) bool {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if conn, err := net.DialTimeout("unix", path, 200*time.Millisecond); err == nil {
+			conn.Close()
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return false
 }

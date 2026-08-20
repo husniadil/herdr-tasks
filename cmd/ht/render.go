@@ -209,6 +209,7 @@ func printDoctor(r daemon.DoctorReport) {
 	fmt.Printf("state dir     %s\n", r.StateDir)
 	fmt.Printf("config        %s (%s)\n", r.ConfigFile, present(r.ConfigPresent))
 	fmt.Printf("socket        %s (%s)\n", r.SocketPath, live(r.SocketLive))
+	fmt.Printf("daemon lock   %s\n", r.LockPath)
 	fmt.Printf("build         %s, surface %s\n", r.Build.Short(), r.Fingerprint)
 	fmt.Printf("schema        version %d\n", r.SchemaVersion)
 	fmt.Printf("project       %s\n", r.Project)

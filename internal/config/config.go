@@ -66,6 +66,11 @@ func dirFrom(own, xdg, home string) string {
 // SocketPath is <state_dir>/tasks.sock (§2.2).
 func SocketPath() string { return filepath.Join(StateDir(), Name+".sock") }
 
+// LockPath is <state_dir>/tasks.lock, the file whose flock elects the one
+// daemon per store (§2.3). It is held for the daemon's lifetime and released
+// by the kernel when the process ends, so a crash leaves nothing to clean up.
+func LockPath() string { return filepath.Join(StateDir(), Name+".lock") }
+
 // DBPath is <state_dir>/tasks.db (§5.1).
 func DBPath() string { return filepath.Join(StateDir(), Name+".db") }
 
