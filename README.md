@@ -116,6 +116,34 @@ never fails the write that caused it.
 Config holds no secrets. A value that needs one names a file path or an
 environment variable and is dereferenced at use.
 
+## Limits on free text
+
+Every field that takes free text is bounded when it is written, and a call
+over a bound is `USAGE` (exit 2) naming the field and the limit — never a
+silent truncation, because text a caller believes it stored and cannot read
+back is worse than a refusal.
+
+| Bound | Characters | Fields |
+|---|---|---|
+| Title | 200 | a task's `title` |
+| Prose | 20,000 | `description`, `report`, `feedback`, a release `note`, a cancel or verdict `reason`, a note `body`, a clarification `question` |
+| One entry | 4,000 | one acceptance criterion, one piece of evidence |
+| Entries | 200 | how many criteria or pieces of evidence one call may carry |
+
+Lengths count characters, not bytes, so a note written in a language that does
+not fit ASCII gets the same allowance as one that does.
+
+The numbers are deliberately far above real use — when they were set, the
+longest values this plugin had ever stored were an 86-character title, a
+747-character description, a 2,225-character report and a 7,902-character
+verdict reason. Hitting one should mean something went wrong, not that
+something got long.
+
+A bound is a check the verbs run, not a promise about what is already stored:
+rows written before these existed are still over them. Anything that renders
+stored text into a bounded artifact — `task goal` into a `/goal` condition —
+clamps at render time regardless, and says what it dropped.
+
 ## Your data
 
 SQLite at `${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-~/.local/state}/tasks}/tasks.db`,
