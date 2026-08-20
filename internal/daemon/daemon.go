@@ -33,24 +33,45 @@ const ContractVersion = "v0 (0.1.0-draft)"
 
 // Daemon holds everything a verb needs to answer.
 type Daemon struct {
-	Store  *store.Store
-	Config *config.Config
-	Herdr  *herdrclient.Client
-	Gate   *gate.Gate
+	Store *store.Store
+	Herdr *herdrclient.Client
 	// Now is the clock in Unix milliseconds (§5.3), injectable for tests.
 	Now func() int64
 
+	// cfg and gate are swapped wholesale by Reload on SIGHUP (§10.1) while
+	// requests are in flight, so they are read through Cfg and Policy under
+	// cfgMu rather than touched directly. The structs they point at are
+	// immutable once built, so holding the read lock for the pointer is
+	// enough — callers do not need to hold it while they use the value.
+	cfgMu sync.RWMutex
+	cfg   *config.Config
+	gate  *gate.Gate
+
 	mu       sync.Mutex
 	watchers map[chan store.Event]struct{}
+}
+
+// Cfg is the configuration as of now.
+func (d *Daemon) Cfg() *config.Config {
+	d.cfgMu.RLock()
+	defer d.cfgMu.RUnlock()
+	return d.cfg
+}
+
+// Policy is the gate as of now (§9).
+func (d *Daemon) Policy() *gate.Gate {
+	d.cfgMu.RLock()
+	defer d.cfgMu.RUnlock()
+	return d.gate
 }
 
 // New builds a daemon over an already-open store.
 func New(s *store.Store, cfg *config.Config, h *herdrclient.Client) *Daemon {
 	return &Daemon{
 		Store:    s,
-		Config:   cfg,
 		Herdr:    h,
-		Gate:     gate.New(cfg.GateCommand),
+		cfg:      cfg,
+		gate:     gate.New(cfg.GateCommand),
 		Now:      func() int64 { return time.Now().UnixMilli() },
 		watchers: map[chan store.Event]struct{}{},
 	}
@@ -173,7 +194,7 @@ func (d *Daemon) Handle(req protocol.Request) (any, error) {
 	}
 	if v.Gated != "" {
 		target := argString(req.Args, "id")
-		res := d.Gate.Check(gate.Request{Subject: string(actor.Principal), Verb: v.Gated, Target: target})
+		res := d.Policy().Check(gate.Request{Subject: string(actor.Principal), Verb: v.Gated, Target: target})
 		switch res.Decision {
 		case gate.Deny:
 			return nil, codes.Errorf(codes.Denied, "the policy gate refused %s: %s", v.Gated, res.Reason)
@@ -229,10 +250,10 @@ func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 // sweepLoop is the bounded timer of §11.5. It releases expired leases and the
 // sweep is recorded in the task's events by the store.
 func (d *Daemon) sweepLoop(ctx context.Context) {
-	interval := time.Duration(d.Config.SweepSeconds) * time.Second
-	if interval <= 0 {
-		interval = time.Duration(config.DefaultSweepSeconds) * time.Second
-	}
+	// The interval is re-read every tick rather than sampled once: SIGHUP can
+	// change it, and a daemon that reports one cadence in `doctor` while
+	// running another is lying about itself.
+	interval := d.sweepInterval()
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
@@ -241,8 +262,21 @@ func (d *Daemon) sweepLoop(ctx context.Context) {
 			return
 		case <-t.C:
 			d.Sweep()
+			if next := d.sweepInterval(); next != interval {
+				interval = next
+				t.Reset(interval)
+			}
 		}
 	}
+}
+
+// sweepInterval is the configured cadence of the §11.5 timer.
+func (d *Daemon) sweepInterval() time.Duration {
+	seconds := d.Cfg().SweepSeconds
+	if seconds <= 0 {
+		seconds = config.DefaultSweepSeconds
+	}
+	return time.Duration(seconds) * time.Second
 }
 
 // Sweep runs one pass of the lease sweep and returns what it released.
@@ -292,10 +326,11 @@ func (d *Daemon) unwatch(ch chan store.Event) {
 // runHook fires the configured event hook, detached with all three stdio
 // closed. A hook that fails must not fail the write that caused it (§8.3).
 func (d *Daemon) runHook(ev store.Event) {
-	if len(d.Config.OnEvent) == 0 {
+	hook := d.Cfg().OnEvent
+	if len(hook) == 0 {
 		return
 	}
-	cmd := exec.Command(d.Config.OnEvent[0], d.Config.OnEvent[1:]...)
+	cmd := exec.Command(hook[0], hook[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	cmd.Env = append(os.Environ(),
 		"TASKS_EVENT="+ev.Name,
@@ -370,9 +405,11 @@ func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *js
 
 // Reload swaps in a config re-read on SIGHUP (§10.1). The gate is rebuilt with
 // it, so a policy command added to the config takes effect without a restart.
+// Both move under the write lock, so a request in flight sees the old pair or
+// the new one and never a half-applied mix.
 func (d *Daemon) Reload(cfg *config.Config) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.Config = cfg
-	d.Gate = gate.New(cfg.GateCommand)
+	next := gate.New(cfg.GateCommand)
+	d.cfgMu.Lock()
+	defer d.cfgMu.Unlock()
+	d.cfg, d.gate = cfg, next
 }

@@ -171,13 +171,13 @@ func (d *Daemon) transition(req protocol.Request, fn func(*tasks.Task) (tasks.Ev
 
 func hTaskClaim(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
-		return tasks.Claim(t, by, d.Now(), d.Config.LeaseMS())
+		return tasks.Claim(t, by, d.Now(), d.Cfg().LeaseMS())
 	})
 }
 
 func hTaskTouch(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
-		return tasks.Touch(t, by, d.Now(), d.Config.LeaseMS())
+		return tasks.Touch(t, by, d.Now(), d.Cfg().LeaseMS())
 	})
 }
 

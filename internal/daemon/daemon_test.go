@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -39,8 +40,12 @@ func newDaemon(t *testing.T, cfg *config.Config) *Daemon {
 		cfg = &config.Config{LeaseSeconds: 900, SweepSeconds: 60, Path: filepath.Join(dir, "tasks.toml")}
 	}
 	d := New(s, cfg, herdrclient.New(testenv.FakeHerdr(t)))
-	var tick int64 = 1_700_000_000_000
-	d.Now = func() int64 { tick++; return tick }
+	// Atomic: the clock is read from every goroutine a concurrency test
+	// starts, and a fixture that races itself would drown the race it exists
+	// to look for.
+	tick := new(atomic.Int64)
+	tick.Store(1_700_000_000_000)
+	d.Now = func() int64 { return tick.Add(1) }
 	return d
 }
 
@@ -423,5 +428,81 @@ func TestSweepDoesNotRepeatAnOldReleaseNote(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), "lease expired") {
 		t.Fatalf("the sweep did not say what it did: %s", raw)
+	}
+}
+
+// §10.1: config is re-read on SIGHUP, which happens while requests are in
+// flight. Under -race this fails outright when the swap is unsynchronised.
+func TestReloadIsSafeWhileVerbsAreInFlight(t *testing.T) {
+	d := newDaemon(t, nil)
+	createTask(t, d, "in flight")
+
+	stop := make(chan struct{})
+	done := make(chan struct{}, 3)
+
+	go func() {
+		defer func() { done <- struct{}{} }()
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			d.Reload(&config.Config{LeaseSeconds: int64(60 + i%600), SweepSeconds: int64(1 + i%90)})
+		}
+	}()
+	for w := 0; w < 2; w++ {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				// A gated verb, so the gate pointer is read too, and a verb
+				// that reads the lease length off the config.
+				if resp := d.Answer(protocol.Request{Verb: "task.claim", Project: proj,
+					PaneID: "wF:p1", Args: map[string]any{"id": "1"}}); resp.Error != nil &&
+					resp.Error.Code != codes.Conflict {
+					t.Errorf("unexpected error: %s %s", resp.Error.Code, resp.Error.Message)
+					return
+				}
+				d.Answer(protocol.Request{Verb: "doctor", Project: proj})
+				d.Sweep()
+			}
+		}()
+	}
+	time.Sleep(250 * time.Millisecond)
+	close(stop)
+	for w := 0; w < 3; w++ {
+		<-done
+	}
+}
+
+// §10.1: a reloaded sweep interval takes effect, rather than the daemon
+// keeping the value it sampled once at start while doctor reports the new one.
+func TestSweepIntervalFollowsAReload(t *testing.T) {
+	d := newDaemon(t, &config.Config{LeaseSeconds: 900, SweepSeconds: 60})
+	if got := d.sweepInterval(); got != 60*time.Second {
+		t.Fatalf("sweep interval = %s, want 60s", got)
+	}
+	d.Reload(&config.Config{LeaseSeconds: 900, SweepSeconds: 5})
+	if got := d.sweepInterval(); got != 5*time.Second {
+		t.Fatalf("sweep interval = %s after reload, want 5s", got)
+	}
+}
+
+// §10.1: a reloaded lease length is what the next claim gets.
+func TestLeaseLengthFollowsAReload(t *testing.T) {
+	d := newDaemon(t, &config.Config{LeaseSeconds: 900, SweepSeconds: 60})
+	task := createTask(t, d, "leased")
+	d.Reload(&config.Config{LeaseSeconds: 60, SweepSeconds: 60})
+	raw := mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1",
+		Args: map[string]any{"id": task.Task.ID}})
+	var res TaskResult
+	json.Unmarshal(raw, &res)
+	if got := res.Task.LeaseUntil - res.Task.ClaimedAt; got != 60_000 {
+		t.Fatalf("lease = %dms, want the reloaded 60000", got)
 	}
 }

@@ -54,21 +54,23 @@ type DoctorReport struct {
 // Doctor builds the report. Every failure here is a line in Degraded, never an
 // error: §10.3 says doctor never fails.
 func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
+	// One read of each, so the report cannot describe two different configs.
+	cfg, policy := d.Cfg(), d.Policy()
 	r := DoctorReport{
 		Version:       Version,
 		Contract:      ContractVersion,
 		Plugin:        "herdr-tasks",
 		StateDir:      config.StateDir(),
 		ConfigDir:     config.ConfigDir(),
-		ConfigFile:    d.Config.Path,
-		ConfigPresent: d.Config.Present,
+		ConfigFile:    cfg.Path,
+		ConfigPresent: cfg.Present,
 		SocketPath:    config.SocketPath(),
 		Project:       req.Project,
 		Principal:     string(by.Principal),
 		Harness:       by.Harness,
 		HerdrBin:      d.Herdr.Bin(),
-		LeaseSeconds:  d.Config.LeaseSeconds,
-		SweepSeconds:  d.Config.SweepSeconds,
+		LeaseSeconds:  cfg.LeaseSeconds,
+		SweepSeconds:  cfg.SweepSeconds,
 		GatedVerbs:    verbs.GatedVerbs(),
 		Degraded:      []string{},
 		TrustBoundary: "the local user account: whoever can open the socket is trusted as the user (§3.5)",
@@ -94,13 +96,13 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 		r.Degraded = append(r.Degraded, "herdr is not reachable through "+r.HerdrBin+": "+err.Error())
 	}
 
-	r.GateConfigured = d.Gate.Configured()
-	r.GateCommand = d.Gate.Command()
+	r.GateConfigured = policy.Configured()
+	r.GateCommand = policy.Command()
 	if !r.GateConfigured {
 		r.Degraded = append(r.Degraded, "no policy gate is configured, so every gated verb is allowed (§9.2)")
 	}
-	r.HookConfigured = len(d.Config.OnEvent) > 0
-	r.HookCommand = d.Config.OnEvent
+	r.HookConfigured = len(cfg.OnEvent) > 0
+	r.HookCommand = cfg.OnEvent
 
 	if err := d.Store.DB().QueryRow("SELECT schema_version FROM meta").Scan(&r.SchemaVersion); err != nil {
 		r.Degraded = append(r.Degraded, "cannot read the schema version: "+err.Error())
