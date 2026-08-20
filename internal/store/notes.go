@@ -87,6 +87,7 @@ type NoteFilter struct {
 	Project     string
 	AllProjects bool
 	Status      string
+	Query       string
 	Limit       int
 }
 
@@ -99,6 +100,14 @@ func (s *Store) ListNotes(f NoteFilter) ([]*tasks.Note, error) {
 	}
 	if f.Status != "" {
 		where, args = append(where, "status = ?"), append(args, f.Status)
+	}
+	if f.Query != "" {
+		// The same match `task list --query` makes over a task's free text: a
+		// substring, with % and _ escaped so a caller typing "50%" means the
+		// characters. A note's free text is its body and the verdict reason.
+		q := "%" + likeEscape(f.Query) + "%"
+		where = append(where, `(body LIKE ? ESCAPE '\' OR reason LIKE ? ESCAPE '\')`)
+		args = append(args, q, q)
 	}
 	rows, err := s.db.Query("SELECT "+noteColumns+" FROM notes WHERE "+strings.Join(where, " AND ")+" ORDER BY seq ASC", args...)
 	if err != nil {

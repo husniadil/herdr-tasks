@@ -536,3 +536,60 @@ func TestEventsSinceDoesNotSkipASameMillisecondEvent(t *testing.T) {
 		t.Fatalf("--since dropped or duplicated a same-millisecond event: %+v", rest)
 	}
 }
+
+// §6.2 / §6.1: `note list --query` is the same substring match `task list`
+// already has — over the note's free text, which is its body AND the verdict
+// reason. The reason is where "we dropped this, because…" is written, and the
+// duplicate check the query exists for is looking for exactly that.
+func TestNoteQueryMatchesBodyOrReasonAndComposesWithStatus(t *testing.T) {
+	s := open(t)
+	agent := peer("wF:p1", "claude")
+	body := func(text string) *tasks.Note {
+		t.Helper()
+		n, err := s.CreateNote(tasks.NewNoteInput{Project: proj, Body: text}, agent, tick(t))
+		if err != nil {
+			t.Fatalf("CreateNote: %v", err)
+		}
+		return n
+	}
+	body("the pane popup swallows esc")
+	body("cut latency by 50% on the hot path")
+	decided := body("something about the socket")
+	if _, err := s.NoteTransition(proj, decided.ID, 0, func(x *tasks.Note) (tasks.Event, error) {
+		return tasks.NoteDrop(x, operator, "duplicate of the popup incident", tick(t))
+	}); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+
+	// Body match, and case-insensitively for ASCII, the way task list matches.
+	for _, q := range []string{"popup", "POPUP", "Popup"} {
+		got, err := s.ListNotes(NoteFilter{Project: proj, Query: q})
+		if err != nil {
+			t.Fatalf("ListNotes(%q): %v", q, err)
+		}
+		if len(got) != 2 {
+			t.Fatalf("query %q matched %d notes, want the body and the drop reason", q, len(got))
+		}
+	}
+	// Reason match alone: this note's body says nothing about a popup.
+	got, _ := s.ListNotes(NoteFilter{Project: proj, Query: "duplicate of"})
+	if len(got) != 1 || got[0].ID != decided.ID {
+		t.Fatalf("a query over the drop reason matched %d notes, want the dropped one", len(got))
+	}
+	// Composes with --status as AND: both filters hold, not either.
+	got, _ = s.ListNotes(NoteFilter{Project: proj, Status: string(tasks.NoteInbox), Query: "popup"})
+	if len(got) != 1 || got[0].Status != tasks.NoteInbox {
+		t.Fatalf("status+query matched %d notes, want only the inbox one", len(got))
+	}
+	got, _ = s.ListNotes(NoteFilter{Project: proj, Status: string(tasks.NoteDropped), Query: "esc"})
+	if len(got) != 0 {
+		t.Fatalf("status+query matched %d notes; a note that fails either half must not be listed", len(got))
+	}
+	// A % or _ a human typed is a character, not a wildcard.
+	if got, _ = s.ListNotes(NoteFilter{Project: proj, Query: "%"}); len(got) != 1 {
+		t.Fatalf("query \"%%\" matched %d notes, want the 1 with a literal %%", len(got))
+	}
+	if got, _ = s.ListNotes(NoteFilter{Project: proj, Query: "_"}); len(got) != 0 {
+		t.Fatalf("query \"_\" matched %d notes, want none: no body has a literal underscore", len(got))
+	}
+}

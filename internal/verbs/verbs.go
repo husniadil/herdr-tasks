@@ -198,6 +198,7 @@ var All = []Verb{
 		Short: "List notes in this project",
 		Args: []Arg{
 			{Name: "status", Type: String, Desc: "inbox, discussing, needs_input, proposed, keep, task or dropped"},
+			{Name: "query", Type: String, Desc: "Match the body or the verdict reason"},
 			{Name: "limit", Type: Int, Desc: "Stop after this many"},
 		},
 	},

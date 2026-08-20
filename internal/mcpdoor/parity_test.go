@@ -290,3 +290,31 @@ func hasArg(args []verbs.Arg, name string) bool {
 	}
 	return false
 }
+
+// §6.1: the two doors take the same arguments, and for a search that matters
+// more than usual — an agent's documented duplicate check runs over MCP, so a
+// query the CLI has and the tool does not is the asymmetry this asserts is
+// gone. The parity test above proves the two surfaces MATCH; this one proves
+// what they match ON, which parity alone cannot say.
+func TestNoteQueryReachesBothDoors(t *testing.T) {
+	v, ok := verbs.ByName("note.list")
+	if !ok {
+		t.Fatal("no note.list verb")
+	}
+	if !v.Accepts("query") {
+		t.Fatal("note.list takes no query argument, so `ht note list --query` does not exist")
+	}
+	schema, err := json.Marshal(tool(v).InputSchema)
+	if err != nil {
+		t.Fatalf("marshal the tool schema: %v", err)
+	}
+	var got struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(schema, &got); err != nil {
+		t.Fatalf("read the tool schema: %v", err)
+	}
+	if _, ok := got.Properties["query"]; !ok {
+		t.Fatalf("tasks_note_list's input schema has no query property: %s", schema)
+	}
+}

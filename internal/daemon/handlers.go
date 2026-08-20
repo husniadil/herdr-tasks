@@ -315,6 +315,7 @@ func hNoteList(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
 		Project:     req.Project,
 		AllProjects: req.AllProjects,
 		Status:      argString(req.Args, "status"),
+		Query:       argString(req.Args, "query"),
 		Limit:       int(argInt(req.Args, "limit")),
 	})
 	if err != nil {
