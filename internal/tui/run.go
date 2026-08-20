@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -79,7 +80,13 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if call == nil {
 		return p, nil
 	}
-	return p, p.run(*call)
+	// A read verb IS the refresh; run() would throw its body away.
+	if strings.HasSuffix(call.Verb, ".list") {
+		return p, p.load()
+	}
+	// A mutation is only real to the operator once the board shows it, so the
+	// write is followed by the read rather than waiting for the next tick.
+	return p, tea.Sequence(p.run(*call), p.load())
 }
 
 func (p *program) View() string { return Render(p.model, time.Now().UnixMilli()) }
