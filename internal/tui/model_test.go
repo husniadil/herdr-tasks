@@ -278,3 +278,92 @@ func TestFailureShowsItsContractCode(t *testing.T) {
 		t.Fatalf("a success left the old error up: %q", m.Err)
 	}
 }
+
+// §11.6: the footer verbs are clickable where they are drawn. The hit-test
+// reads the bottom rows of the screen, so a view whose content is shorter than
+// the terminal must still put its footer there.
+func TestFooterVerbsAreClickableWhereTheyAreDrawn(t *testing.T) {
+	m := board(t, task(1, tasks.StatusReview, "a"))
+	m.Width, m.Height = 80, 24
+	rows := strings.Count(strings.TrimRight(Render(m, 0), "\n"), "\n")
+	if rows+1 < m.Height-footerRows {
+		t.Fatalf("the view drew %d rows of a %d-row screen: the footer is not at the bottom", rows+1, m.Height)
+	}
+	_, call := Update(m, MouseMsg{X: 2, Y: m.Height - 1})
+	if call == nil || call.Verb != "task.approve" {
+		t.Fatalf("clicking the drawn approve verb sent %#v", call)
+	}
+}
+
+// A click on the empty middle of the board selects nothing and runs nothing.
+// Approve and parked.resolve are mutating, gated verbs (§9.1); neither may be
+// reachable by a stray click.
+func TestAClickOnEmptySpaceRunsNothing(t *testing.T) {
+	m := board(t, task(1, tasks.StatusReview, "a"))
+	m.Width, m.Height = 80, 24
+	for y := firstCard + 1; y < m.Height-footerRows; y++ {
+		if _, call := Update(m, MouseMsg{X: 2, Y: y}); call != nil {
+			t.Fatalf("a click on empty row %d ran %s", y, call.Verb)
+		}
+	}
+	n := New(ViewNotes, "/repo")
+	n, _ = Update(n, DataMsg{Parked: []store.Parked{{ID: "P1", Verb: "tasks.approve", Subject: "agent:wF:p1"}}})
+	n.Width, n.Height = 80, 24
+	n, _ = Update(n, KeyMsg{Key: "right"})
+	for y := firstCard + 1; y < n.Height-footerRows; y++ {
+		if _, call := Update(n, MouseMsg{X: 2, Y: y}); call != nil {
+			t.Fatalf("a click on empty row %d of the notes view ran %s", y, call.Verb)
+		}
+	}
+}
+
+// §11.6: the tabs are hit-tested where they are drawn. The active tab renders
+// differently from the inactive one, and the hit-test must follow it.
+func TestTabHitTestMatchesTheDrawnTabs(t *testing.T) {
+	for _, active := range []View{ViewBoard, ViewNotes} {
+		wBoard := len(tab(boardTab, active == ViewBoard))
+		wNotes := len(tab(notesTab, active == ViewNotes))
+		row := strings.Split(Render(New(active, "proj"), 0), "\n")[0]
+		for x := 0; x < wBoard; x++ {
+			if got := TabAt(x); got != ViewBoard {
+				t.Fatalf("with %s active, x=%d is drawn on the board tab but hit-tests as %q in %q", active, x, got, row)
+			}
+		}
+		for x := wBoard; x < wBoard+wNotes; x++ {
+			if got := TabAt(x); got != ViewNotes {
+				t.Fatalf("with %s active, x=%d is drawn on the notes tab but hit-tests as %q in %q", active, x, got, row)
+			}
+		}
+		if got := TabAt(wBoard + wNotes); got != "" {
+			t.Fatalf("with %s active, the cell after the tabs hit-tests as %q in %q", active, got, row)
+		}
+	}
+}
+
+// A prompt must not trap the operator: ctrl+c leaves, whatever is open.
+func TestCtrlCLeavesEvenWithAPromptOpen(t *testing.T) {
+	m := board(t, task(1, tasks.StatusReview, "a"))
+	m, _ = Update(m, KeyMsg{Key: "x"})
+	if m.Prompt == nil {
+		t.Fatal("the reject prompt did not open")
+	}
+	m, _ = Update(m, KeyMsg{Key: "ctrl+c"})
+	if !m.Quit {
+		t.Fatal("ctrl+c with a prompt open did not leave")
+	}
+}
+
+// The cursor is the operator's, not the poll's: a refresh that changes nothing
+// must not move them off a column they chose to look at.
+func TestARefreshDoesNotDragTheCursorOffAnEmptyColumn(t *testing.T) {
+	ts := []*tasks.Task{task(1, tasks.StatusTodo, "a")}
+	m := board(t, ts...)
+	m, _ = Update(m, KeyMsg{Key: "right"})
+	if m.Col != 1 {
+		t.Fatalf("could not move to the empty doing column: col %d", m.Col)
+	}
+	m, _ = Update(m, DataMsg{Tasks: ts})
+	if m.Col != 1 {
+		t.Fatalf("a refresh moved the cursor to column %d", m.Col)
+	}
+}

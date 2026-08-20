@@ -163,6 +163,13 @@ func Render(m Model, now int64) string {
 	if m.Detail {
 		b.WriteString("\n" + Detail(m, now))
 	}
+	// Pad to the bottom of the screen. click() hit-tests the footer by row, so
+	// a footer that floats up with short content would leave its own verbs
+	// dead and turn a click on empty space into whichever verb comes first —
+	// approve, or resolving a parked action (§9.3).
+	for lines := strings.Count(b.String(), "\n"); lines < m.Height-footerRows; lines++ {
+		b.WriteString("\n")
+	}
 	b.WriteString("\n")
 	for _, v := range m.Verbs() {
 		b.WriteString(footerLabel(v))
@@ -176,9 +183,12 @@ func Render(m Model, now int64) string {
 	return b.String()
 }
 
+// tab draws one view tab. The active one is bracketed, and padded back to the
+// inactive width: TabAt hit-tests by fixed cell ranges, so a tab that shrinks
+// when selected would leave clicks landing on the wrong view.
 func tab(label string, on bool) string {
 	if on {
-		return "[" + strings.TrimSpace(label) + "]"
+		return fmt.Sprintf("%-*s", len(label), "["+strings.TrimSpace(label)+"]")
 	}
 	return label
 }

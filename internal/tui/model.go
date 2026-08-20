@@ -102,6 +102,12 @@ type Model struct {
 	Status string
 	Err    string
 	Quit   bool
+
+	// homed says the cursor has been placed once. The board opens on the first
+	// column that has work in it, but only once: after that the cursor is the
+	// operator's, and a poll that finds their column empty must leave them
+	// there.
+	homed bool
 }
 
 // New is the model a fresh `ht tui` starts in.
@@ -361,6 +367,11 @@ func parkedKey(m Model, k string) (Model, *Call) {
 func promptKey(m Model, k string) (Model, *Call) {
 	p := m.Prompt
 	switch k {
+	case "ctrl+c":
+		// A prompt must never be a trap: the way out of the TUI is the same
+		// key whatever is open.
+		m.Quit = true
+		return m, nil
 	case "esc":
 		m.Prompt = nil
 		m.Status = "cancelled"
@@ -439,7 +450,8 @@ func (m Model) SelectedParked() *store.Parked {
 func (m Model) clampCursors() Model {
 	// A board that opens with the cursor parked on an empty column asks the
 	// operator to hunt for the work before they can act on it.
-	if len(m.Column(m.Col)) == 0 {
+	if !m.homed && len(m.Column(m.Col)) == 0 {
+		m.homed = true
 		for i := range Columns {
 			if len(m.Column(i)) > 0 {
 				m.Col = i
@@ -447,6 +459,7 @@ func (m Model) clampCursors() Model {
 			}
 		}
 	}
+	m.homed = m.homed || len(m.Tasks) > 0
 	for i := range Columns {
 		if n := len(m.Column(i)); m.Row[i] >= n {
 			m.Row[i] = max(0, n-1)
