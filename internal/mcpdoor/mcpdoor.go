@@ -121,7 +121,7 @@ func handlerFor(v verbs.Verb, call Caller) mcp.ToolHandler {
 		delete(args, "project")
 
 		cwd, _ := os.Getwd()
-		proj, err := project.Resolve(project.Options{Explicit: explicit, Cwd: cwd})
+		proj, err := project.Resolve(project.Options{Explicit: explicit, Cwd: cwd, Warn: os.Stderr})
 		if err != nil {
 			return errorResult(codes.Errorf(codes.Usage, "cannot resolve the project: %v", err)), nil
 		}

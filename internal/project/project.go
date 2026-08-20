@@ -7,10 +7,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -20,14 +23,36 @@ type Options struct {
 	Explicit string
 	// Cwd is the caller's working directory, the last resort.
 	Cwd string
+	// Warn receives the one line Resolve has to say for itself: that Herdr set
+	// a context document this build cannot read. A door passes os.Stderr; a
+	// caller that does not want to hear it passes nil.
+	Warn io.Writer
 }
+
+// EnvContext is the variable Herdr fills in for a plugin command (§4.2). It is
+// named here so a warning about it and a search for it agree.
+const EnvContext = "HERDR_PLUGIN_CONTEXT_JSON"
+
+// contextWarned keeps the warning to once per process, the same way the
+// door/daemon skew warning is kept: it is worth saying, and worth saying once.
+// A board that repeats it on every poll is a board nobody reads warnings on.
+var contextWarned sync.Once
 
 // Resolve answers §4.2: explicit --project, then HERDR_PLUGIN_CONTEXT_JSON's
 // focused pane cwd or workspace cwd, then the caller's working directory.
+//
+// A context document that cannot be READ is the one case here that is not
+// benign. In a popup that variable is the only thing that says which project
+// the operator is looking at — a plugin pane's working directory is the
+// SERVER's, not the focused pane's — so falling back silently scopes the whole
+// board somewhere else and looks exactly like an empty board. An absent
+// variable and a well-formed document with no cwd in it are both documented
+// and stay silent; only a parse failure says anything.
 func Resolve(o Options) (string, error) {
+	var unreadable error
 	dir := o.Explicit
 	if dir == "" {
-		dir = fromHerdrContext()
+		dir, unreadable = fromHerdrContext()
 	}
 	if dir == "" {
 		dir = o.Cwd
@@ -39,7 +64,21 @@ func Resolve(o Options) (string, error) {
 		}
 		dir = wd
 	}
-	return canonical(dir)
+	proj, err := canonical(dir)
+	if err != nil {
+		return "", err
+	}
+	if unreadable != nil && o.Warn != nil {
+		contextWarned.Do(func() {
+			// The value itself is not printed: it can be a long document, it
+			// is not what the operator needs, and the parse error already says
+			// where it went wrong.
+			fmt.Fprintf(o.Warn,
+				"ht: %s is set but could not be read (%v); this board is scoped to %s, taken from the working directory instead\n",
+				EnvContext, unreadable, proj)
+		})
+	}
+	return proj, nil
 }
 
 // herdrContext is the part of HERDR_PLUGIN_CONTEXT_JSON this plugin reads.
@@ -52,19 +91,23 @@ type herdrContext struct {
 	WorkspaceCwd   string `json:"workspace_cwd"`
 }
 
-func fromHerdrContext() string {
-	raw := os.Getenv("HERDR_PLUGIN_CONTEXT_JSON")
+// fromHerdrContext returns the cwd Herdr named, and separately the reason the
+// document could not be read — which is not the same as it having nothing to
+// say. Herdr omits what it has no answer for, so an empty result with a nil
+// error is ordinary.
+func fromHerdrContext() (string, error) {
+	raw := os.Getenv(EnvContext)
 	if raw == "" {
-		return ""
+		return "", nil
 	}
 	var c herdrContext
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
-		return ""
+		return "", err
 	}
 	if c.FocusedPaneCwd != "" {
-		return c.FocusedPaneCwd
+		return c.FocusedPaneCwd, nil
 	}
-	return c.WorkspaceCwd
+	return c.WorkspaceCwd, nil
 }
 
 // canonical turns a directory into the project key: the parent of the git

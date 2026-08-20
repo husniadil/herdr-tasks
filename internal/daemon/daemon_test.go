@@ -1114,3 +1114,22 @@ func TestOnlyThatPaneOrTheOperatorSweepsAPane(t *testing.T) {
 	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
 	mustCall(t, d, protocol.Request{Verb: "sweep", Args: map[string]any{"pane": "wF:p1"}})
 }
+
+// §4.2: the warning is the DOOR's, said once where the variable is read. The
+// daemon must not repeat it on the operator's behalf — it answers many
+// requests from many doors, its stderr is the operator's log, and a warning
+// about a door's environment there names nothing the operator can act on.
+func TestTheDaemonDoesNotWarnAboutADoorsContext(t *testing.T) {
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd": broken`)
+	d := newDaemon(t, nil)
+	out := captureStderr(t, func() {
+		mustCall(t, d, protocol.Request{Verb: "task.create", Args: map[string]any{"title": "answered anyway"}})
+		mustCall(t, d, protocol.Request{Verb: "task.list"})
+	})
+	if strings.Contains(out, "HERDR_PLUGIN_CONTEXT_JSON") {
+		t.Fatalf("the daemon warned about a door's environment: %q", out)
+	}
+	if out != "" {
+		t.Fatalf("the daemon wrote to the operator's log for an ordinary request: %q", out)
+	}
+}

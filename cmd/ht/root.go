@@ -166,7 +166,7 @@ func buildVerb(v verbs.Verb) *cobra.Command {
 // declaring it: the project (§4.2) and the principal (§3.2).
 func request(verb string, args map[string]any) (protocol.Request, error) {
 	cwd, _ := os.Getwd()
-	proj, err := project.Resolve(project.Options{Explicit: g.projectPath, Cwd: cwd})
+	proj, err := project.Resolve(project.Options{Explicit: g.projectPath, Cwd: cwd, Warn: os.Stderr})
 	if err != nil {
 		return protocol.Request{}, codes.Errorf(codes.Usage, "cannot resolve the project: %v", err)
 	}

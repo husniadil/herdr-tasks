@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -304,5 +305,97 @@ func TestEveryShapeIsCanonical(t *testing.T) {
 		if real, err := filepath.EvalSymlinks(got); err == nil && real != got {
 			t.Errorf("%s resolves to %q, which is not symlink-resolved (%q)", dir, got, real)
 		}
+	}
+}
+
+// §4.2: HERDR_PLUGIN_CONTEXT_JSON is the ONLY thing that tells a popup which
+// project it is looking at — a plugin pane's working directory is the
+// server's, not the focused pane's. A document that cannot be read therefore
+// silently scoped the whole board to somewhere else, which is the split-brain
+// empty-board incident this plugin has already lived through once.
+func TestAnUnreadableHerdrContextWarnsAndSaysWhatItUsed(t *testing.T) {
+	contextWarned = sync.Once{}
+	cwd := t.TempDir()
+	t.Setenv(EnvContext, `{"focused_pane_cwd": not-json-at-all`)
+	var warn strings.Builder
+
+	got, err := Resolve(Options{Cwd: cwd, Warn: &warn})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	// The answer is still the documented fallback, and it is asserted rather
+	// than assumed: a warning about a project it did not use would be worse
+	// than no warning.
+	if want := canonicalOf(t, cwd); got != want {
+		t.Fatalf("resolved %q, want the working directory %q", got, want)
+	}
+	line := warn.String()
+	if !strings.Contains(line, EnvContext) {
+		t.Errorf("the warning does not name the variable, so it cannot be grepped: %q", line)
+	}
+	if !strings.Contains(line, got) {
+		t.Errorf("the warning does not say which project was used: %q", line)
+	}
+	if !strings.Contains(line, "could not be read") {
+		t.Errorf("the warning does not say what went wrong: %q", line)
+	}
+	if strings.Count(line, "\n") != 1 {
+		t.Errorf("the warning is not one line: %q", line)
+	}
+}
+
+// The value may be a long document and it is not the point; printing it buries
+// the warning and can put a path the operator did not ask to see on a terminal.
+func TestTheWarningDoesNotEchoTheValue(t *testing.T) {
+	contextWarned = sync.Once{}
+	t.Setenv(EnvContext, `{"focused_pane_cwd": "/private/somewhere-distinctive-9f3c", `)
+	var warn strings.Builder
+	if _, err := Resolve(Options{Cwd: t.TempDir(), Warn: &warn}); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if strings.Contains(warn.String(), "somewhere-distinctive-9f3c") {
+		t.Fatalf("the warning echoed the value: %q", warn.String())
+	}
+}
+
+// §4.2: the two benign cases stay silent, which is what keeps the warning
+// worth reading. An absent variable means this is not a plugin pane; a
+// well-formed document with neither cwd key is Herdr omitting what it has no
+// answer for, which its own shape allows.
+func TestABenignHerdrContextSaysNothing(t *testing.T) {
+	for name, value := range map[string]string{
+		"no variable at all":     "",
+		"neither cwd key":        `{"workspace_id":"wM","tab_id":"wM:t1"}`,
+		"the keys present-empty": `{"workspace_cwd":"","focused_pane_cwd":""}`,
+	} {
+		contextWarned = sync.Once{}
+		if value == "" {
+			t.Setenv(EnvContext, "")
+		} else {
+			t.Setenv(EnvContext, value)
+		}
+		var warn strings.Builder
+		if _, err := Resolve(Options{Cwd: t.TempDir(), Warn: &warn}); err != nil {
+			t.Fatalf("%s: Resolve: %v", name, err)
+		}
+		if warn.String() != "" {
+			t.Errorf("%s: said %q, want silence", name, warn.String())
+		}
+	}
+}
+
+// Once per invocation, the way the door/daemon skew warning is: a board that
+// repeats it every time it polls is a board nobody reads the warnings on.
+func TestTheContextWarningIsSaidOnce(t *testing.T) {
+	contextWarned = sync.Once{}
+	t.Setenv(EnvContext, `{`)
+	var warn strings.Builder
+	for i := 0; i < 3; i++ {
+		if _, err := Resolve(Options{Cwd: t.TempDir(), Warn: &warn}); err != nil {
+			t.Fatalf("Resolve: %v", err)
+		}
+	}
+	if got := strings.Count(warn.String(), "\n"); got != 1 {
+		t.Fatalf("the warning was said %d times: %q", got, warn.String())
 	}
 }

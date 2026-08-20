@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -1009,5 +1010,51 @@ func TestAStreamThatFailsPartWayEndsWithTheEnvelope(t *testing.T) {
 	}
 	if strings.Contains(stderr, "ht: ") {
 		t.Fatalf("--json printed the envelope AND a prose line: %q", stderr)
+	}
+}
+
+// §4.2 / §6.2: a context document the door cannot read is said out loud on
+// STDERR, and stdout still carries exactly one document. A popup takes its
+// project from that variable alone, so falling back silently scopes the board
+// somewhere else and looks identical to an empty board.
+func TestABrokenPluginContextWarnsWithoutSpoilingTheDocument(t *testing.T) {
+	w := newWorld(t)
+	broken := `{"focused_pane_cwd": "/tmp/marker-7c1e2b", `
+	stdout, stderr, status := w.run(w.env("HERDR_PLUGIN_CONTEXT_JSON="+broken), "task", "list", "--json")
+	if status != 0 {
+		t.Fatalf("the verb did not answer: exit %d, %s%s", status, stdout, stderr)
+	}
+	// One document, still parseable, still the real answer.
+	var doc map[string]any
+	trimmed := strings.TrimSpace(stdout)
+	if strings.Contains(trimmed, "\n") {
+		t.Fatalf("stdout carries more than one document:\n%s", stdout)
+	}
+	if err := json.Unmarshal([]byte(trimmed), &doc); err != nil {
+		t.Fatalf("stdout is not one JSON document: %q", stdout)
+	}
+	if _, ok := doc["count"]; !ok {
+		t.Fatalf("the answer is not a task list: %s", stdout)
+	}
+	// The warning is on stderr, names the variable, names the project used,
+	// and does not echo the value.
+	if !strings.Contains(stderr, "HERDR_PLUGIN_CONTEXT_JSON") {
+		t.Fatalf("nothing warned about the broken context: %q", stderr)
+	}
+	if !strings.Contains(stderr, doc["project"].(string)) {
+		t.Fatalf("the warning does not name the project the answer used: %q vs %v", stderr, doc["project"])
+	}
+	if strings.Contains(stderr, "marker-7c1e2b") {
+		t.Fatalf("the warning echoed the value: %q", stderr)
+	}
+
+	// And a well-formed context says nothing at all.
+	good := `{"workspace_id":"wM","focused_pane_cwd":` + strconv.Quote(w.project) + `}`
+	_, stderr, status = w.run(w.env("HERDR_PLUGIN_CONTEXT_JSON="+good), "task", "list", "--json")
+	if status != 0 {
+		t.Fatalf("exit %d", status)
+	}
+	if strings.Contains(stderr, "HERDR_PLUGIN_CONTEXT_JSON") {
+		t.Fatalf("a good context warned anyway: %q", stderr)
 	}
 }
