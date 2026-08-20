@@ -434,3 +434,38 @@ func TestRecusalCatchesSelfReviewAcrossAnUnknownHarness(t *testing.T) {
 		t.Fatalf("third-party approve: %v", err)
 	}
 }
+
+// §3.1: cancelling a claimed task is strictly more destructive than releasing
+// it — it clears the claim AND ends the task — so it cannot be easier. Release
+// and Submit both refuse a non-holder that is not the operator; Cancel took no
+// principal at all.
+func TestOnlyTheHolderOrTheOperatorCancelsAClaimedTask(t *testing.T) {
+	task := newTask()
+	holder := agent("wF:p1", "claude")
+	mustClaim(t, task, holder)
+
+	if _, err := Cancel(task, agent("wF:p2", "codex"), "not needed", t0+1); err == nil {
+		t.Fatal("a rival agent may not cancel a claimed task")
+	} else if got := codeOf(t, err); got != codes.Forbidden {
+		t.Fatalf("code = %q, want FORBIDDEN", got)
+	}
+	if task.Status != StatusDoing {
+		t.Fatalf("the refused cancel changed the task: %+v", task)
+	}
+	if _, err := Cancel(task, holder, "not needed", t0+2); err != nil {
+		t.Fatalf("the holder may cancel: %v", err)
+	}
+
+	other := newTask()
+	mustClaim(t, other, holder)
+	if _, err := Cancel(other, human, "the operator says so", t0+3); err != nil {
+		t.Fatalf("the operator may cancel: %v", err)
+	}
+
+	// An UNCLAIMED task is nobody's, and cancelling it stays as open as
+	// release is — release refuses it for being unclaimed, not for who asked.
+	free := newTask()
+	if _, err := Cancel(free, agent("wF:p2", "codex"), "stale idea", t0+4); err != nil {
+		t.Fatalf("an unclaimed task may be cancelled by anyone: %v", err)
+	}
+}

@@ -358,10 +358,17 @@ func CheckRecusal(t *Task, by Actor) error {
 	return nil
 }
 
-// Cancel ends a task that will not be done.
+// Cancel ends a task that will not be done. A CLAIMED task is the holder's or
+// the operator's to end — the same rule Release and Submit apply, because
+// cancelling is strictly more destructive than releasing: it clears the claim
+// AND puts the task beyond reach. An unclaimed task is nobody's and stays as
+// open as it was.
 func Cancel(t *Task, by Actor, reason string, now int64) (Event, error) {
 	if t.Status.Terminal() {
 		return Event{}, codes.Errorf(codes.Conflict, "task is already %s", t.Status)
+	}
+	if t.ClaimedBy != "" && t.ClaimedBy != by.Principal && !by.IsHuman() {
+		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
 	}
 	if err := bound("reason", reason, MaxText); err != nil {
 		return Event{}, err

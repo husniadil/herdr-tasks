@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/config"
 	"github.com/husniadil/herdr-tasks/internal/daemon"
 	"github.com/husniadil/herdr-tasks/internal/herdrclient"
@@ -316,5 +317,71 @@ func TestNoteQueryReachesBothDoors(t *testing.T) {
 	}
 	if _, ok := got.Properties["query"]; !ok {
 		t.Fatalf("tasks_note_list's input schema has no query property: %s", schema)
+	}
+}
+
+// §6.1 with §3.1: a refusal is part of the answer, so the two doors have to
+// refuse identically — same code, same words. The three verbs whose principal
+// rule this change tightened (note.delete, task.cancel, sweep --pane) are
+// CLI-only, so the property is pinned here on a verb that IS on both doors:
+// §6.6 recusal, where the same harness may not review its own submission.
+func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	// Pin the pane both doors derive their principal from. The MCP door reads
+	// HERDR_PANE_ID from its own environment, so without this the test would
+	// take the pane of whoever ran it — and compare two different principals.
+	t.Setenv("HERDR_PANE_ID", "wF:p1")
+	d, call := inProcessDaemon(t)
+	_ = d
+	const project = "/tmp/p"
+	if _, err := call(protocol.Request{Verb: "task.create", Project: project,
+		Args: map[string]any{"title": "reviewed by its own harness"}}); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	for _, req := range []protocol.Request{
+		{Verb: "task.claim", Project: project, PaneID: "wF:p1", Args: map[string]any{"id": "1"}},
+		{Verb: "task.submit", Project: project, PaneID: "wF:p1",
+			Args: map[string]any{"id": "1", "report": "done"}},
+	} {
+		if _, err := call(req); err != nil {
+			t.Fatalf("%s: %v", req.Verb, err)
+		}
+	}
+
+	cliErr := d.Answer(protocol.Request{Verb: "task.approve", Project: project, PaneID: "wF:p1",
+		Args: map[string]any{"id": "1"}}).Error
+	if cliErr == nil || cliErr.Code != codes.Forbidden {
+		t.Fatalf("the CLI door did not refuse: %+v", cliErr)
+	}
+
+	srv := New(call)
+	clientSide := mcp.NewClient(&mcp.Implementation{Name: "parity-test", Version: "0"}, nil)
+	ct, st := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	if _, err := srv.Connect(ctx, st, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	sess, err := clientSide.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer sess.Close()
+
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
+		Name:      "tasks_approve",
+		Arguments: map[string]any{"id": "1", "project": project},
+	})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("the MCP door did not refuse: %s", text(res))
+	}
+	got := text(res)
+	if !strings.Contains(got, codes.Forbidden) {
+		t.Fatalf("the MCP refusal does not carry the §6.3 code: %s", got)
+	}
+	if !strings.Contains(got, cliErr.Message) {
+		t.Fatalf("the doors refuse in different words (§6.1):\nmcp: %s\ncli: %s", got, cliErr.Message)
 	}
 }

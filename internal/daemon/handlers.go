@@ -466,12 +466,12 @@ func hNoteDrop(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	})
 }
 
-func hNoteDelete(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
+func hNoteDelete(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	n, err := d.Store.GetNote(req.Project, argString(req.Args, "id"))
 	if err != nil {
 		return nil, err
 	}
-	if err := d.Store.DeleteNote(req.Project, n.ID); err != nil {
+	if err := d.Store.DeleteNote(req.Project, n.ID, by); err != nil {
 		return nil, err
 	}
 	return DeleteResult{ID: n.ID, Deleted: true}, nil
@@ -594,8 +594,17 @@ type SweepResult struct {
 	Count    int      `json:"count"`
 }
 
-func hSweep(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
+func hSweep(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	if pane := argString(req.Args, "pane"); pane != "" {
+		// A pane's leases are that pane's to give back, or the operator's to
+		// take. Any principal could strip every lease a LIVE rival held, with
+		// one flag and no id. Herdr is not consulted for liveness: it can be
+		// unreachable, and a rule that silently allows when it cannot answer
+		// is worse than one that never asks.
+		if !by.IsHuman() && by.Principal != tasks.Principal("agent:"+pane) {
+			return nil, codes.Errorf(codes.Forbidden,
+				"%s holds the leases of pane %s; that pane or the operator releases them", by.Principal, pane)
+		}
 		released, err := d.Store.ReleaseByPane(pane, d.Now())
 		if err != nil {
 			return nil, err

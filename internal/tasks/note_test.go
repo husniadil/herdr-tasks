@@ -130,13 +130,13 @@ func TestNoteKeepAndDropAreHumanOnly(t *testing.T) {
 // carries a decision and is only ever dropped.
 func TestNoteHardDeleteOnlyFromInbox(t *testing.T) {
 	n := newNote(t)
-	if err := CanHardDeleteNote(n); err != nil {
+	if err := CanHardDeleteNote(n, human); err != nil {
 		t.Fatalf("an inbox note is deletable: %v", err)
 	}
 	if _, err := NoteDiscuss(n, agent("wF:p1", "claude"), t0+1); err != nil {
 		t.Fatalf("discuss: %v", err)
 	}
-	if got := codeOf(t, CanHardDeleteNote(n)); got != codes.Conflict {
+	if got := codeOf(t, CanHardDeleteNote(n, human)); got != codes.Conflict {
 		t.Fatalf("code = %q, want CONFLICT", got)
 	}
 }
@@ -239,5 +239,33 @@ func TestNoteUpdateRefusesAnEmptyOrOversizedBody(t *testing.T) {
 	}
 	if n.Body != before {
 		t.Fatalf("a refused edit changed the note anyway: %q", n.Body)
+	}
+}
+
+// §5.7 with §3.1: deleting a note is more destructive than editing one, so it
+// cannot be easier. note.update already refuses an agent that is not the
+// author; hard delete took no principal at all, which meant any agent could
+// destroy a rival's note and its whole event trail while being refused a typo
+// fix on the same row.
+func TestOnlyTheAuthorOrTheOperatorDeletesANote(t *testing.T) {
+	n := newNote(t)
+	rival := agent("wF:p2", "codex")
+	if err := CanHardDeleteNote(n, rival); err == nil {
+		t.Fatal("a rival agent may not delete another agent's note")
+	} else if got := codeOf(t, err); got != codes.Forbidden {
+		t.Fatalf("code = %q, want FORBIDDEN", got)
+	}
+	if err := CanHardDeleteNote(n, agent("wF:p1", "claude")); err != nil {
+		t.Fatalf("the author may delete their own note: %v", err)
+	}
+	if err := CanHardDeleteNote(n, human); err != nil {
+		t.Fatalf("the operator may delete any note: %v", err)
+	}
+	// The status rule still comes first for the author.
+	n.Status = NoteTask
+	if err := CanHardDeleteNote(n, human); err == nil {
+		t.Fatal("only an inbox note is deleted (§5.7)")
+	} else if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
 	}
 }

@@ -137,8 +137,9 @@ func (s *Store) ListNotes(f NoteFilter) ([]*tasks.Note, error) {
 	return out, nil
 }
 
-// DeleteNote removes a note for good. Only an inbox note qualifies (§5.7).
-func (s *Store) DeleteNote(project, ref string) error {
+// DeleteNote removes a note for good. Only an inbox note qualifies, and only
+// its author or the operator (§5.7, §3.1).
+func (s *Store) DeleteNote(project, ref string, by tasks.Actor) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return wrap(err)
@@ -148,7 +149,7 @@ func (s *Store) DeleteNote(project, ref string) error {
 	if err != nil {
 		return err
 	}
-	if err := tasks.CanHardDeleteNote(n); err != nil {
+	if err := tasks.CanHardDeleteNote(n, by); err != nil {
 		return err
 	}
 	if _, err := tx.Exec("DELETE FROM notes WHERE id = ?", n.ID); err != nil {

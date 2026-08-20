@@ -246,8 +246,17 @@ func decide(n *Note, by Actor, to NoteStatus, kind, reason string, now int64) (E
 }
 
 // CanHardDeleteNote answers §5.7 for notes: only a note still in inbox may be
-// removed for good.
-func CanHardDeleteNote(n *Note) error {
+// removed for good, and only its author or the operator may remove it.
+//
+// The principal half mirrors NoteUpdate's exactly, because destroying a note
+// and its whole event trail cannot be easier than fixing a typo in it — and it
+// was: hard delete took no principal at all, so any agent could delete a note
+// it was FORBIDDEN from editing.
+func CanHardDeleteNote(n *Note, by Actor) error {
+	if !by.IsHuman() && by.Principal != n.Author {
+		return codes.Errorf(codes.Forbidden,
+			"note #%d belongs to %s; its author or the operator deletes it", n.Seq, n.Author)
+	}
 	if n.Status != NoteInbox {
 		return codes.Errorf(codes.Conflict, "note is %s; only an inbox note is deleted (§5.7)", n.Status)
 	}

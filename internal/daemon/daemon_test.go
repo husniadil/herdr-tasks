@@ -1041,3 +1041,76 @@ func TestAFailedParkedActionStaysVisible(t *testing.T) {
 		}
 	}
 }
+
+// §3.1: the destructive verbs get the same principal rule as the weaker verbs
+// beside them. Each of these was reachable by any principal at all, which made
+// the package forbid less than it allowed.
+func TestARivalAgentCannotDeleteANote(t *testing.T) {
+	d := newDaemon(t, nil)
+	raw := mustCall(t, d, protocol.Request{Verb: "note.add", PaneID: "wF:p1",
+		Args: map[string]any{"body": "the sweep says nothing"}})
+	var added NoteResult
+	if err := json.Unmarshal(raw, &added); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	id := added.Note.ID
+
+	mustFail(t, d, protocol.Request{Verb: "note.delete", PaneID: "wF:p2",
+		Args: map[string]any{"id": id}}, codes.Forbidden)
+	// The note and its trail survive the refusal.
+	mustCall(t, d, protocol.Request{Verb: "note.get", Args: map[string]any{"id": id}})
+	evs, err := d.Store.Events(store.EventFilter{Project: proj, EntityID: id})
+	if err != nil || len(evs) == 0 {
+		t.Fatalf("the refused delete took the events: %v, %d", err, len(evs))
+	}
+
+	// The author may. So may the operator, on someone else's.
+	mustCall(t, d, protocol.Request{Verb: "note.delete", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+	raw = mustCall(t, d, protocol.Request{Verb: "note.add", PaneID: "wF:p1",
+		Args: map[string]any{"body": "another idea"}})
+	if err := json.Unmarshal(raw, &added); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	mustCall(t, d, protocol.Request{Verb: "note.delete", Args: map[string]any{"id": added.Note.ID}})
+}
+
+func TestARivalAgentCannotCancelAClaimedTask(t *testing.T) {
+	d := newDaemon(t, nil)
+	id := createTask(t, d, "someone is on it").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+
+	mustFail(t, d, protocol.Request{Verb: "task.cancel", PaneID: "wF:p2",
+		Args: map[string]any{"id": id, "reason": "I say so"}}, codes.Forbidden)
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": id}})
+	if !strings.Contains(string(raw), `"doing"`) {
+		t.Fatalf("the refused cancel moved the task: %s", raw)
+	}
+
+	// The holder may; and the operator may, on a task another pane holds.
+	mustCall(t, d, protocol.Request{Verb: "task.cancel", PaneID: "wF:p1",
+		Args: map[string]any{"id": id, "reason": "not needed"}})
+	other := createTask(t, d, "also held").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": other}})
+	mustCall(t, d, protocol.Request{Verb: "task.cancel", Args: map[string]any{"id": other, "reason": "operator"}})
+}
+
+func TestOnlyThatPaneOrTheOperatorSweepsAPane(t *testing.T) {
+	d := newDaemon(t, nil)
+	id := createTask(t, d, "held by p1").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+
+	mustFail(t, d, protocol.Request{Verb: "sweep", PaneID: "wF:p2",
+		Args: map[string]any{"pane": "wF:p1"}}, codes.Forbidden)
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": id}})
+	if !strings.Contains(string(raw), "agent:wF:p1") {
+		t.Fatalf("the refused sweep took the claim: %s", raw)
+	}
+
+	// The pane itself may — this is the path the pane.exited hook takes, which
+	// runs `ht sweep --pane $HERDR_PANE_ID` from the pane that went away.
+	mustCall(t, d, protocol.Request{Verb: "sweep", PaneID: "wF:p1", Args: map[string]any{"pane": "wF:p1"}})
+
+	// And so may the operator.
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+	mustCall(t, d, protocol.Request{Verb: "sweep", Args: map[string]any{"pane": "wF:p1"}})
+}
