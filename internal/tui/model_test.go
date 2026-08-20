@@ -1793,3 +1793,291 @@ func TestAFailedDaemonCallKeepsTheEditedFile(t *testing.T) {
 		t.Fatalf("the temp file survived a successful update: %v", statErr)
 	}
 }
+
+// longTask is a task whose detail panel is far taller than any screen: the
+// case where the panel used to eat the board down to its heading row.
+func longTask(seq int64, lines int) *tasks.Task {
+	tk := task(seq, tasks.StatusTodo, "a task")
+	body := make([]string, lines)
+	for i := range body {
+		body[i] = fmt.Sprintf("detail line %d", i+1)
+	}
+	tk.Description = strings.Join(body, "\n")
+	return tk
+}
+
+// §11.6: the detail panel is a bounded bottom panel, never a cover. It is
+// served before the body, so a description longer than the screen used to
+// take every row the body had and leave its heading alone on the board — the
+// operator could not see a single card behind what they had opened.
+func TestTheDetailPanelIsBoundedToHalfTheBody(t *testing.T) {
+	deep := []*tasks.Task{longTask(1, 400)}
+	for i := 2; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "another todo"))
+	}
+	for _, height := range []int{10, 12, 24} {
+		m := board(t, deep...)
+		m.Width, m.Height = 80, height
+		m.Detail = true
+		m.Col, m.Row[0] = 0, 0
+
+		free := m.Height - 1 - 3
+		want := free - free/2
+		f := frameOf(m, 0)
+		if len(f.body) < want {
+			t.Errorf("h=%d: the detail took %d of %d free rows and left the body %d, want at least %d",
+				height, len(f.detail), free, len(f.body), want)
+		}
+		if f.cards < 1 {
+			t.Errorf("h=%d: no card row survived the detail panel", height)
+		}
+		lines := screen(m)
+		if len(lines) > height {
+			t.Errorf("h=%d: %d lines for %d rows", height, len(lines), height)
+		}
+		if !strings.Contains(lines[0], "/repo") {
+			t.Errorf("h=%d: the header row did not survive: %q", height, lines[0])
+		}
+	}
+}
+
+// §11.6: what the panel cannot fit is scrolled to, not lost. clampLines cut
+// the bottom off a long report and there was no gesture that reached it — the
+// evidence a reviewer needs was on the screen the operator could not get to.
+func TestEveryLineOfALongDetailCanBeScrolledTo(t *testing.T) {
+	for _, height := range []int{10, 12, 24} {
+		m := board(t, longTask(1, 200))
+		m.Width, m.Height = 80, height
+		m.Detail = true
+		full := wrapTo(Detail(m, 0), m.Width)
+
+		f := frameOf(m, 0)
+		if len(f.detail) < 2 {
+			t.Fatalf("h=%d: the detail panel drew no text at all", height)
+		}
+		// The pointer sits on the panel's first text row and stays there: the
+		// panel does not change size while its text scrolls under it.
+		y := 1 + len(f.body) + len(f.prompt) + 1
+		seen := map[string]bool{}
+		for i := 0; i <= len(full); i++ {
+			f = frameOf(m, 0)
+			for _, ln := range f.detail[1:] {
+				seen[ln] = true
+			}
+			m, _ = Update(m, WheelMsg{X: 2, Y: y})
+		}
+		f = frameOf(m, 0)
+		if f.detailOff != f.detailMax {
+			t.Errorf("h=%d: scrolling stopped at %d of %d", height, f.detailOff, f.detailMax)
+		}
+		if last := full[len(full)-2]; !seen[last] {
+			t.Errorf("h=%d: the last line of the detail was never drawn: %q", height, last)
+		}
+		for i, ln := range full {
+			if !seen[ln] {
+				t.Errorf("h=%d: line %d of the detail is not reachable: %q", height, i, ln)
+			}
+		}
+		// And the way back is the same gesture.
+		for i := 0; i <= len(full); i++ {
+			m, _ = Update(m, WheelMsg{X: 2, Y: y, Up: true})
+		}
+		if got := frameOf(m, 0).detailOff; got != 0 {
+			t.Errorf("h=%d: scrolling back up stopped at %d, not the top", height, got)
+		}
+	}
+}
+
+// §11.6: fitLines windowed the body from the TOP only, so a cursor moved past
+// the budget was drawn nowhere — the operator was acting on a selection they
+// could not see, with the footer's approve and reject aimed at it.
+func TestTheCursorStaysInsideTheDrawnWindow(t *testing.T) {
+	deep := []*tasks.Task{}
+	notes := []*tasks.Note{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "a todo"))
+		notes = append(notes, &tasks.Note{ID: fmt.Sprintf("N%d", i), Seq: int64(i), Status: "inbox", Body: "an idea"})
+	}
+	boardM := board(t, deep...)
+	notesM := notesModel(t, notes, nil)
+
+	for name, c := range map[string]struct {
+		m    Model
+		mark func(int) string
+		off  func(Model) int
+	}{
+		"board": {boardM, func(n int) string { return fmt.Sprintf(">#%d ", n) }, func(m Model) int { return m.BoardOffset }},
+		"notes": {notesM, func(n int) string { return fmt.Sprintf(">#%d [inbox]", n) }, func(m Model) int { return m.NotesOffset }},
+	} {
+		m := c.m
+		m.Width, m.Height = 80, 12
+
+		drawn := func(m Model, seq int) bool {
+			return strings.Contains(strings.Join(frameOf(m, 0).body, "\n"), c.mark(seq))
+		}
+		// Down past the bottom of the window, one row at a time.
+		for seq := 2; seq <= 40; seq++ {
+			m, _ = Update(m, KeyMsg{Key: "down"})
+			if !drawn(m, seq) {
+				t.Fatalf("%s: after moving to #%d the selected row is not drawn:\n%s",
+					name, seq, strings.Join(frameOf(m, 0).body, "\n"))
+			}
+		}
+		if c.off(m) == 0 {
+			t.Fatalf("%s: the cursor reached #40 without the list ever scrolling", name)
+		}
+		// And back up above the top of the window.
+		for seq := 39; seq >= 1; seq-- {
+			m, _ = Update(m, KeyMsg{Key: "up"})
+			if !drawn(m, seq) {
+				t.Fatalf("%s: after moving back to #%d the selected row is not drawn:\n%s",
+					name, seq, strings.Join(frameOf(m, 0).body, "\n"))
+			}
+		}
+		if c.off(m) != 0 {
+			t.Fatalf("%s: back at #1 the list is still scrolled to %d", name, c.off(m))
+		}
+		// A wheel takes the window away from the cursor; the next key move
+		// brings it back, because the selection is what the verbs act on.
+		for i := 0; i < 20; i++ {
+			m, _ = Update(m, WheelMsg{X: 2, Y: firstCard})
+		}
+		m, _ = Update(m, KeyMsg{Key: "down"})
+		if !drawn(m, 2) {
+			t.Fatalf("%s: after a wheel and a key move the selection is off the window:\n%s",
+				name, strings.Join(frameOf(m, 0).body, "\n"))
+		}
+	}
+}
+
+// §11.6: a click selects the item the operator SEES. Hit-testing the row alone
+// selected the card that would have been there had they never scrolled.
+func TestAClickOnAScrolledListSelectsWhatIsDrawn(t *testing.T) {
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "a todo"))
+	}
+	m := board(t, deep...)
+	m.Width, m.Height = 80, 12
+	for i := 0; i < 3; i++ {
+		m, _ = Update(m, WheelMsg{X: 2, Y: firstCard})
+	}
+	f := frameOf(m, 0)
+	if f.off == 0 {
+		t.Fatal("the wheel did not scroll the list; this test needs a scrolled one")
+	}
+
+	for k := 0; k < f.cards; k++ {
+		y := firstCard + k
+		got, call := Update(m, MouseMsg{X: 2, Y: y})
+		if call != nil {
+			t.Fatalf("clicking drawn row %d ran %s", k, call.Verb)
+		}
+		if !got.Detail {
+			t.Fatalf("clicking drawn row %d selected nothing", k)
+		}
+		if got.Row[0] != k+f.off {
+			t.Fatalf("clicking drawn row %d selected item %d, want %d (offset %d)",
+				k, got.Row[0], k+f.off, f.off)
+		}
+		seq := got.Column(0)[got.Row[0]].Seq
+		if !strings.Contains(drawnAt(t, m, y), fmt.Sprintf("#%d ", seq)) {
+			t.Fatalf("row %d draws %q but the click selected #%d", y, drawnAt(t, m, y), seq)
+		}
+	}
+
+	// And the rows past the last drawn card are still nothing to click.
+	for y := firstCard + f.cards; y < m.Height-footerRows; y++ {
+		got, call := Update(m, MouseMsg{X: 2, Y: y})
+		if call != nil {
+			t.Fatalf("a click on row %d, past the last drawn card, ran %s", y, call.Verb)
+		}
+		if got.Detail || got.Row != m.Row {
+			t.Fatalf("a click on row %d, past the last drawn card, selected #%d",
+				y, got.Column(got.Col)[got.Row[got.Col]].Seq)
+		}
+	}
+}
+
+// §11.6: the wheel moves the panel under the pointer, and only that one.
+// run.go dropped every mouse event that was not a left-click press, so a
+// wheel never reached the model at all.
+func TestTheWheelMovesOnlyTheRegionUnderThePointer(t *testing.T) {
+	deep := []*tasks.Task{longTask(1, 200)}
+	for i := 2; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "a todo"))
+	}
+	m := board(t, deep...)
+	m.Width, m.Height = 80, 24
+	m.Detail = true
+	f := frameOf(m, 0)
+	if len(f.detail) < 2 || f.win < 1 {
+		t.Fatalf("the frame drew %d detail rows and %d body rows", len(f.detail), f.win)
+	}
+	bodyY := 1 + len(f.body) - 1
+	detailY := 1 + len(f.body) + len(f.prompt) + 1
+
+	over, _ := Update(m, WheelMsg{X: 2, Y: detailY})
+	if over.DetailOffset == 0 {
+		t.Fatal("a wheel over the detail did not move it")
+	}
+	if over.BoardOffset != 0 {
+		t.Fatalf("a wheel over the detail moved the list to %d", over.BoardOffset)
+	}
+	under, _ := Update(m, WheelMsg{X: 2, Y: bodyY})
+	if under.BoardOffset == 0 {
+		t.Fatal("a wheel over the body did not move the list")
+	}
+	if under.DetailOffset != 0 {
+		t.Fatalf("a wheel over the body moved the detail to %d", under.DetailOffset)
+	}
+
+	// Both clamp at both ends: down until they stop, then up until they stop.
+	for _, c := range []struct {
+		name string
+		y    int
+		off  func(Model) int
+		max  func(frame) int
+	}{
+		{"detail", detailY, func(m Model) int { return m.DetailOffset }, func(f frame) int { return f.detailMax }},
+		{"body", bodyY, func(m Model) int { return m.BoardOffset }, func(f frame) int { return f.listMax }},
+	} {
+		x := m
+		for i := 0; i < 500; i++ {
+			x, _ = Update(x, WheelMsg{X: 2, Y: c.y})
+		}
+		if got, want := c.off(x), c.max(frameOf(x, 0)); got != want {
+			t.Errorf("%s: scrolling down stopped at %d, want %d", c.name, got, want)
+		}
+		for i := 0; i < 500; i++ {
+			x, _ = Update(x, WheelMsg{X: 2, Y: c.y, Up: true})
+		}
+		if got := c.off(x); got != 0 {
+			t.Errorf("%s: scrolling up stopped at %d, not the top", c.name, got)
+		}
+	}
+
+	// The two views scroll apart: a wheel on the notes body is the notes
+	// offset, and the board's is where it was left.
+	n := notesModel(t, []*tasks.Note{}, nil)
+	notes := []*tasks.Note{}
+	for i := 1; i <= 40; i++ {
+		notes = append(notes, &tasks.Note{ID: fmt.Sprintf("N%d", i), Seq: int64(i), Status: "inbox", Body: "an idea"})
+	}
+	n, _ = Update(n, DataMsg{Notes: notes})
+	n.Width, n.Height = 80, 12
+	n, _ = Update(n, WheelMsg{X: 2, Y: firstCard})
+	if n.NotesOffset == 0 {
+		t.Fatal("a wheel over the notes body did not move the notes offset")
+	}
+	if n.BoardOffset != 0 {
+		t.Fatalf("a wheel on the notes view moved the board offset to %d", n.BoardOffset)
+	}
+
+	// A wheel outside both panels — the footer — moves nothing.
+	still, _ := Update(m, WheelMsg{X: 2, Y: m.Height - 1})
+	if still.DetailOffset != 0 || still.BoardOffset != 0 {
+		t.Fatalf("a wheel on the footer scrolled something: detail %d, list %d",
+			still.DetailOffset, still.BoardOffset)
+	}
+}

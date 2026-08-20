@@ -76,25 +76,26 @@ func click(m Model, at MouseMsg) (Model, *Call) {
 	if at.Y >= m.Height-footerRows {
 		return footerClick(m, at.X)
 	}
-	// Only what was DRAWN is clickable. The column can be far deeper than the
-	// screen, and the rows past the last drawn card look blank — bounding by
-	// the column's length instead selected a card nobody could see.
-	drawn := frameOf(m, at.At).cards
+	// Only what was DRAWN is clickable, and what was drawn starts at the
+	// frame's offset. The column can be far deeper than the screen: bounding
+	// by the column's length instead selected a card nobody could see, and
+	// ignoring the offset selected the card that WOULD have been on that row
+	// had the operator never scrolled.
+	f := frameOf(m, at.At)
+	drawn := RowAt(at.Y)
+	if drawn < 0 || drawn >= f.cards {
+		return m, nil
+	}
+	row := drawn + f.off
 	if m.View == ViewBoard {
 		col := ColumnAt(m.Width, at.X)
-		row := RowAt(at.Y)
-		if row < 0 || row >= drawn || row >= len(m.Column(col)) {
+		if row >= len(m.Column(col)) {
 			return m, nil
 		}
 		m.Col, m.Row[col], m.Detail = col, row, true
 		return m, nil
 	}
-	half := m.Width / 2
-	row := RowAt(at.Y)
-	if row < 0 || row >= drawn {
-		return m, nil
-	}
-	if at.X < half {
+	if at.X < m.Width/2 {
 		if row >= len(m.Notes) {
 			return m, nil
 		}
@@ -209,9 +210,64 @@ type frame struct {
 	// cards is how many rows BELOW the body's heading carry data. Rows past
 	// it are the padding fitLines added, and nothing is drawn on them.
 	cards int
+	// off is the list offset the body was drawn at: the first card row on the
+	// screen is this far down the view's rows. click() adds it to the row it
+	// hit-tests, so a click selects the card the operator is looking at.
+	off int
+	// win is how many rows the body has for cards whether or not there are
+	// that many, and listMax the largest offset that still fills it. The
+	// wheel stops there: past it the panel would scroll into blank rows.
+	win     int
+	listMax int
+	// detailOff and detailMax are the same two numbers for the detail panel.
+	detailOff int
+	detailMax int
 }
 
 func frameOf(m Model, now int64) frame {
+	free := freeRows(m)
+	promptCap, detailCap := panelRows(m)
+
+	// Chrome inside the budget is served before the body: a prompt the
+	// operator is typing into, and the detail panel they opened, are what they
+	// are looking at. Both are BOUNDED, and what does not fit is scrolled to.
+	var f frame
+	if m.Prompt != nil {
+		f.prompt = clampLines([]string{"", promptLine(*m.Prompt, m.Width)}, promptCap)
+	}
+	if detailCap > 0 {
+		// One of the panel's rows is the blank line that separates it from
+		// the body, so the text gets the rest.
+		shown := detailCap - 1
+		full := wrapTo(Detail(m, now), m.Width)
+		f.detailMax = max(0, len(full)-shown)
+		f.detailOff = clampTo(m.DetailOffset, f.detailMax)
+		if shown > 0 {
+			f.detail = append([]string{""}, windowOf(full, f.detailOff, shown)...)
+		}
+	}
+
+	budget := free - len(f.prompt) - len(f.detail)
+	full := bodyLines(m, now)
+	// The heading is row 0 of the body and always survives, so the rows that
+	// can carry a card are what is left of the budget.
+	if f.win = budget - 1; f.win < 0 {
+		f.win = 0
+	}
+	f.listMax = max(0, len(full)-1-f.win)
+	f.off = clampTo(m.listOffset(), f.listMax)
+	f.body = fitLines(full, budget, f.off)
+	if f.cards = f.win; f.cards > len(full)-1-f.off {
+		f.cards = len(full) - 1 - f.off
+	}
+	if f.cards < 0 {
+		f.cards = 0
+	}
+	return f
+}
+
+// freeRows is what the header and the fixed bottom leave for everything else.
+func freeRows(m Model) int {
 	rows := m.Height
 	if rows < minRows {
 		rows = minRows
@@ -222,33 +278,104 @@ func frameOf(m Model, now int64) frame {
 	if free < 1 {
 		free = 1
 	}
+	return free
+}
 
-	// Chrome inside the budget is served before the body: a prompt the
-	// operator is typing into, and the detail panel they opened, are what they
-	// are looking at. The body is the part that can be scrolled back to.
-	var f frame
+// panelRows is the most the prompt and the detail panel may take. The detail
+// is capped at HALF of what is left after the prompt: it is a bottom panel,
+// not a cover, so however long the text is the list keeps the other half.
+//
+// Nothing here reads the clock, which is what lets follow() do the same
+// arithmetic without one. That is sound in one direction only: a detail
+// SHORTER than its cap leaves the body more rows than this says, never fewer,
+// so a cursor follow() keeps inside this window is inside the drawn one too.
+func panelRows(m Model) (prompt, detail int) {
+	free := freeRows(m)
 	if m.Prompt != nil {
-		f.prompt = clampLines([]string{"", promptLine(*m.Prompt, m.Width)}, free-1)
-	}
-	if m.Detail {
-		if body := Detail(m, now); body != "" {
-			f.detail = clampLines(append([]string{""}, wrapTo(body, m.Width)...), free-len(f.prompt)-1)
+		if prompt = 2; prompt > free-1 {
+			prompt = free - 1
+		}
+		if prompt < 0 {
+			prompt = 0
 		}
 	}
+	if m.Detail && m.hasDetail() {
+		detail = (free - prompt) / 2
+	}
+	return prompt, detail
+}
 
-	budget := free - len(f.prompt) - len(f.detail)
-	full := bodyLines(m, now)
-	f.body = fitLines(full, budget)
-	// The heading is row 0 of the body and always survives, so the rows that
-	// can carry a card are what is left of the budget, bounded by what there
-	// was to draw.
-	if f.cards = budget - 1; f.cards > len(full)-1 {
-		f.cards = len(full) - 1
+// region names which part of the screen a cell is in, so the wheel moves the
+// panel under the pointer and only that one.
+type region int
+
+const (
+	regionNone region = iota
+	regionBody
+	regionDetail
+)
+
+func (f frame) regionAt(y int) region {
+	if y >= 1 && y < 1+len(f.body) {
+		return regionBody
 	}
-	if f.cards < 0 {
-		f.cards = 0
+	start := 1 + len(f.body) + len(f.prompt)
+	if y >= start && y < start+len(f.detail) {
+		return regionDetail
 	}
-	return f
+	return regionNone
+}
+
+// wheelLines is one notch of the wheel, bounded by the window it moves: a
+// notch longer than the panel would step over rows nobody ever saw.
+const wheelLines = 3
+
+func wheelStep(win int) int {
+	if win < 1 {
+		return 1
+	}
+	if win < wheelLines {
+		return win
+	}
+	return wheelLines
+}
+
+// scroll moves the panel under the pointer by a notch, and only that panel.
+func scroll(m Model, w WheelMsg) Model {
+	f := frameOf(m, w.At)
+	dir := 1
+	if w.Up {
+		dir = -1
+	}
+	switch f.regionAt(w.Y) {
+	case regionDetail:
+		m.DetailOffset = clampTo(f.detailOff+dir*wheelStep(len(f.detail)-1), f.detailMax)
+	case regionBody:
+		m = m.setListOffset(clampTo(f.off+dir*wheelStep(f.win), f.listMax))
+	}
+	return m
+}
+
+// windowOf is n lines of a panel from off, and nothing past its end.
+func windowOf(lines []string, off, n int) []string {
+	if off > len(lines) {
+		off = len(lines)
+	}
+	out := lines[off:]
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+func clampTo(v, high int) int {
+	if v > high {
+		v = high
+	}
+	if v < 0 {
+		v = 0
+	}
+	return v
 }
 
 // promptCursor marks where the next rune goes.
@@ -376,8 +503,11 @@ func bodyLines(m Model, now int64) []string {
 }
 
 // fitLines clamps a body to n rows and pads it back out to n, so the fixed
-// rows below it stay where click() expects them whatever the body holds.
-func fitLines(lines []string, n int) []string {
+// rows below it stay where click() expects them whatever the body holds. The
+// heading is row 0 and never scrolls: it carries the counts, which is what
+// says how much of the column is off the screen. off is where the rows under
+// it start.
+func fitLines(lines []string, n, off int) []string {
 	if n < 1 {
 		n = 1
 	}
@@ -385,7 +515,7 @@ func fitLines(lines []string, n int) []string {
 	if len(lines) > 0 {
 		out = append(out, lines[0])
 	}
-	for i := 1; i < len(lines) && len(out) < n; i++ {
+	for i := 1 + off; i < len(lines) && len(out) < n; i++ {
 		out = append(out, lines[i])
 	}
 	for len(out) < n {

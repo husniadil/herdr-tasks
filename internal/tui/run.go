@@ -63,10 +63,22 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		in = KeyMsg{Key: keyName(v), Paste: v.Paste, Alt: v.Alt}
 	case tea.MouseMsg:
 		m := tea.MouseEvent(v)
-		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
+		if m.Action != tea.MouseActionPress {
 			return p, nil
 		}
-		in = MouseMsg{X: m.X, Y: m.Y, At: time.Now().UnixMilli()}
+		// The wheel is a press too, on a button of its own. Dropping
+		// everything that was not the left one dropped it, so a panel taller
+		// than the screen had nothing that could move it.
+		switch m.Button {
+		case tea.MouseButtonLeft:
+			in = MouseMsg{X: m.X, Y: m.Y, At: time.Now().UnixMilli()}
+		case tea.MouseButtonWheelUp:
+			in = WheelMsg{X: m.X, Y: m.Y, Up: true, At: time.Now().UnixMilli()}
+		case tea.MouseButtonWheelDown:
+			in = WheelMsg{X: m.X, Y: m.Y, At: time.Now().UnixMilli()}
+		default:
+			return p, nil
+		}
 	case editedMsg:
 		return p, p.afterEditor(v)
 	case DataMsg, ErrMsg, DoneMsg:

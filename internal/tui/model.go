@@ -134,6 +134,19 @@ type Model struct {
 
 	// Detail says the detail panel is open on the selection.
 	Detail bool
+
+	// DetailOffset, BoardOffset and NotesOffset are the viewport offsets: the
+	// first row each panel draws. Without them a panel taller than its share
+	// of the screen was cut at the bottom and the cut was permanent — the rest
+	// of a report or a column was not reachable by any gesture.
+	//
+	// One offset per LIST, not per column or per pane: the board's four
+	// columns are drawn on the same rows and scroll together, and so are the
+	// notes view's two panes.
+	DetailOffset int
+	BoardOffset  int
+	NotesOffset  int
+
 	Prompt *Prompt
 	Status string
 	Err    string
@@ -188,6 +201,15 @@ type MouseMsg struct {
 	At   int64
 }
 
+// WheelMsg is one notch of the mouse wheel at a cell. It carries where the
+// pointer was because that is what decides WHICH panel moves: the detail the
+// operator is reading, or the list behind it (§11.6).
+type WheelMsg struct {
+	X, Y int
+	Up   bool
+	At   int64
+}
+
 // SizeMsg is a resize.
 type SizeMsg struct{ Width, Height int }
 
@@ -215,6 +237,7 @@ type DoneMsg struct{ Status string }
 
 func (KeyMsg) isMsg()   {}
 func (MouseMsg) isMsg() {}
+func (WheelMsg) isMsg() {}
 func (SizeMsg) isMsg()  {}
 func (DataMsg) isMsg()  {}
 func (ErrMsg) isMsg()   {}
@@ -227,11 +250,13 @@ func Update(m Model, msg Msg) (Model, *Call) {
 	switch v := msg.(type) {
 	case SizeMsg:
 		m.Width, m.Height = v.Width, v.Height
-		return m, nil
+		// A smaller screen is a smaller window, and the selection has to be
+		// inside the one that is there now.
+		return m.follow(), nil
 	case DataMsg:
 		m.Tasks, m.Notes, m.Parked = v.Tasks, v.Notes, v.Parked
 		m.BoardElsewhere, m.NotesElsewhere = v.BoardElsewhere, v.NotesElsewhere
-		return m.clampCursors(), nil
+		return m.clampCursors().follow(), nil
 	case ErrMsg:
 		m.Err = v.Code + ": " + v.Message
 		m.Status = ""
@@ -240,7 +265,10 @@ func Update(m Model, msg Msg) (Model, *Call) {
 		m.Status, m.Err = v.Status, ""
 		return m, nil
 	case MouseMsg:
-		return click(m, v)
+		next, call := click(m, v)
+		return next.reselected(m), call
+	case WheelMsg:
+		return scroll(m, v), nil
 	case KeyMsg:
 		if v.Alt {
 			// Nothing binds a chord. Running the bare letter's verb instead
@@ -258,9 +286,117 @@ func Update(m Model, msg Msg) (Model, *Call) {
 		if m.Prompt != nil {
 			return promptKey(m, v.Key)
 		}
-		return key(m, v.Key)
+		next, call := key(m, v.Key)
+		// The cursor is what the operator moved, so the window follows it:
+		// a selection off the bottom of the drawn rows was drawn NOWHERE, and
+		// the footer's verbs were still aimed at it.
+		return next.reselected(m).follow(), call
 	}
 	return m, nil
+}
+
+// reselected drops the detail panel's scroll position when the selection has
+// changed under it: the offset belonged to the text that was there before.
+func (m Model) reselected(before Model) Model {
+	if m.selection() != before.selection() {
+		m.DetailOffset = 0
+	}
+	return m
+}
+
+// selection is what the detail panel is open on. Comparing it is how the model
+// notices the operator has moved to something else.
+func (m Model) selection() [4]int {
+	return [4]int{int(m.Col), m.Row[m.Col], int(m.Pane), m.paneRow()}
+}
+
+func (m Model) paneRow() int {
+	if m.Pane == PaneParked {
+		return m.ParkedRow
+	}
+	return m.NoteRow
+}
+
+// cursorRow is the selected row of the list that has the keyboard, and whether
+// there is one at all: an empty list has no cursor to follow, and treating its
+// zero as one would pin the offset of the list beside it.
+func (m Model) cursorRow() (int, bool) {
+	if m.View == ViewBoard {
+		if len(m.Column(m.Col)) == 0 {
+			return 0, false
+		}
+		return m.Row[m.Col], true
+	}
+	if m.Pane == PaneParked {
+		if len(m.Parked) == 0 {
+			return 0, false
+		}
+		return m.ParkedRow, true
+	}
+	if len(m.Notes) == 0 {
+		return 0, false
+	}
+	return m.NoteRow, true
+}
+
+// listOffset is the current view's viewport offset, and setListOffset replaces
+// it. The two views scroll apart: a board scrolled to its fortieth card says
+// nothing about where the notes list should open.
+func (m Model) listOffset() int {
+	if m.View == ViewBoard {
+		return m.BoardOffset
+	}
+	return m.NotesOffset
+}
+
+func (m Model) setListOffset(n int) Model {
+	if m.View == ViewBoard {
+		m.BoardOffset = n
+	} else {
+		m.NotesOffset = n
+	}
+	return m
+}
+
+// follow scrolls the list the least it can to put the selected row back inside
+// the drawn window. It reads panelRows rather than a frame, so it needs no
+// clock: that window is the smallest the body can be, so a row inside it is
+// inside the drawn one too.
+func (m Model) follow() Model {
+	row, ok := m.cursorRow()
+	if !ok {
+		return m
+	}
+	free := freeRows(m)
+	promptCap, detailCap := panelRows(m)
+	win := free - promptCap - detailCap - 1
+	if win < 1 {
+		win = 1
+	}
+	off := m.listOffset()
+	if off > row {
+		off = row
+	}
+	if row > off+win-1 {
+		off = row - win + 1
+	}
+	if off < 0 {
+		off = 0
+	}
+	return m.setListOffset(off)
+}
+
+// hasDetail says whether the panel would have anything to draw, which is what
+// decides the body's budget. It answers the same question Detail() answers by
+// returning "", without needing the clock Detail() reads.
+func (m Model) hasDetail() bool {
+	if m.View == ViewBoard {
+		return m.SelectedTask() != nil
+	}
+	if m.Pane == PaneParked {
+		return m.SelectedParked() != nil
+	}
+	return m.SelectedNote() != nil
 }
 
 func key(m Model, k string) (Model, *Call) {
