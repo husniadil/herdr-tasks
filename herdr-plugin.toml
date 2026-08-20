@@ -32,6 +32,22 @@ title = "Restart the tasks daemon"
 contexts = ["workspace"]
 command = ["./scripts/restart.sh"]
 
+# One action per popup, because Herdr binds keys to actions and not to panes:
+# without these there is no keyboard route to the board at all. The ids match
+# the [[panes]] ids below, which is what keybindings.toml relies on to name
+# them as herdr-tasks.board and herdr-tasks.notes.
+[[actions]]
+id = "board"
+title = "Open the tasks board"
+contexts = ["workspace"]
+command = ["./scripts/open-pane.sh", "board"]
+
+[[actions]]
+id = "notes"
+title = "Open the notes board"
+contexts = ["workspace"]
+command = ["./scripts/open-pane.sh", "notes"]
+
 # The same pass the daemon runs on its timer, on demand. It frees leases that
 # have LAPSED; a pane that died a moment ago keeps its claim until its lease
 # runs out. To free that one now, run `ht sweep --pane <pane id>`.

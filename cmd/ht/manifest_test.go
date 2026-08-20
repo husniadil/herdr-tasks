@@ -98,3 +98,90 @@ func TestManifestReactsToAPaneGoingAway(t *testing.T) {
 		}
 	}
 }
+
+// actionBlock matches one `[[actions]]` section's id and command argv0.
+var actionBlock = regexp.MustCompile(`(?ms)^\[\[actions\]\]\nid = "([^"]*)".*?^command = \[\s*"([^"]*)"`)
+
+// §11.6: the popups are the human surface, and until now the only way to
+// reach one was the plugin menu. Herdr binds keys to plugin ACTIONS, so an
+// action per popup is what makes a keybinding possible at all.
+func TestManifestOffersAnActionPerPopup(t *testing.T) {
+	root := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(root, "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read the manifest: %v", err)
+	}
+	actions := map[string]string{}
+	for _, m := range actionBlock.FindAllStringSubmatch(string(body), -1) {
+		actions[m[1]] = m[2]
+	}
+	panes := regexp.MustCompile(`(?m)^\[\[panes\]\]\nid = "([^"]*)"`).FindAllStringSubmatch(string(body), -1)
+	if len(panes) == 0 {
+		t.Fatal("the manifest declares no panes; this test would prove nothing")
+	}
+	for _, p := range panes {
+		id := p[1]
+		argv0, ok := actions[id]
+		if !ok {
+			t.Fatalf("pane %q has no [[actions]] entry of the same id, so no key can reach it; actions are %v", id, actions)
+		}
+		if !strings.HasPrefix(argv0, "./") {
+			t.Errorf("action %q runs %q; a path in the plugin root is written %q", id, argv0, "./"+argv0)
+		}
+		info, err := os.Stat(filepath.Join(root, argv0))
+		if err != nil {
+			t.Fatalf("action %q runs %q, which is not there: %v", id, argv0, err)
+		}
+		if info.Mode()&0o100 == 0 {
+			t.Errorf("action %q runs %q, which is not executable (%s)", id, argv0, info.Mode())
+		}
+	}
+}
+
+// Herdr does not load a plugin's keybindings: the operator copies them into
+// their own config. A block that names an action that does not exist, or
+// spells the qualified id wrong, fails in their config and not in ours — so
+// it is checked here, against the manifest it refers to.
+func TestManifestKeybindingsFileIsCopyReady(t *testing.T) {
+	root := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(root, "keybindings.toml"))
+	if err != nil {
+		t.Fatalf("read keybindings.toml: %v", err)
+	}
+	text := string(body)
+	blocks := regexp.MustCompile(`(?ms)^\[\[keys\.command\]\](.*?)(?:\n\n|\z)`).FindAllStringSubmatch(text, -1)
+	if len(blocks) != 2 {
+		t.Fatalf("want two [[keys.command]] blocks, got %d", len(blocks))
+	}
+	manifest, err := os.ReadFile(filepath.Join(root, "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read the manifest: %v", err)
+	}
+	pluginID := regexp.MustCompile(`(?m)^id = "([^"]*)"`).FindStringSubmatch(string(manifest))[1]
+
+	want := map[string]bool{pluginID + ".board": false, pluginID + ".notes": false}
+	for _, b := range blocks {
+		block := b[1]
+		if !strings.Contains(block, `type = "plugin_action"`) {
+			t.Errorf("a block is not a plugin_action, so Herdr would run it as a shell command: %s", block)
+		}
+		m := regexp.MustCompile(`command = "([^"]*)"`).FindStringSubmatch(block)
+		if m == nil {
+			t.Errorf("a block names no command: %s", block)
+			continue
+		}
+		if _, ok := want[m[1]]; !ok {
+			t.Errorf("command %q is not one of the two qualified action ids", m[1])
+			continue
+		}
+		want[m[1]] = true
+		if !regexp.MustCompile(`key = "[^"]+"`).MatchString(block) {
+			t.Errorf("the block for %q binds no key: %s", m[1], block)
+		}
+	}
+	for id, seen := range want {
+		if !seen {
+			t.Errorf("no [[keys.command]] block invokes %q", id)
+		}
+	}
+}

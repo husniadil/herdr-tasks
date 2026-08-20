@@ -581,3 +581,59 @@ func run(t *testing.T, path string, env []string) (string, string, int) {
 	}
 	return out.String(), errb.String(), status
 }
+
+// §11.6: a key that opens the board must be safe to lean on. Herdr answers
+// "popup already open" with its whole JSON response on stderr and exit 1, and
+// to an operator that is the state they asked for — so the opener reports
+// success. Everything else still fails, or the key would swallow a broken
+// install. Driven with a stub herdr: opening a real popup needs an attached
+// client, which no test has.
+func TestOpenPaneTreatsAnAlreadyOpenPopupAsSuccess(t *testing.T) {
+	script := filepath.Join("..", "..", "scripts", "open-pane.sh")
+	stub := func(t *testing.T, body string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "herdr")
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body), 0o755); err != nil {
+			t.Fatalf("write stub: %v", err)
+		}
+		return path
+	}
+	const alreadyOpen = `{"error":{"code":"popup_open_failed","message":"popup already open"}}`
+
+	for name, tc := range map[string]struct {
+		herdr string
+		args  []string
+		want  int
+	}{
+		"it opened": {
+			herdr: "exit 0", args: []string{"board"}, want: 0,
+		},
+		"it was already open": {
+			herdr: "echo '" + alreadyOpen + "' >&2; exit 1", args: []string{"board"}, want: 0,
+		},
+		"something else went wrong": {
+			herdr: `echo '{"error":{"message":"no such plugin"}}' >&2; exit 1`,
+			args:  []string{"board"}, want: 1,
+		},
+		"no pane id given": {
+			herdr: "exit 0", args: nil, want: 2,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cmd := exec.Command(script, tc.args...)
+			cmd.Env = append(os.Environ(), "HERDR_BIN_PATH="+stub(t, tc.herdr))
+			var out, errb strings.Builder
+			cmd.Stdout, cmd.Stderr = &out, &errb
+			err := cmd.Run()
+			status := 0
+			if ee, ok := err.(*exec.ExitError); ok {
+				status = ee.ExitCode()
+			} else if err != nil {
+				t.Fatalf("run: %v", err)
+			}
+			if status != tc.want {
+				t.Fatalf("exit %d, want %d: %s%s", status, tc.want, out.String(), errb.String())
+			}
+		})
+	}
+}
