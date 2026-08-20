@@ -13,6 +13,7 @@ import (
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/mcpdoor"
+	"github.com/husniadil/herdr-tasks/internal/tasks"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
@@ -205,4 +206,28 @@ func verbNameOf(c *cobra.Command) string {
 		parts = append([]string{cur.Name()}, parts...)
 	}
 	return strings.Join(parts, ".")
+}
+
+// §6.1: the prose half. `ht task get` on a task blocked by something that was
+// cancelled says which one — the operator reading prose needs the same fact
+// the JSON carries.
+func TestProseNamesACancelledBlocker(t *testing.T) {
+	abandoned := &tasks.Task{Seq: 7, Title: "waits on dropped work",
+		Status: tasks.StatusTodo, Blocked: true, Abandoned: []int64{3, 4}}
+	out := captureStdout(t, func() { printTask(abandoned) })
+	for _, want := range []string{"blocked", "cancelled", "#3", "#4"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the prose does not say %q:\n%s", want, out)
+		}
+	}
+
+	plain := &tasks.Task{Seq: 8, Title: "waits on work still to come",
+		Status: tasks.StatusTodo, Blocked: true}
+	out = captureStdout(t, func() { printTask(plain) })
+	if !strings.Contains(out, "blocked") {
+		t.Errorf("an ordinary blocked task does not say so:\n%s", out)
+	}
+	if strings.Contains(out, "cancelled") {
+		t.Errorf("an ordinary blocked task was reported as abandoned:\n%s", out)
+	}
 }

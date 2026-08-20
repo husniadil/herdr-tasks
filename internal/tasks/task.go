@@ -105,6 +105,11 @@ type Task struct {
 	// Blocked is derived by the store from Deps (a dep that is not done) and
 	// handed to the state machine, which does no I/O of its own.
 	Blocked bool `json:"blocked"`
+	// Abandoned is the seq of every dependency that was CANCELLED. Only `done`
+	// satisfies a dependency, so a cancelled one blocks its dependents for
+	// good — and nothing said so, which turned a decision into a trap. Naming
+	// them makes it a decision again: the way out is to edit the edge.
+	Abandoned []int64 `json:"blocked_by_cancelled,omitempty"`
 
 	CreatedBy Principal `json:"created_by"`
 	CreatedAt int64     `json:"created_at"`

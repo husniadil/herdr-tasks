@@ -1694,3 +1694,51 @@ func TestAPastedNewlineDoesNotBreakThePromptRow(t *testing.T) {
 		t.Fatalf("the header went: %q", screen(m)[0])
 	}
 }
+
+// §5.8 on the board: a dependency that was CANCELLED will never be done, so
+// its dependent is blocked until someone edits the edge. "blocked" alone reads
+// as "wait"; this one needs a decision, and the panel says which task to make
+// it about. It must say so inside the pane, in cells, at the heights task 15
+// pins.
+func TestTheDetailPanelNamesACancelledBlocker(t *testing.T) {
+	waiting := task(7, tasks.StatusTodo, "waits on work that was dropped")
+	waiting.Blocked, waiting.Abandoned = true, []int64{3, 4}
+	m := board(t, waiting)
+	m.Col, m.Row[0], m.Detail = 0, 0, true
+
+	for _, height := range []int{10, 24, 40} {
+		m.Width, m.Height = 80, height
+		lines := screen(m)
+		if len(lines) != height {
+			t.Fatalf("h=%d: %d lines for %d rows", height, len(lines), height)
+		}
+		if !strings.Contains(lines[0], "/repo") {
+			t.Fatalf("h=%d: the header went: %q", height, lines[0])
+		}
+		joined := strings.Join(lines, "\n")
+		for _, want := range []string{"blocked", "cancelled", "#3", "#4"} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("h=%d: the panel does not say %q:\n%s", height, want, joined)
+			}
+		}
+		for i, ln := range lines {
+			if cells(ln) > m.Width {
+				t.Errorf("h=%d: line %d is %d cells wide: %.30q…", height, i, cells(ln), ln)
+			}
+		}
+	}
+
+	// A dependency that is merely not done yet reads differently.
+	plain := task(8, tasks.StatusTodo, "waits on work still to come")
+	plain.Blocked = true
+	p := board(t, plain)
+	p.Col, p.Row[0], p.Detail = 0, 0, true
+	p.Width, p.Height = 80, 24
+	shown := strings.Join(screen(p), "\n")
+	if !strings.Contains(shown, "blocked") {
+		t.Fatalf("an ordinary blocked task does not say so:\n%s", shown)
+	}
+	if strings.Contains(shown, "cancelled") {
+		t.Fatalf("an ordinary blocked task was reported as abandoned:\n%s", shown)
+	}
+}

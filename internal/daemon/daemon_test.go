@@ -1169,3 +1169,39 @@ func TestTheHoldersReClaimSurvivesADependencyAddedThroughTheDoor(t *testing.T) {
 		t.Fatalf("the task lost its claim: %s", raw)
 	}
 }
+
+// §5.7 / §5.8 through the door, both surfaces: a task others depend on refuses
+// to be deleted and names them, and a dependent of a CANCELLED task says which
+// dependency will never be done.
+func TestRemovingADependencyTellsItsDependents(t *testing.T) {
+	d := newDaemon(t, nil)
+	blocker := createTask(t, d, "must happen first")
+	dependent := createTask(t, d, "waits for it")
+	mustCall(t, d, protocol.Request{Verb: "task.update",
+		Args: map[string]any{"id": dependent.Task.ID, "depends-on": []string{blocker.Task.ID}}})
+
+	body := mustFail(t, d, protocol.Request{Verb: "task.delete",
+		Args: map[string]any{"id": blocker.Task.ID}}, codes.Conflict)
+	if !strings.Contains(body.Message, "#2") {
+		t.Fatalf("the refusal does not name the dependent: %q", body.Message)
+	}
+	if !strings.Contains(body.Message, "depends-on") {
+		t.Fatalf("the refusal does not say the way out: %q", body.Message)
+	}
+
+	// Cancelling instead: the dependent stays blocked and says by what.
+	mustCall(t, d, protocol.Request{Verb: "task.cancel",
+		Args: map[string]any{"id": blocker.Task.ID, "reason": "not doing this"}})
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get",
+		Args: map[string]any{"id": dependent.Task.ID}})
+	if !strings.Contains(string(raw), `"blocked":true`) {
+		t.Fatalf("a cancelled dependency stopped blocking: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"blocked_by_cancelled":[1]`) {
+		t.Fatalf("the document does not name the cancelled dependency: %s", raw)
+	}
+
+	// §5.7 is untouched for a task nobody depends on.
+	lonely := createTask(t, d, "nobody waits for this")
+	mustCall(t, d, protocol.Request{Verb: "task.delete", Args: map[string]any{"id": lonely.Task.ID}})
+}

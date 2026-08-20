@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -138,6 +139,12 @@ func printTask(t *tasks.Task) {
 	fmt.Printf("     %s", t.Status)
 	if t.Blocked {
 		fmt.Print(", blocked")
+		// A cancelled dependency is never going to be done, so its dependent
+		// is blocked until the edge is edited. Saying which one turns a wall
+		// back into a decision.
+		if len(t.Abandoned) > 0 {
+			fmt.Printf(" by cancelled %s", seqList(t.Abandoned))
+		}
 	}
 	if t.ClaimedBy != "" {
 		fmt.Printf(", held by %s", t.ClaimedBy)
@@ -302,4 +309,13 @@ func emptyLine(what, project string, elsewhere int) string {
 			elsewhere, strings.TrimSuffix(what, "s"))
 	}
 	return line
+}
+
+// seqList renders task numbers the way an operator types them.
+func seqList(seqs []int64) string {
+	out := make([]string, 0, len(seqs))
+	for _, n := range seqs {
+		out = append(out, "#"+strconv.FormatInt(n, 10))
+	}
+	return strings.Join(out, ", ")
 }

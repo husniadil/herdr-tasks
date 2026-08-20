@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -93,7 +94,7 @@ func (s *Store) TaskTransition(project, ref string, baseUpdatedAt int64, fn func
 	if err := tx.Commit(); err != nil {
 		return nil, wrap(err)
 	}
-	task.Blocked, _ = s.blocked(task.ID)
+	task.Blocked, task.Abandoned, _ = blockedBy(s.db, task.ID)
 	return task, nil
 }
 
@@ -201,6 +202,20 @@ func (s *Store) DeleteTask(project, ref string) error {
 	}
 	if err := tasks.CanHardDelete(task); err != nil {
 		return err
+	}
+	// §5.7 stops at "never claimed", which is exactly what a placeholder for
+	// future work looks like — and task_deps cascades on delete, so removing
+	// one took the edge with it and its dependents quietly became ready, with
+	// nothing in their trail saying why. A task others are waiting on is not
+	// this caller's alone to remove: they drop the edge first, deliberately.
+	held, err := dependentSeqs(tx, task.ID)
+	if err != nil {
+		return err
+	}
+	if len(held) > 0 {
+		return codes.Errorf(codes.Conflict,
+			"%s is a dependency of %s; drop the edge with `task update --depends-on` before deleting it",
+			refOf(task), strings.Join(held, ", "))
 	}
 	if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", task.ID); err != nil {
 		return wrap(err)
@@ -319,15 +334,39 @@ func (s *Store) Dependents(id string) ([]string, error) {
 	return out, wrap(rows.Err())
 }
 
-func (s *Store) blocked(id string) (bool, error) {
-	var one int
-	err := s.db.QueryRow(
-		`SELECT 1 FROM task_deps d JOIN tasks t ON t.id = d.depends_on_id
-		 WHERE d.task_id = ? AND t.status != 'done' LIMIT 1`, id).Scan(&one)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+// blockedBy answers both halves of §5.8 in one read: whether anything this
+// task depends on is unfinished, and which of those were CANCELLED — a
+// dependency that will never be done, so its dependent is blocked until the
+// operator edits the edge. It is the ONE place that answers this, because two
+// places computing the same predicate is how they come apart.
+func blockedBy(q querier, id string) (bool, []int64, error) {
+	rows, err := q.Query(
+		`SELECT t.status, t.seq FROM task_deps d JOIN tasks t ON t.id = d.depends_on_id
+		 WHERE d.task_id = ? AND t.status != 'done' ORDER BY t.seq ASC`, id)
+	if err != nil {
+		return false, nil, wrap(err)
 	}
-	return err == nil, wrap(err)
+	defer rows.Close()
+	blocked := false
+	abandoned := []int64{}
+	for rows.Next() {
+		var status string
+		var seq int64
+		if err := rows.Scan(&status, &seq); err != nil {
+			return false, nil, wrap(err)
+		}
+		blocked = true
+		if status == string(tasks.StatusCancelled) {
+			abandoned = append(abandoned, seq)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, nil, wrap(err)
+	}
+	if len(abandoned) == 0 {
+		abandoned = nil
+	}
+	return blocked, abandoned, nil
 }
 
 func (s *Store) fillDeps(list []*tasks.Task) error {
@@ -337,11 +376,11 @@ func (s *Store) fillDeps(list []*tasks.Task) error {
 			return wrap(err)
 		}
 		t.Deps = deps
-		b, err := s.blocked(t.ID)
+		blocked, abandoned, err := blockedBy(s.db, t.ID)
 		if err != nil {
 			return err
 		}
-		t.Blocked = b
+		t.Blocked, t.Abandoned = blocked, abandoned
 	}
 	return nil
 }
@@ -384,11 +423,9 @@ func readTask(tx *sql.Tx, project, ref string) (*tasks.Task, error) {
 	if t.Deps, err = readDeps(tx, t.ID); err != nil {
 		return nil, wrap(err)
 	}
-	var one int
-	err = tx.QueryRow(
-		`SELECT 1 FROM task_deps d JOIN tasks dt ON dt.id = d.depends_on_id
-		 WHERE d.task_id = ? AND dt.status != 'done' LIMIT 1`, t.ID).Scan(&one)
-	t.Blocked = err == nil
+	if t.Blocked, t.Abandoned, err = blockedBy(tx, t.ID); err != nil {
+		return nil, err
+	}
 	return t, nil
 }
 
@@ -577,3 +614,28 @@ func boolInt(b bool) int64 {
 	}
 	return 0
 }
+
+// dependentSeqs names the tasks that depend on this one, the way an operator
+// would type them.
+func dependentSeqs(q querier, id string) ([]string, error) {
+	rows, err := q.Query(
+		`SELECT t.seq FROM task_deps d JOIN tasks t ON t.id = d.task_id
+		 WHERE d.depends_on_id = ? ORDER BY t.seq ASC`, id)
+	if err != nil {
+		return nil, wrap(err)
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var seq int64
+		if err := rows.Scan(&seq); err != nil {
+			return nil, wrap(err)
+		}
+		out = append(out, "#"+strconv.FormatInt(seq, 10))
+	}
+	return out, wrap(rows.Err())
+}
+
+// refOf is how a task is named in a message: its number, which is what a human
+// types (§5.4).
+func refOf(t *tasks.Task) string { return "#" + strconv.FormatInt(t.Seq, 10) }

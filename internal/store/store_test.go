@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -754,5 +755,108 @@ func TestReleaseByPaneLeavesATaskAnotherPaneReclaimed(t *testing.T) {
 	}
 	if k := kinds(t, s, task.ID); contains(k, "swept") {
 		t.Fatalf("the trail says it was swept: %v", k)
+	}
+}
+
+// §5.7 with §5.8: a task others depend on does not hard-delete. The dep edge
+// carries ON DELETE CASCADE and foreign keys are enforced, so deleting the
+// dependency took the edge with it and its dependent quietly became ready —
+// no event on the dependent, nothing in its trail saying why the thing it was
+// waiting for stopped mattering. Meanwhile CANCELLING that same dependency
+// blocks the dependent for good. The two removal paths pulled opposite ways
+// and the destructive one was the silent one.
+func TestATaskWithDependentsIsNotDeleted(t *testing.T) {
+	s := open(t)
+	blocker := create(t, s, "must happen first")
+	dependent := create(t, s, "waits for it")
+	if _, err := s.TaskTransition(proj, dependent.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
+		x.Deps = []string{blocker.ID}
+		return tasks.Update(x, operator, tasks.UpdatePatch{Deps: &x.Deps}, tick(t))
+	}); err != nil {
+		t.Fatalf("add the edge: %v", err)
+	}
+
+	err := s.DeleteTask(proj, blocker.ID)
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+	if !strings.Contains(err.Error(), fmt.Sprint(dependent.Seq)) {
+		t.Fatalf("the refusal does not name the dependent: %v", err)
+	}
+
+	// The dependent is untouched: still blocked, still carrying the edge, and
+	// nothing new in its trail.
+	got, err := s.GetTask(proj, dependent.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if !got.Blocked {
+		t.Fatal("the dependent stopped being blocked")
+	}
+	if len(got.Deps) != 1 || got.Deps[0] != blocker.ID {
+		t.Fatalf("the edge went: %v", got.Deps)
+	}
+	if k := kinds(t, s, dependent.ID); len(k) != 2 {
+		t.Fatalf("the dependent's trail changed: %v", k)
+	}
+
+	// And the refusal is a step, not a dead end: drop the edge, then delete.
+	none := []string{}
+	if _, err := s.TaskTransition(proj, dependent.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
+		return tasks.Update(x, operator, tasks.UpdatePatch{Deps: &none}, tick(t))
+	}); err != nil {
+		t.Fatalf("drop the edge: %v", err)
+	}
+	if err := s.DeleteTask(proj, blocker.ID); err != nil {
+		t.Fatalf("delete after dropping the edge: %v", err)
+	}
+}
+
+// §5.8: only `done` satisfies a dependency, so a CANCELLED one blocks for
+// good. That is the right rule — a prerequisite that was abandoned is not one
+// that was met — but it was invisible, which turned a decision into a wall.
+func TestADependentOfACancelledTaskSaysSo(t *testing.T) {
+	s := open(t)
+	blocker := create(t, s, "will be cancelled")
+	pending := create(t, s, "not done yet")
+	dependent := create(t, s, "waits for both")
+	deps := []string{blocker.ID, pending.ID}
+	if _, err := s.TaskTransition(proj, dependent.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
+		return tasks.Update(x, operator, tasks.UpdatePatch{Deps: &deps}, tick(t))
+	}); err != nil {
+		t.Fatalf("add the edges: %v", err)
+	}
+
+	// Before the cancel: blocked, and nothing abandoned.
+	got, _ := s.GetTask(proj, dependent.ID)
+	if !got.Blocked || len(got.Abandoned) != 0 {
+		t.Fatalf("an ordinary unfinished dependency must not look abandoned: %+v", got)
+	}
+
+	if _, err := s.TaskTransition(proj, blocker.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
+		return tasks.Cancel(x, operator, "not doing this", tick(t))
+	}); err != nil {
+		t.Fatalf("cancel: %v", err)
+	}
+
+	got, _ = s.GetTask(proj, dependent.ID)
+	if !got.Blocked {
+		t.Fatal("a cancelled dependency must still block")
+	}
+	if len(got.Abandoned) != 1 || got.Abandoned[0] != blocker.Seq {
+		t.Fatalf("abandoned = %v, want only #%d", got.Abandoned, blocker.Seq)
+	}
+	// The list version answers the same way, so a board and a get agree.
+	list, err := s.ListTasks(TaskFilter{Project: proj})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	for _, x := range list {
+		if x.ID != dependent.ID {
+			continue
+		}
+		if len(x.Abandoned) != 1 || x.Abandoned[0] != blocker.Seq {
+			t.Fatalf("the list says abandoned = %v", x.Abandoned)
+		}
 	}
 }

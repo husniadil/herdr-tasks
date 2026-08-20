@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -19,7 +20,13 @@ func Detail(m Model, now int64) string {
 		fmt.Fprintf(&b, "#%d %s\n", t.Seq, t.Title)
 		fmt.Fprintf(&b, "status: %s", t.Status)
 		if t.Blocked {
-			b.WriteString(" (blocked)")
+			b.WriteString(" (blocked")
+			// Which dependency will never be done, so the operator reading
+			// the board knows this one needs a decision, not patience.
+			if len(t.Abandoned) > 0 {
+				fmt.Fprintf(&b, " by cancelled %s", seqList(t.Abandoned))
+			}
+			b.WriteString(")")
 		}
 		b.WriteString("\n")
 		if t.ClaimedBy != "" {
@@ -72,4 +79,13 @@ func Detail(m Model, now int64) string {
 		fmt.Fprintf(&b, "became task %s\n", n.TaskID)
 	}
 	return b.String()
+}
+
+// seqList renders task numbers the way an operator types them.
+func seqList(seqs []int64) string {
+	out := make([]string, 0, len(seqs))
+	for _, n := range seqs {
+		out = append(out, "#"+strconv.FormatInt(n, 10))
+	}
+	return strings.Join(out, ", ")
 }
