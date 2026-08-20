@@ -224,8 +224,8 @@ func TestInstructionsCoverTheRequiredGround(t *testing.T) {
 func inProcessDaemon(t *testing.T) (*daemon.Daemon, Caller) {
 	t.Helper()
 	dir := testenv.ShortDir(t)
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", t.TempDir())
+	t.Setenv("TASKS_STATE_DIR", dir)
+	t.Setenv("TASKS_CONFIG_DIR", t.TempDir())
 	s, err := store.Open(filepath.Join(dir, "tasks.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)

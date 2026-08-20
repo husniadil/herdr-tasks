@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// §5.1 / §10.1: HERDR_PLUGIN_STATE_DIR and HERDR_PLUGIN_CONFIG_DIR win; the
-// XDG defaults are the fallback. Tests set both, so nothing reaches the
-// operator's dirs (§12.3).
-func TestDirsPreferHerdrEnv(t *testing.T) {
+// §5.1 as amended (docs/contract-notes.md): TASKS_STATE_DIR and
+// TASKS_CONFIG_DIR win; the XDG defaults are the fallback. Tests set both, so
+// nothing reaches the operator's dirs (§12.3).
+func TestDirsPreferThePluginOwnedEnv(t *testing.T) {
 	state, conf := t.TempDir(), t.TempDir()
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", state)
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", conf)
+	t.Setenv("TASKS_STATE_DIR", state)
+	t.Setenv("TASKS_CONFIG_DIR", conf)
 	if got := StateDir(); got != state {
 		t.Fatalf("StateDir = %q, want %q", got, state)
 	}
@@ -21,9 +21,26 @@ func TestDirsPreferHerdrEnv(t *testing.T) {
 	}
 }
 
+// §5.1 as amended: the store is the same one whoever spawned the process, so a
+// herdr-injected dir must not move it. This is the whole point of the change:
+// a popup and an agent pane must open the same database.
+func TestHerdrInjectedDirsAreIgnored(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", filepath.Join(base, "herdr-state"))
+	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", filepath.Join(base, "herdr-config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(base, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
+	if got, want := StateDir(), filepath.Join(base, "state", Name); got != want {
+		t.Fatalf("StateDir = %q, want %q", got, want)
+	}
+	if got, want := ConfigDir(), filepath.Join(base, "config", Name); got != want {
+		t.Fatalf("ConfigDir = %q, want %q", got, want)
+	}
+}
+
 func TestDirsFallBackToXDG(t *testing.T) {
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", "")
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", "")
+	t.Setenv("TASKS_STATE_DIR", "")
+	t.Setenv("TASKS_CONFIG_DIR", "")
 	base := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(base, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(base, "config"))
@@ -39,7 +56,7 @@ func TestDirsFallBackToXDG(t *testing.T) {
 // user account and nothing else.
 func TestEnsureStateDirIsPrivate(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested")
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	t.Setenv("TASKS_STATE_DIR", dir)
 	if err := EnsureStateDir(); err != nil {
 		t.Fatalf("EnsureStateDir: %v", err)
 	}
@@ -54,7 +71,7 @@ func TestEnsureStateDirIsPrivate(t *testing.T) {
 
 func TestSocketAndDBPaths(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	t.Setenv("TASKS_STATE_DIR", dir)
 	if got, want := SocketPath(), filepath.Join(dir, "tasks.sock"); got != want {
 		t.Fatalf("SocketPath = %q, want %q", got, want)
 	}
@@ -66,7 +83,7 @@ func TestSocketAndDBPaths(t *testing.T) {
 // §10.1: config is TOML, and TASKS_ environment variables override it.
 func TestLoadReadsTOMLAndEnvOverrides(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", dir)
+	t.Setenv("TASKS_CONFIG_DIR", dir)
 	body := `
 # the policy gate (§9) and the event hook (§8.3)
 lease_seconds = 300
@@ -103,7 +120,7 @@ sweep_seconds = 30
 // A missing config file is the unconfigured default, not an error: §9.2 says
 // unconfigured allows, and §10.3 says doctor never fails.
 func TestLoadWithoutFileIsDefaults(t *testing.T) {
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", t.TempDir())
+	t.Setenv("TASKS_CONFIG_DIR", t.TempDir())
 	c, err := Load()
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -115,7 +132,7 @@ func TestLoadWithoutFileIsDefaults(t *testing.T) {
 
 func TestMalformedConfigFailsLoud(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", dir)
+	t.Setenv("TASKS_CONFIG_DIR", dir)
 	if err := os.WriteFile(filepath.Join(dir, "tasks.toml"), []byte("lease_seconds = \n"), 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
@@ -131,7 +148,7 @@ func TestEnsureStateDirTightensAnExistingDir(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	t.Setenv("TASKS_STATE_DIR", dir)
 	if err := EnsureStateDir(); err != nil {
 		t.Fatalf("EnsureStateDir: %v", err)
 	}
@@ -139,4 +156,49 @@ func TestEnsureStateDirTightensAnExistingDir(t *testing.T) {
 	if perm := info.Mode().Perm(); perm != 0o700 {
 		t.Fatalf("mode = %o, want 700", perm)
 	}
+}
+
+// §5.1 as amended: the herdr-injected dir is ignored for resolution, but an
+// orphan store left there is still worth naming, so OrphanStoreDirs reports
+// the places a second tasks.db could be hiding.
+func TestOrphanStoreDirsNamesTheHerdrPathAndNotTheOneInUse(t *testing.T) {
+	base := t.TempDir()
+	t.Setenv("TASKS_STATE_DIR", filepath.Join(base, "in-use"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(base, "xdg"))
+	injected := filepath.Join(base, "herdr-plugin-state")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", injected)
+
+	got := OrphanStoreDirs()
+	if !contains(got, injected) {
+		t.Fatalf("the injected dir must be a candidate: %v", got)
+	}
+	// The conventional herdr layout, for a caller herdr did not spawn.
+	conventional := filepath.Join(base, "xdg", "herdr", "plugins", PluginID)
+	if !contains(got, conventional) {
+		t.Fatalf("the conventional herdr path must be a candidate: %v", got)
+	}
+	if contains(got, StateDir()) {
+		t.Fatalf("the store in use is not an orphan: %v", got)
+	}
+}
+
+// The store in use must never be reported as its own orphan, whatever route
+// resolved it — otherwise doctor tells the operator to delete live data.
+func TestOrphanStoreDirsExcludesTheStoreInUse(t *testing.T) {
+	base := t.TempDir()
+	injected := filepath.Join(base, "same")
+	t.Setenv("TASKS_STATE_DIR", injected)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", injected)
+	if got := OrphanStoreDirs(); contains(got, injected) {
+		t.Fatalf("the dir in use was reported as an orphan: %v", got)
+	}
+}
+
+func contains(list []string, want string) bool {
+	for _, s := range list {
+		if s == want {
+			return true
+		}
+	}
+	return false
 }

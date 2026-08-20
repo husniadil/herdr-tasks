@@ -17,6 +17,7 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/herdrclient"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
+	"github.com/husniadil/herdr-tasks/internal/tasks"
 	"github.com/husniadil/herdr-tasks/internal/testenv"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
@@ -29,8 +30,13 @@ func newDaemon(t *testing.T, cfg *config.Config) *Daemon {
 	t.Helper()
 	testenv.SkipUnlessFull(t)
 	dir := testenv.ShortDir(t)
-	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
-	t.Setenv("HERDR_PLUGIN_CONFIG_DIR", t.TempDir())
+	t.Setenv("TASKS_STATE_DIR", dir)
+	t.Setenv("TASKS_CONFIG_DIR", t.TempDir())
+	// The XDG bases too, not just the overrides: anything that works out a
+	// path from the layout rather than the override — OrphanStoreDirs does —
+	// would otherwise read the operator's real home (§12.3).
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, "xdg-state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, "xdg-config"))
 	s, err := store.Open(filepath.Join(dir, "tasks.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -505,4 +511,55 @@ func TestLeaseLengthFollowsAReload(t *testing.T) {
 	if got := res.Task.LeaseUntil - res.Task.ClaimedAt; got != 60_000 {
 		t.Fatalf("lease = %dms, want the reloaded 60000", got)
 	}
+}
+
+// A store left behind by an older build is named, not deleted, and only when
+// it is really there: an operator told about a database that does not exist
+// would go looking for one, and one they are not told about is the split-brain
+// all over again.
+func TestDoctorNamesAnOrphanStoreOnlyWhenOneExists(t *testing.T) {
+	base := testenv.ShortDir(t)
+	orphan := filepath.Join(base, "herdr-plugin-state")
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", orphan)
+	d := newDaemon(t, nil)
+
+	report := d.Doctor(protocol.Request{Project: proj}, tasks.Actor{Principal: tasks.PrincipalHuman})
+	if line := findLine(report.Degraded, orphan); line != "" {
+		t.Fatalf("no tasks.db is there yet, so nothing to report: %q", line)
+	}
+
+	if err := os.MkdirAll(orphan, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(orphan, "tasks.db"), []byte("not really a database"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	report = d.Doctor(protocol.Request{Project: proj}, tasks.Actor{Principal: tasks.PrincipalHuman})
+	line := findLine(report.Degraded, orphan)
+	if line == "" {
+		t.Fatalf("the orphan store was not named: %v", report.Degraded)
+	}
+	if !strings.Contains(line, "not the store in use") {
+		t.Fatalf("the line must say it is not the one in use: %q", line)
+	}
+}
+
+// The store the daemon is actually serving must never be named as an orphan.
+func TestDoctorNeverCallsTheLiveStoreAnOrphan(t *testing.T) {
+	d := newDaemon(t, nil)
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", config.StateDir())
+	report := d.Doctor(protocol.Request{Project: proj}, tasks.Actor{Principal: tasks.PrincipalHuman})
+	// Any orphan line at all is wrong here: the only store is the live one.
+	if line := findLine(report.Degraded, "not the store in use"); line != "" {
+		t.Fatalf("doctor pointed at the live store: %q", line)
+	}
+}
+
+func findLine(lines []string, needle string) string {
+	for _, l := range lines {
+		if strings.Contains(l, needle) {
+			return l
+		}
+	}
+	return ""
 }

@@ -85,7 +85,7 @@ func Listen(path string) (net.Listener, error) {
 	// "invalid argument" that says nothing about the cause.
 	if len(path) > 100 {
 		return nil, codes.Errorf(codes.Unavailable,
-			"socket path is %d characters, past what a unix socket allows: set HERDR_PLUGIN_STATE_DIR to something shorter (%s)",
+			"socket path is %d characters, past what a unix socket allows: set TASKS_STATE_DIR to something shorter (%s)",
 			len(path), path)
 	}
 	if conn, err := net.DialTimeout("unix", path, 300*time.Millisecond); err == nil {

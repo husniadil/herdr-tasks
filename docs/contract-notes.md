@@ -5,6 +5,40 @@ Gaps found while implementing the shared plugin contract, v0. The rule is in
 unimplementable as written, record it here and follow the contract until it is
 amended upstream. Nothing here is a licence to diverge quietly.
 
+## §5.1 / §10.1 — the store is resolved without Herdr's injected dirs
+
+§5.1 says `state_dir` is `HERDR_PLUGIN_STATE_DIR` when set, else
+`${XDG_STATE_HOME:-~/.local/state}/<name>`, and §10.1 says the same for
+`HERDR_PLUGIN_CONFIG_DIR`. Followed literally, that gives one plugin two
+stores.
+
+Herdr injects those variables into the processes IT spawns — the manifest's
+`[[startup]]`, `[[actions]]` and `[[panes]]` — and injects neither into a
+managed pane, where the agents and the MCP servers run. Measured on a live
+system: the daemon Herdr started carried
+`HERDR_PLUGIN_STATE_DIR=~/.local/state/herdr/plugins/herdr-tasks`, while the
+daemon and MCP servers running in panes carried only `HERDR_PANE_ID` and fell
+through to `~/.local/state/tasks`. Both paths held a `tasks.db` and a live
+socket. The popup board therefore opened an empty database and rendered
+nothing, and the `[[actions]]` entries — including "Stop the tasks daemon" —
+acted on the daemon that held no data.
+
+So this plugin does not read `HERDR_PLUGIN_STATE_DIR` or
+`HERDR_PLUGIN_CONFIG_DIR` at all. `TASKS_STATE_DIR` and `TASKS_CONFIG_DIR` are
+the overrides (§10.1's `TASKS_` prefix), then the XDG bases, then `~`. Ignoring
+them rather than lowering their precedence is deliberate: any order that still
+consults them splits the store again for whichever surface Herdr does inject.
+
+What this costs, recorded honestly: Herdr can no longer place this plugin's
+state, so a second or sandboxed Herdr no longer gets a separate store for free
+(`TASKS_STATE_DIR` still buys one deliberately), and if Herdr ever cleans up
+`~/.local/state/herdr/plugins/<id>` on uninstall, this plugin's data will
+outlive that. Both were weighed against a failure that looks like data loss to
+the operator, and the operator chose this.
+
+`doctor` names a `tasks.db` left at the old path as a second store not in use,
+and says whether it holds rows. It never deletes one.
+
 ## §11.2 — the shape of `herdr api schema --json`
 
 The contract says to read the schema once and decide which requests and events

@@ -18,6 +18,11 @@ const Name = "tasks"
 // EnvPrefix is the §10.1 override prefix.
 const EnvPrefix = "TASKS_"
 
+// PluginID is the id Herdr knows this plugin by (§13.1), which is also the
+// directory Herdr keeps plugin state under. We do not store anything there —
+// it is named here only so doctor can spot a store left behind at that path.
+const PluginID = "herdr-tasks"
+
 // Defaults. A lease long enough that an agent thinking hard does not lose its
 // claim, short enough that a dead pane frees work within the hour.
 const (
@@ -25,26 +30,37 @@ const (
 	DefaultSweepSeconds = 60
 )
 
-// StateDir is HERDR_PLUGIN_STATE_DIR, else ${XDG_STATE_HOME:-~/.local/state}/tasks (§5.1).
+// One plugin, one store. Herdr injects HERDR_PLUGIN_STATE_DIR and
+// HERDR_PLUGIN_CONFIG_DIR into what IT spawns — startup, actions, popup panes —
+// and injects neither into a managed pane, where the agents and MCP servers
+// run. Honouring them, which is what §5.1 and §10.1 say to do, therefore gives
+// one plugin two stores that never see each other's rows. We deliberately do
+// not read them; docs/contract-notes.md records the divergence.
+//
+// TASKS_STATE_DIR and TASKS_CONFIG_DIR are the plugin-owned overrides (§10.1's
+// TASKS_ prefix). They are how tests isolate, and how an operator asks for a
+// second store on purpose rather than by accident.
+
+// StateDir is TASKS_STATE_DIR, else ${XDG_STATE_HOME:-~/.local/state}/tasks.
 func StateDir() string {
-	if d := os.Getenv("HERDR_PLUGIN_STATE_DIR"); d != "" {
-		return d
-	}
-	if d := os.Getenv("XDG_STATE_HOME"); d != "" {
-		return filepath.Join(d, Name)
-	}
-	return filepath.Join(homeDir(), ".local", "state", Name)
+	return dirFrom(EnvPrefix+"STATE_DIR", "XDG_STATE_HOME", filepath.Join(".local", "state"))
 }
 
-// ConfigDir is HERDR_PLUGIN_CONFIG_DIR, else ${XDG_CONFIG_HOME:-~/.config}/tasks (§10.1).
+// ConfigDir is TASKS_CONFIG_DIR, else ${XDG_CONFIG_HOME:-~/.config}/tasks.
 func ConfigDir() string {
-	if d := os.Getenv("HERDR_PLUGIN_CONFIG_DIR"); d != "" {
+	return dirFrom(EnvPrefix+"CONFIG_DIR", "XDG_CONFIG_HOME", ".config")
+}
+
+// dirFrom resolves one directory: the plugin's own override, else the XDG base
+// with the plugin's name under it, else the same layout under the home dir.
+func dirFrom(own, xdg, home string) string {
+	if d := os.Getenv(own); d != "" {
 		return d
 	}
-	if d := os.Getenv("XDG_CONFIG_HOME"); d != "" {
+	if d := os.Getenv(xdg); d != "" {
 		return filepath.Join(d, Name)
 	}
-	return filepath.Join(homeDir(), ".config", Name)
+	return filepath.Join(homeDir(), home, Name)
 }
 
 // SocketPath is <state_dir>/tasks.sock (§2.2).
@@ -55,6 +71,37 @@ func DBPath() string { return filepath.Join(StateDir(), Name+".db") }
 
 // ConfigPath is <config_dir>/tasks.toml (§10.1).
 func ConfigPath() string { return filepath.Join(ConfigDir(), Name+".toml") }
+
+// OrphanStoreDirs lists the directories a second tasks.db could be sitting in
+// because an older build resolved the store from Herdr's injected dirs. It is
+// detection, never deletion: a database is not something this code removes on
+// the operator's behalf. The store actually in use is never listed, so doctor
+// can never point at live data.
+func OrphanStoreDirs() []string {
+	var out []string
+	inUse := StateDir()
+	add := func(dir string) {
+		if dir == "" || dir == inUse {
+			return
+		}
+		for _, seen := range out {
+			if seen == dir {
+				return
+			}
+		}
+		out = append(out, dir)
+	}
+	// Where Herdr puts us when Herdr spawns us.
+	add(os.Getenv("HERDR_PLUGIN_STATE_DIR"))
+	// The same place, worked out from the layout, for a caller Herdr did not
+	// spawn — a plain shell has no injected variable to read.
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		base = filepath.Join(homeDir(), ".local", "state")
+	}
+	add(filepath.Join(base, "herdr", "plugins", PluginID))
+	return out
+}
 
 // EnsureStateDir creates the state dir with mode 0700 (§3.5). It tightens a
 // dir that already exists more widely rather than accepting it: the boundary

@@ -69,8 +69,8 @@ func startWorld(t *testing.T) *world {
 		"HERDR_SESSION="+w.session,
 		// And the plugin's own dirs (§5.1, §10.1) are temp dirs too, so the
 		// daemon this suite starts never opens the operator's tasks.db.
-		"HERDR_PLUGIN_STATE_DIR="+filepath.Join(root, "state"),
-		"HERDR_PLUGIN_CONFIG_DIR="+filepath.Join(root, "config"),
+		"TASKS_STATE_DIR="+filepath.Join(root, "state"),
+		"TASKS_CONFIG_DIR="+filepath.Join(root, "config"),
 		"HERDR_BIN_PATH="+herdr,
 	)
 	// The pane id a door reads from its own environment (§3.2) must come from

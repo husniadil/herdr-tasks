@@ -55,8 +55,8 @@ func (w *world) env(extra ...string) []string {
 	base := []string{
 		"PATH=" + os.Getenv("PATH"),
 		"HOME=" + w.state,
-		"HERDR_PLUGIN_STATE_DIR=" + w.state,
-		"HERDR_PLUGIN_CONFIG_DIR=" + w.config,
+		"TASKS_STATE_DIR=" + w.state,
+		"TASKS_CONFIG_DIR=" + w.config,
 		"HERDR_BIN_PATH=" + w.herdr,
 	}
 	return append(base, extra...)
