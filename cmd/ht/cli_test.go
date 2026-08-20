@@ -286,9 +286,24 @@ func TestNoteBoardIsAgentProposesOperatorDecides(t *testing.T) {
 	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "note", "promote", "1", "--json"); status != codes.Exit(codes.Forbidden) {
 		t.Fatalf("an agent must not promote its own note: exit %d", status)
 	}
-	doc := w.json(w.env(), "note", "promote", "1")
-	if doc["task"] == nil {
+	// §16.1: the criteria the verdict drafted travel with the promotion, in
+	// the one command the operator runs. A task born without them prints a
+	// `task goal` whose "Done when" has nothing to check.
+	doc := w.json(w.env(), "note", "promote", "1",
+		"--validation", "make test-full exits 0",
+		"--validation", "ht note promote --help lists --validation")
+	task, _ := doc["task"].(map[string]any)
+	if task == nil {
 		t.Fatalf("promote = %+v", doc)
+	}
+	got, _ := task["validation"].([]any)
+	if len(got) != 2 {
+		t.Fatalf("promote dropped the criteria: %+v", task["validation"])
+	}
+	for _, c := range got {
+		if m, _ := c.(map[string]any); m["required"] != true {
+			t.Fatalf("a criterion is required unless marked optional (§16.1): %+v", c)
+		}
 	}
 	list := w.json(w.env(), "task", "list")
 	if list["count"] != float64(1) {

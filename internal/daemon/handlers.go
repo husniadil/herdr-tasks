@@ -385,6 +385,7 @@ func hNotePromote(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 		Project:     n.Project,
 		Title:       title,
 		Description: n.Body,
+		Validation:  criteria(argStrings(req.Args, "validation")),
 		PaneID:      req.PaneID,
 	}, by, d.Now())
 	if err != nil {

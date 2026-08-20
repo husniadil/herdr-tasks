@@ -228,6 +228,7 @@ var All = []Verb{
 		Args: []Arg{
 			idArg("The note id or number"),
 			{Name: "title", Type: String, Desc: "The task title; the note body is the default"},
+			{Name: "validation", Type: Strings, Desc: "An acceptance criterion, as a command and what its output must show (repeatable)"},
 		},
 	},
 	{
