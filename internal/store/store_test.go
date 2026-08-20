@@ -593,3 +593,166 @@ func TestNoteQueryMatchesBodyOrReasonAndComposesWithStatus(t *testing.T) {
 		t.Fatalf("query \"_\" matched %d notes, want none: no body has a literal underscore", len(got))
 	}
 }
+
+// claimBy puts a lease on a task the way the daemon does, so the sweep tests
+// can set up an interleaving without going through a door.
+func claimBy(t *testing.T, s *Store, id string, by tasks.Actor, at, leaseMS int64) {
+	t.Helper()
+	if _, err := s.TaskTransition(proj, id, 0, func(x *tasks.Task) (tasks.Event, error) {
+		return tasks.Claim(x, by, at, leaseMS)
+	}); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+}
+
+// kinds is the event trail of one entity, in order.
+func kinds(t *testing.T, s *Store, id string) []string {
+	t.Helper()
+	evs, err := s.Events(EventFilter{Project: proj, EntityID: id})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	out := make([]string, 0, len(evs))
+	for _, e := range evs {
+		out = append(out, e.Kind)
+	}
+	return out
+}
+
+func contains(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// §11.5: the sweep scans stale ids in one query and releases each in its own
+// transaction, so a lease renewed in between must survive. Release with
+// KindSwept bypasses the holder check by design (tasks/task.go:245), which
+// means the only thing that can defend the renewal is a re-check inside the
+// closure.
+func TestSweepLeavesALeaseRenewedAfterTheScanAlone(t *testing.T) {
+	s := open(t)
+	task := create(t, s, "renewed under the sweep")
+	holder := peer("wF:p1", "claude")
+	at := tick(t)
+	claimBy(t, s, task.ID, holder, at, 1)
+
+	now := at + 1000
+	renewed := int64(0)
+	s.DuringSweep = func(id string) {
+		s.DuringSweep = nil
+		got, err := s.TaskTransition(proj, id, 0, func(x *tasks.Task) (tasks.Event, error) {
+			return tasks.Touch(x, holder, now, 900_000)
+		})
+		if err != nil {
+			t.Fatalf("touch: %v", err)
+		}
+		renewed = got.LeaseUntil
+	}
+
+	swept, err := s.SweepLeases(now)
+	if err != nil {
+		t.Fatalf("SweepLeases: %v", err)
+	}
+	if len(swept) != 0 {
+		t.Fatalf("swept = %v, want nothing: the lease was renewed before the release", swept)
+	}
+	got, err := s.GetTask(proj, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Status != tasks.StatusDoing {
+		t.Fatalf("status = %q, want doing", got.Status)
+	}
+	if got.ClaimedBy != holder.Principal {
+		t.Fatalf("claimed_by = %q, want %q", got.ClaimedBy, holder.Principal)
+	}
+	if got.LeaseUntil != renewed {
+		t.Fatalf("lease_until = %d, want the renewed %d", got.LeaseUntil, renewed)
+	}
+	if k := kinds(t, s, task.ID); contains(k, "swept") {
+		t.Fatalf("the trail says it was swept: %v", k)
+	}
+}
+
+// §11.5: one renewed row must not stop the sweep doing its job on the rest.
+func TestSweepStillReleasesTheStaleOneInAMixedBatch(t *testing.T) {
+	s := open(t)
+	renewed := create(t, s, "renewed")
+	abandoned := create(t, s, "abandoned")
+	holder := peer("wF:p1", "claude")
+	at := tick(t)
+	claimBy(t, s, renewed.ID, holder, at, 1)
+	claimBy(t, s, abandoned.ID, holder, at, 1)
+
+	now := at + 1000
+	s.DuringSweep = func(id string) {
+		if id != renewed.ID {
+			return
+		}
+		if _, err := s.TaskTransition(proj, id, 0, func(x *tasks.Task) (tasks.Event, error) {
+			return tasks.Touch(x, holder, now, 900_000)
+		}); err != nil {
+			t.Fatalf("touch: %v", err)
+		}
+	}
+
+	swept, err := s.SweepLeases(now)
+	if err != nil {
+		t.Fatalf("SweepLeases: %v", err)
+	}
+	if len(swept) != 1 || swept[0] != abandoned.ID {
+		t.Fatalf("swept = %v, want only the abandoned %s", swept, abandoned.ID)
+	}
+	gone, _ := s.GetTask(proj, abandoned.ID)
+	if gone.Status != tasks.StatusTodo || gone.ClaimedBy != "" {
+		t.Fatalf("the abandoned task was not released: %+v", gone)
+	}
+	kept, _ := s.GetTask(proj, renewed.ID)
+	if kept.Status != tasks.StatusDoing || kept.ClaimedBy != holder.Principal {
+		t.Fatalf("the renewed task was released: %+v", kept)
+	}
+}
+
+// §11.5: `pane.exited` releases what THAT pane holds. A task another pane
+// claimed between the scan and the release is not that pane's to give back.
+func TestReleaseByPaneLeavesATaskAnotherPaneReclaimed(t *testing.T) {
+	s := open(t)
+	task := create(t, s, "handed over mid-sweep")
+	gone := peer("wF:p1", "claude")
+	next := peer("wF:p2", "codex")
+	at := tick(t)
+	claimBy(t, s, task.ID, gone, at, 900_000)
+
+	now := at + 5
+	s.DuringSweep = func(id string) {
+		s.DuringSweep = nil
+		if _, err := s.TaskTransition(proj, id, 0, func(x *tasks.Task) (tasks.Event, error) {
+			return tasks.Release(x, operator, "pane went away", now, tasks.KindReleased)
+		}); err != nil {
+			t.Fatalf("release: %v", err)
+		}
+		claimBy(t, s, id, next, now, 900_000)
+	}
+
+	released, err := s.ReleaseByPane("wF:p1", now)
+	if err != nil {
+		t.Fatalf("ReleaseByPane: %v", err)
+	}
+	if len(released) != 0 {
+		t.Fatalf("released = %v, want nothing: the task belongs to another pane now", released)
+	}
+	got, _ := s.GetTask(proj, task.ID)
+	if got.Status != tasks.StatusDoing {
+		t.Fatalf("status = %q, want doing", got.Status)
+	}
+	if got.ClaimedBy != next.Principal {
+		t.Fatalf("claimed_by = %q, want the new claimer %q", got.ClaimedBy, next.Principal)
+	}
+	if k := kinds(t, s, task.ID); contains(k, "swept") {
+		t.Fatalf("the trail says it was swept: %v", k)
+	}
+}

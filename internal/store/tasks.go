@@ -235,7 +235,19 @@ func (s *Store) SweepLeases(now int64) ([]string, error) {
 	}
 	swept := make([]string, 0, len(stale))
 	for _, r := range stale {
+		if s.DuringSweep != nil {
+			s.DuringSweep(r.id)
+		}
 		_, err := s.TaskTransition(r.project, r.id, 0, func(t *tasks.Task) (tasks.Event, error) {
+			// The scan and this transition are separate statements, and the
+			// holder can touch in between. Release with KindSwept skips the
+			// holder check on purpose (tasks/task.go:245), so this re-read is
+			// the only thing standing between a renewed lease and being
+			// handed back to the queue underneath its holder.
+			if !tasks.LeaseExpired(t, now) {
+				return tasks.Event{}, codes.Errorf(codes.Conflict,
+					"the lease on %s was renewed after the scan", r.id)
+			}
 			// Not t.ReleaseNote: that belongs to whoever released this task
 			// last, which is not the claimer being swept now.
 			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, "lease expired", now, tasks.KindSwept)
@@ -271,7 +283,16 @@ func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
 	rows.Close()
 	out := make([]string, 0, len(held))
 	for _, r := range held {
+		if s.DuringSweep != nil {
+			s.DuringSweep(r.id)
+		}
 		if _, err := s.TaskTransition(r.project, r.id, 0, func(t *tasks.Task) (tasks.Event, error) {
+			// Same window as SweepLeases: a task another pane claimed since
+			// the scan is not this pane's to give back.
+			if t.ClaimedBy != tasks.Principal(principal) {
+				return tasks.Event{}, codes.Errorf(codes.Conflict,
+					"%s is claimed by %s, not the pane that exited", r.id, t.ClaimedBy)
+			}
 			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, "pane exited", now, tasks.KindSwept)
 		}); err == nil {
 			out = append(out, r.id)

@@ -24,6 +24,14 @@ import (
 // Store owns the connection to one plugin database.
 type Store struct {
 	db *sql.DB
+
+	// DuringSweep runs after a sweep has chosen its rows and before each
+	// release, once per row. It is the seam the interleaving tests need: the
+	// window between the scan and the release is microseconds wide, and a test
+	// that tried to hit it by racing goroutines would prove nothing on the runs
+	// it missed. Injectable the same way Daemon.Now is, and nil everywhere but
+	// a test.
+	DuringSweep func(id string)
 }
 
 // Open opens (and migrates) the store at path.

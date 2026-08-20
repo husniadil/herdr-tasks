@@ -1,8 +1,10 @@
 package daemon
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -662,4 +664,103 @@ func TestDoctorAndEveryAnswerCarryTheBuildBesideTheFingerprint(t *testing.T) {
 	if resp.Fingerprint != verbs.Fingerprint() {
 		t.Fatalf("an ordinary answer carried fingerprint %q, want %q", resp.Fingerprint, verbs.Fingerprint())
 	}
+}
+
+// captureStderr runs fn with os.Stderr replaced by a pipe and returns what was
+// written to it. No test in this package runs in parallel, so the swap is
+// safe.
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+	fn()
+	os.Stderr = saved
+	w.Close()
+	out := <-done
+	r.Close()
+	return out
+}
+
+// §11.5: the sweep says only what it did. A batch that holds a lease renewed
+// after the scan must not name that task on stderr or in the trail — a line
+// claiming a lease was taken back is what sends the next agent to claim it.
+func TestSweepNamesOnlyTheLeasesItReleased(t *testing.T) {
+	d := newDaemon(t, &config.Config{LeaseSeconds: 1, SweepSeconds: 60})
+	renewed := createTask(t, d, "renewed under the sweep").Task.ID
+	abandoned := createTask(t, d, "abandoned").Task.ID
+	for _, id := range []string{renewed, abandoned} {
+		mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+	}
+	base := d.Now()
+	d.Now = func() int64 { return base + 10_000 }
+	d.Store.DuringSweep = func(id string) {
+		if id == renewed {
+			mustCall(t, d, protocol.Request{Verb: "task.touch", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+		}
+	}
+
+	var swept []string
+	line := captureStderr(t, func() { swept = d.Sweep() })
+
+	if len(swept) != 1 || swept[0] != abandoned {
+		t.Fatalf("swept = %v, want only %s", swept, abandoned)
+	}
+	if !strings.Contains(line, abandoned) {
+		t.Fatalf("the sweep did not name what it released: %q", line)
+	}
+	if strings.Contains(line, renewed) {
+		t.Fatalf("the sweep named a lease it did not release: %q", line)
+	}
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": renewed}})
+	if !strings.Contains(string(raw), `"doing"`) {
+		t.Fatalf("the renewed task lost its claim: %s", raw)
+	}
+	trail := sweptEvents(t, d)
+	if len(trail) != 1 || trail[0] != abandoned {
+		t.Fatalf("the trail records a sweep for %v, want only %s", trail, abandoned)
+	}
+}
+
+// §11.5: a sweep with nothing to release is silent. An operator reading the
+// daemon's log must be able to take every swept line as a real event.
+func TestASweepThatReleasesNothingSaysNothing(t *testing.T) {
+	d := newDaemon(t, &config.Config{LeaseSeconds: 900, SweepSeconds: 60})
+	id := createTask(t, d, "still being worked on").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+
+	var swept []string
+	line := captureStderr(t, func() { swept = d.Sweep() })
+
+	if len(swept) != 0 {
+		t.Fatalf("swept = %v, want nothing", swept)
+	}
+	if line != "" {
+		t.Fatalf("a sweep that released nothing wrote %q", line)
+	}
+}
+
+// sweptEvents is the entity ids the trail records a sweep for.
+func sweptEvents(t *testing.T, d *Daemon) []string {
+	t.Helper()
+	evs, err := d.Store.Events(store.EventFilter{AllProjects: true, Entity: "task"})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	out := []string{}
+	for _, ev := range evs {
+		if ev.Kind == "tasks.task.swept" || ev.Kind == "swept" {
+			out = append(out, ev.EntityID)
+		}
+	}
+	return out
 }
