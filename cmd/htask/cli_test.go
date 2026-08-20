@@ -849,10 +849,10 @@ func oneEnvelope(t *testing.T, stdout string) string {
 }
 
 // §6.2: --json answers with one document whichever side refused. The door's
-// own refusals — a missing positional, a flag cobra does not know — used to
-// exit with the right status and an EMPTY stdout, so a machine caller got an
-// envelope or an end-of-file depending on which side validated, which is not
-// something it can see from where it stands.
+// own refusals — a missing positional, a flag cobra does not know — must
+// carry an envelope too: an exit status with an EMPTY stdout gives a machine
+// caller a document or an end-of-file depending on which side validated, and
+// which side that was is not something it can see from where it stands.
 func TestDoorSideJSONFailuresPrintOneEnvelope(t *testing.T) {
 	w := newWorld(t)
 	for name, args := range map[string][]string{

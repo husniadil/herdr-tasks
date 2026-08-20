@@ -102,8 +102,9 @@ is also clickable — the footer draws each verb where the mouse can reach it.
 
 ## The shared plugin contract
 
-This plugin conforms to the **shared plugin contract, v0** (0.1.0-draft). The
-version is printed by `htask version` and `htask doctor`. Where implementation found
+This plugin conforms to the **shared plugin contract**, revision 0.1.0-draft,
+which §13.4 requires it to declare here and in `doctor` output — `htask version`
+and `htask doctor` both print it. Where implementation found
 the contract underspecified, the gap is recorded in
 [`docs/contract-notes.md`](docs/contract-notes.md) rather than silently worked
 around.
@@ -125,7 +126,7 @@ The daemon listens on a Unix socket at `<state_dir>/tasks.sock`, created 0600
 inside a state dir created 0700. Any process running as you can call any verb
 as any principal it can present — including your agents, their subagents, and
 anything else in a Herdr-managed pane, since `HERDR_PANE_ID` is inherited by
-child processes (§3.3). This is deliberate for v0 and is not a bug to work
+child processes (§3.3). This is deliberate and is not a bug to work
 around: the plugin is a local tool for a single operator's machine, and the
 protection is the account, not the plugin.
 

@@ -244,7 +244,7 @@ func Update(m Model, msg Msg) (Model, *Call) {
 	case KeyMsg:
 		if v.Alt {
 			// Nothing binds a chord. Running the bare letter's verb instead
-			// is how alt+a came to approve a task.
+			// would make alt+a approve a task.
 			return m, nil
 		}
 		if v.Paste {
@@ -304,8 +304,8 @@ func key(m Model, k string) (Model, *Call) {
 		}
 		if m.filter() != "" {
 			// The other way out of a filter, and it clears the same things:
-			// leaving the old term in the status describes a board that is no
-			// longer filtered.
+			// a term left in the status describes a board that is not
+			// filtered by it.
 			m = m.setFilter("")
 			m.Status = ""
 			return m, m.listCall()

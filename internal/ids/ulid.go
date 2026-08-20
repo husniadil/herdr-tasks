@@ -88,12 +88,13 @@ func increment(b []byte) bool {
 // character carries three significant bits — which is why a ULID's leading
 // digit never exceeds 7.
 //
-// This used to align them the other way, five bits at a time from the top, and
-// its comment said "two significant bits" while claiming a ceiling of 7, which
-// needs three. Internally that was harmless — a constant shift preserves
-// ordering — but it is not the format §5.4 names, and a decoder that did not
-// know about this implementation read the timestamp as a date two centuries
-// out. The divergence and the migration off it are in docs/contract-notes.md.
+// The alternative rendering — five bits at a time from the TOP, left-aligned —
+// is two bits out and is not the format §5.4 names: a decoder that does not
+// know this implementation reads the timestamp as a date two centuries away.
+// Ordering is unaffected either way, since a constant shift preserves it,
+// which is why only an outside decoder can tell them apart. Migration 3 and
+// Reencode below convert left-aligned ids, and docs/contract-notes.md carries
+// the measurement.
 func encode(raw [16]byte) string {
 	out := make([]byte, 26)
 	for i := range out {
@@ -140,15 +141,15 @@ func inAlphabet(c byte) bool {
 	return false
 }
 
-// Reencode converts an id minted by the old LEFT-aligned rendering into the
-// spec's right-aligned one. The two differ by a constant two-bit shift, so the
-// conversion is exact and total: read the 130 bits the old string spelled,
-// shift the padding off the wrong end, and render them again.
+// Reencode converts a LEFT-aligned id into the spec's right-aligned one. The
+// two renderings differ by a constant two-bit shift, so the conversion is
+// exact and total: read the 130 bits the string spells, shift the padding off
+// the wrong end, and render them again.
 //
 // It reports false for anything that is not a 26-character Crockford string,
-// and for an old string whose low two bits are set — which the old encoder
-// could never produce, since it left them as padding. That is the one check
-// available for "this has already been migrated", and it is why the migration
+// and for a string whose low two bits are set — which a left-aligned rendering
+// cannot produce, since it leaves them as padding. That is the only check
+// available for "this is already right-aligned", and it is why the migration
 // leans on the schema version for idempotence rather than on the ids.
 func Reencode(old string) (string, bool) {
 	if !Valid(old) {
@@ -161,8 +162,8 @@ func Reencode(old string) (string, bool) {
 		lo = lo<<5 | v
 	}
 	if lo&0x3 != 0 {
-		// The old encoder put the 128 bits at the TOP of the 130, so the
-		// bottom two were always zero. Anything else was not minted by it.
+		// A left-aligned rendering puts the 128 bits at the TOP of the 130,
+		// so the bottom two are always zero. Anything else is not one.
 		return "", false
 	}
 	// Drop the two padding bits off the bottom to get the real 128.

@@ -194,15 +194,15 @@ func TestGoalCarriesRejectFeedback(t *testing.T) {
 // which command to run. The binary is `htask`, because `ht` is tex4ht on a
 // machine with TeX Live and a hex editor in Homebrew — so an agent that
 // followed a goal naming `ht` would run someone else's program. This is the
-// one place the rename is not documentation: it is an instruction the daemon
-// emits at runtime.
+// one place the binary's name is not documentation: it is an instruction the
+// daemon emits at runtime.
 func TestTheGoalNamesTheBinaryThatExists(t *testing.T) {
 	got := BuildGoal(goalTask())
 	// A bare `htask ` anywhere in the goal is the failure. Backtick or not: the
 	// text is prose an agent reads, not a fenced block.
 	for _, bad := range []string{"`ht ", " ht ", "\nht "} {
 		if strings.Contains(got, bad) {
-			t.Errorf("the goal names the old binary (%q):\n%s", bad, got)
+			t.Errorf("the goal names a binary that is not this one (%q):\n%s", bad, got)
 		}
 	}
 	// And it really does teach the verbs, or the check above passes on an

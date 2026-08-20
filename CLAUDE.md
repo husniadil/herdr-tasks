@@ -23,7 +23,7 @@ A green `make test` is not a green gate. Nothing is committed on it alone.
 
 ## The contract comes first
 
-This plugin conforms to a **shared plugin contract, v0** and declares that
+This plugin conforms to a **shared plugin contract** and declares that
 in its README and `htask doctor` output. The contract fixes the error codes and
 exit statuses, the `--json` envelope, identity and principals, project scoping,
 storage rules, MCP naming, events, the policy gate, and the testing layers.

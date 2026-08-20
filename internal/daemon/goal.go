@@ -203,7 +203,7 @@ func fitContext(t *tasks.Task, budget int) string {
 }
 
 // clip cuts to at most max bytes, marker included, on a rune and preferably a
-// word boundary, and says that it cut. Returning more than max was the bug
+// word boundary, and says that it cut. Returning more than max is the failure
 // that let a goal past its own ceiling.
 func clip(s string, max int) string {
 	if len(s) <= max {

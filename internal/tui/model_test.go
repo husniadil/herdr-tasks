@@ -973,7 +973,7 @@ func TestMouseRowsStayWhereClickHitTestsThem(t *testing.T) {
 
 // The filter's status line is what pushed the header off, and it also lied:
 // an emptied filter left the words "filter:" with nothing after them, and esc
-// left the old term showing over a board that was no longer filtered.
+// leaves a term showing over a board that is not filtered by it.
 func TestFilterStatusSaysWhatIsTrue(t *testing.T) {
 	m := board(t, task(1, tasks.StatusTodo, "a"))
 	m.Width, m.Height = 80, 24

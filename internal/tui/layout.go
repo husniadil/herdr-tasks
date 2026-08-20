@@ -255,11 +255,11 @@ func frameOf(m Model, now int64) frame {
 const promptCursor = '_'
 
 // promptLine draws the prompt as one row, showing the part of the value the
-// cursor is in. A value longer than the pane used to be drawn from the start
-// and clipped, so everything past the edge — which is exactly where the typing
-// happens — was invisible: the operator typed blind. The window follows the
-// cursor instead, keeping it roughly centred so there is context on both
-// sides, and it stays ONE row whatever the value holds, because a prompt that
+// cursor is in. The window follows the cursor rather than starting at the
+// beginning of the value: what is past the pane's edge is exactly where the
+// typing happens, so a value drawn from the start and clipped leaves the
+// operator typing blind. It is kept roughly centred so there is context on
+// both sides, and it stays ONE row whatever the value holds, because a prompt that
 // grew to two rows would push the header off the screen again.
 func promptLine(p Prompt, width int) string {
 	head := p.Label + ": "

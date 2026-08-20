@@ -55,11 +55,11 @@ func readSoFar(path string) string {
 }
 
 // The harness's own failure reporting. A pane command that never finishes must
-// be reported as the timeout it was: before this, the wait fell out of its
-// loop silently and the half-written file was read anyway, so a slow command
-// surfaced as "the pane printed no JSON document" — the door blamed for the
-// harness running out of patience. Needs no Herdr, so it runs even where the
-// rest of layer 3 skips.
+// be reported as the timeout it was. A wait that falls out of its loop
+// silently leaves the half-written file to be read anyway, and a slow command
+// then surfaces as "the pane printed no JSON document" — the door blamed for
+// the harness running out of patience. Needs no Herdr, so it runs even where
+// the rest of layer 3 skips.
 func TestAPaneWaitThatRunsOutOfTimeSaysSoInsteadOfBlamingTheOutput(t *testing.T) {
 	appeared := filepath.Join(t.TempDir(), "done")
 	if err := os.WriteFile(appeared, []byte("0\n"), 0o600); err != nil {

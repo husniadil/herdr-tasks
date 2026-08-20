@@ -29,8 +29,8 @@ var idColumns = []idColumn{
 	{"task_deps", "depends_on_id"},
 }
 
-// reencodeIDs rewrites every stored id from the old left-aligned rendering to
-// the spec's right-aligned one (§5.4). It runs inside the migration's
+// reencodeIDs rewrites every stored id from the left-aligned rendering to the
+// spec's right-aligned one (§5.4). It runs inside the migration's
 // transaction, so either every id moves or none does — a half-migrated store
 // would order its trail wrongly at the boundary, because for the same instant
 // an old id sorts AFTER a new one.

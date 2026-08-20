@@ -437,8 +437,7 @@ func TestAPathThatDoesNotExistYetGetsTheKeyItWillHave(t *testing.T) {
 }
 
 // The macOS case the note reproduced: /var is a symlink to /private/var, so a
-// not-yet-existing path under it used to key differently from the same path
-// once created.
+// path under it must key the same before and after it is created.
 func TestASymlinkedSystemDirIsResolvedBeforeItExists(t *testing.T) {
 	if _, err := os.Lstat("/var"); err != nil {
 		t.Skip("no /var here")

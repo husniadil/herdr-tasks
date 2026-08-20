@@ -3,10 +3,11 @@
 BIN := bin/htask
 
 build:
-	@# A stale bin/ht from before the rename is worse than a missing binary: it
-	@# is a frozen pre-rename build, and anything still pointed at it by
-	@# absolute path — an MCP entry, a script — keeps being served yesterday's
-	@# verb surface, with the skew warning going to a stderr nobody reads.
+	@# bin/ holds this plugin's binary and nothing else. A file there under
+	@# another name is a stale build that nothing rebuilds, and anything
+	@# pointed at it by absolute path — an MCP entry, a script — keeps being
+	@# served whatever verb surface it froze with, with the skew warning going
+	@# to a stderr nobody reads. Removed so it cannot answer.
 	@rm -f bin/ht
 	go build -o $(BIN) ./cmd/htask
 
@@ -45,9 +46,9 @@ test-full:
 	@# Layer 3's herdr-NEEDING half is not run here — it needs a real herdr —
 	@# but it is compiled here, so the suite cannot rot behind its build tag.
 	@# Its herdr-FREE half carries no build tag, so `go test` below runs it
-	@# like any other package: the harness's own failure reporting decides
-	@# whether every other layer-3 failure is legible, and it used to be
-	@# compiled by this line and executed by nothing.
+	@# like any other package. That half is the harness's own failure
+	@# reporting, which decides whether every other layer-3 failure is
+	@# legible — a vet that only compiles it would leave that unchecked.
 	go vet -tags e2e ./...
 	go test -race ./...
 

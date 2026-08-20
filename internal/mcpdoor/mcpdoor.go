@@ -27,9 +27,9 @@ import (
 // a client sees and names.
 //
 // It is NOT the tool prefix. §7.1 fixes tool names as <short name>_<verb> and
-// says nothing about the registration name; this constant used to be both, so
-// a server named for the plugin and tools named for the short name could not
-// coexist. They can now, and ToolPrefix is the one §7.1 binds.
+// says nothing about the registration name, so the two are separate constants:
+// a server named for the plugin and tools named for the short name have to
+// coexist, and ToolPrefix is the one §7.1 binds.
 const ServerName = "herdr-tasks"
 
 // ToolPrefix is the §7.1 tool-name prefix: the plugin's SHORT name (§13.2),
@@ -330,8 +330,8 @@ func sortedNames(m map[string]any) []string {
 // It is exported because the flags themselves live in the CLI, in package
 // main, and the drift tests read this table from both sides: one asserts every
 // CLI global is accounted for here, the other asserts the tools carry exactly
-// what this table says they do. An absence is how base_updated_at came to be
-// unreachable through MCP with a parity test that could not see it.
+// what this table says they do. An absence here is a global that is
+// unreachable through MCP with a parity test that cannot see it.
 type Global struct {
 	// Property is the MCP argument this flag becomes, or "" when excluded.
 	Property string

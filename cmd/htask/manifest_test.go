@@ -205,7 +205,7 @@ func TestTheManifestIdentityDidNotFollowTheBinary(t *testing.T) {
 	// And every command it runs names the binary that exists.
 	for _, argv := range commandLine.FindAllStringSubmatch(manifest, -1) {
 		if strings.Contains(argv[0], `"./bin/ht"`) {
-			t.Errorf("a manifest command still runs the old binary: %s", argv[0])
+			t.Errorf("a manifest command runs %s, which is not this plugin's binary", argv[0])
 		}
 	}
 }

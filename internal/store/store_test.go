@@ -950,10 +950,10 @@ func TestEveryNotFoundInThisPackageDistinguishesNoRows(t *testing.T) {
 	}
 }
 
-// oldID mints an id the way this store used to: the 128 bits LEFT-aligned in
-// the 26 characters. It is the fixture migration 3 has to read, and nothing in
-// the shipped code can produce it any more — which is the point.
-func oldID(ms int64, tail byte) string {
+// leftAlignedID renders an id with the 128 bits LEFT-aligned in the 26
+// characters. It is the input migration 3 takes, and nothing in the shipped
+// code produces it — which is the point.
+func leftAlignedID(ms int64, tail byte) string {
 	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
 	var raw [16]byte
 	for i := 0; i < 6; i++ {
@@ -972,8 +972,8 @@ func oldID(ms int64, tail byte) string {
 	return string(out)
 }
 
-// v2Store builds a database at schema version 2 — the last one before the ids
-// were re-spelled — and fills it with a graph that touches every column an id
+// v2Store builds a database at schema version 2 — the version whose ids are
+// left-aligned — and fills it with a graph that touches every column an id
 // lives in: two tasks with a dependency between them, a note promoted to one
 // of them, a parked action, and events in both trails. It returns the path.
 func v2Store(t *testing.T) (path string, byLabel map[string]string) {
@@ -995,13 +995,13 @@ func v2Store(t *testing.T) (path string, byLabel map[string]string) {
 
 	at := int64(1_787_225_085_000)
 	byLabel = map[string]string{
-		"blocker":   oldID(at, 1),
-		"dependent": oldID(at+1, 2),
-		"note":      oldID(at+2, 3),
-		"parked":    oldID(at+3, 4),
-		"ev1":       oldID(at+4, 5),
-		"ev2":       oldID(at+5, 6),
-		"nev1":      oldID(at+6, 7),
+		"blocker":   leftAlignedID(at, 1),
+		"dependent": leftAlignedID(at+1, 2),
+		"note":      leftAlignedID(at+2, 3),
+		"parked":    leftAlignedID(at+3, 4),
+		"ev1":       leftAlignedID(at+4, 5),
+		"ev2":       leftAlignedID(at+5, 6),
+		"nev1":      leftAlignedID(at+6, 7),
 	}
 	exec := func(q string, args ...any) {
 		t.Helper()
@@ -1111,7 +1111,7 @@ func TestMigrationReencodesEveryStoredID(t *testing.T) {
 		t.Fatalf("schema_version = %d, want %d", version, SchemaVersion)
 	}
 
-	// Every id changed, and none of the old ones is left anywhere.
+	// Every id changed, and no left-aligned one is left anywhere.
 	for _, c := range idColumns {
 		rows, err := s.db.Query(fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL AND %s != ''",
 			c.column, c.table, c.column, c.column))
@@ -1127,7 +1127,7 @@ func TestMigrationReencodesEveryStoredID(t *testing.T) {
 			for name, old := range label {
 				if got == old {
 					rows.Close()
-					t.Fatalf("%s.%s still holds the old id for %s: %s", c.table, c.column, name, got)
+					t.Fatalf("%s.%s still holds the left-aligned id for %s: %s", c.table, c.column, name, got)
 				}
 			}
 		}

@@ -1,5 +1,5 @@
 // Command htask is herdr-tasks: the daemon, the CLI, and the MCP server in one
-// binary (§2.1). It conforms to the shared plugin contract, v0.
+// binary (§2.1). It conforms to the shared plugin contract.
 package main
 
 import (

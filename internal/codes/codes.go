@@ -1,5 +1,5 @@
 // Package codes holds the shared error-code vocabulary and exit statuses of
-// the shared plugin contract, v0 (§6.3). The codes are semver-bound: a shipped
+// the shared plugin contract (§6.3). The codes are semver-bound: a shipped
 // code is never repurposed or removed, only new ones appended.
 package codes
 

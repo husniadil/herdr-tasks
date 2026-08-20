@@ -1,6 +1,6 @@
 # Contract notes
 
-Gaps found while implementing the shared plugin contract, v0. The rule is in
+Gaps found while implementing the shared plugin contract. The rule is in
 `CLAUDE.md`: where implementation shows a contract rule is wrong or
 unimplementable as written, record it here and follow the contract until it is
 amended upstream. Nothing here is a licence to diverge quietly.
@@ -29,9 +29,9 @@ the overrides (§10.1's `TASKS_` prefix), then the XDG bases, then `~`. Ignoring
 them rather than lowering their precedence is deliberate: any order that still
 consults them splits the store again for whichever surface Herdr does inject.
 
-What this costs, recorded honestly: Herdr can no longer place this plugin's
-state, so a second or sandboxed Herdr no longer gets a separate store for free
-(`TASKS_STATE_DIR` still buys one deliberately), and if Herdr ever cleans up
+What this costs, recorded honestly: Herdr does not place this plugin's state,
+so a second or sandboxed Herdr does not get a separate store for free
+(`TASKS_STATE_DIR` buys one deliberately), and if Herdr ever cleans up
 `~/.local/state/herdr/plugins/<id>` on uninstall, this plugin's data will
 outlive that. Both were weighed against a failure that looks like data loss to
 the operator, and the operator chose this.
@@ -73,10 +73,8 @@ validated against one list, and `herdr-plugin.toml` spells its hooks with dots.
 
 ## §8.4 — what a manifest `[[events]]` command receives
 
-This entry used to say the payload was unspecified and undiscoverable, and
-that the manifest therefore declared no `[[events]]` block. That was wrong,
-and a note asserting a blocker that does not exist is how a capability stays
-unused. Read out of Herdr's own source
+The payload is specified and discoverable, and the manifest declares
+`[[events]]` blocks that rely on it. Read out of Herdr's own source
 (`src/app/api/plugins/runtime.rs`, `context.rs`, `manifest.rs`), a hook
 command receives its payload as **environment variables**:
 
@@ -246,69 +244,66 @@ not-a-repository fallback, the directory's canonical path. The two correct rows
 above are unchanged, so worktrees still share one project.
 
 Cost, recorded because it is a data-visibility change and not only a bug fix:
-anyone who used this plugin inside a submodule or a `--separate-git-dir` clone
-before this keeps rows under the old key and cannot see them from the new one.
-The old key was a colliding git-internals path, so this is fixing a key that
-was never usable rather than breaking one that worked.
+rows filed from a submodule or a `--separate-git-dir` clone may be keyed by the
+git-internals path, and are not visible from the working-tree key this
+resolves to. That key collides across every submodule of one superproject and
+is reachable from neither the submodule nor the superproject, so it is not one
+anything could have relied on.
 
 Suggested amendment upstream: define `project` as the working tree of the
 repository containing the directory — `--show-toplevel` — with the common dir
 consulted only to make linked worktrees resolve to the main working tree.
 
-## §5.4 — the ids were not ULIDs, and now they are
+## §5.4 — ids are ULIDs, and left-aligned ids are still in stores
 
 §5.4 says entity ids are ULIDs, which is the name of a FORMAT, not a shape.
-This store minted 26 Crockford base32 characters that were not one.
+Two renderings of 26 Crockford base32 characters are in play, and only one of
+them is a ULID.
 
 A ULID is 128 bits rendered **right-aligned** in 26 five-bit characters. That
 is 130 bits, so the leading two are padding and the first character carries
 three significant bits — which is why a ULID's leading digit never exceeds 7.
-This encoder aligned them the other way, five bits at a time from the TOP, so
-every id was the correct value shifted left by two. Its own comment said the
-first character carried "two significant bits" while claiming that ceiling of
-7, which needs three; the comment and the code were each wrong in a different
-way, and neither caught the other.
+The left-aligned rendering packs five bits at a time from the TOP, making
+every id the value shifted left by two.
 
-Measured on a real id from this board, `06G1XTMPG597T1S9F5HZG0BC94`:
+Measured on a left-aligned id, `06G1XTMPG597T1S9F5HZG0BC94`:
 
 | read as | milliseconds | date |
 |---|---|---|
 | a spec ULID | 7148900342277 | year 2196 |
 | shifted right two | 1787225085569 | 2026-08-20 11:24:45 UTC |
 
-The second is when that note was filed. So any tool that decoded one of these
-as a ULID — which §5.4 invites it to — got a timestamp two centuries out.
+The second is the millisecond that id carries. A tool that decodes a
+left-aligned id as a ULID — which §5.4 invites it to — reads a timestamp two
+centuries out.
 
-Internal ordering was never affected: a constant shift preserves it, and
-`ORDER BY id` over the trail (§5.5, §8.2) was always right. That is why nothing
-noticed.
+Ordering is unaffected by the difference: a constant shift preserves it, and
+`ORDER BY id` over the trail (§5.5, §8.2) is right under either rendering. Only
+an outside decoder can tell them apart, which is why the encoder alone is not
+where this shows up.
 
-**Fixing it needed a migration, not just an encoder change.** For the same
-128 bits the old spelling is the new one times four, so a newly minted correct
-id sorts BEFORE every existing one. A store that minted the new format without
-re-spelling the old ids would return its trail in the wrong order across the
-boundary, and `--since <id>` would skip or repeat. Migration 3 therefore
-re-encodes every stored id — tasks, notes, parked, both events tables and both
+**The encoder is not enough on its own.** For the same 128 bits a left-aligned
+id is four times a right-aligned one, so a correctly minted id sorts BEFORE
+every left-aligned one. A store holding both renderings returns its trail in
+the wrong order at the boundary, and `--since <id>` skips or repeats.
+Migration 3 therefore re-encodes every stored id — tasks, notes, parked, both events tables and both
 of `task_deps`' columns — in ONE transaction, with foreign keys deferred to
 the commit so a parent and its children move together, and a referential check
 inside the transaction that refuses to commit a graph that no longer holds.
 
-Recorded rather than merely fixed because the divergence was invisible from
-inside: every test this plugin had was written against its own encoder, so the
-format could only be checked against a decoder written from the spec. That
-decoder now lives in the id tests, and it is deliberately not derived from
-`encode` — one that was would agree with any encoding at all, including the
-wrong one.
+Recorded because the difference is invisible from inside: a test written
+against this package's own encoder agrees with whatever that encoder does. The
+format can only be checked against a decoder written from the spec, and that
+decoder lives in the id tests, deliberately not derived from `encode`.
 
-## §13.1 — `ht` was the failure case §13.1 already describes
+## §13.1 — what "not a common Unix command" excludes here
 
 §13.1 lets the binary be "the short name or an agreed abbreviation that is
-unique on a developer machine and **not a common Unix command**". `ht` failed
-the second half of that on the machine this plugin is developed on, so the
-rename to `htask` is not an exception to the rule — it is the rule being
-applied for the first time.
+unique on a developer machine and **not a common Unix command**". That second
+clause is a real constraint on a short abbreviation, and it is worth recording
+which names it excludes on the machine this plugin is developed on.
 
-Measured rather than assumed:
+`ht` is TeX4ht's, measured rather than assumed:
 
 ```
 /opt/homebrew/bin/ht -> ../Cellar/texlive/20260301/bin/ht
@@ -316,13 +311,13 @@ Measured rather than assumed:
 ```
 
 and Homebrew's own formula for that name is `hte`, a hex viewer, which brew
-records as `Conflicts with: texlive (because both install `ht` binaries)` —
-the name is contested between two unrelated projects before this plugin asks
-for it. An agent taught bare `ht` by the skill, running it from PATH, would
-have run TeX4ht. `htask` is free on PATH and in Homebrew.
+records as `Conflicts with: texlive (because both install `ht` binaries)`. The
+name is contested between two unrelated projects before any plugin asks for
+it, so an agent taught it by a skill and running it from PATH reaches one of
+them. `htask` is free on PATH and in Homebrew, and is this plugin's binary.
 
-**Three names live here and only one of them moved.** They are easy to
-conflate and the contract keeps them apart:
+**Three names live here and the contract keeps them apart.** They are easy to
+conflate:
 
 | what | value | fixed by |
 |---|---|---|
@@ -332,9 +327,10 @@ conflate and the contract keeps them apart:
 
 §10.1 fixes the env prefix as the "uppercase short name", which settles that
 the `<name>` in §2.2's socket path and §5.1's database path is the SHORT name
-as well. So `<state_dir>/tasks.sock`, `<state_dir>/tasks.db` and `TASKS_*` do
-not move when the binary does, and a test asserts it rather than leaving it to
-be discovered by an operator whose board went missing.
+as well. So `<state_dir>/tasks.sock`, `<state_dir>/tasks.db` and `TASKS_*` are
+keyed by the short name and are independent of the binary's, which a test
+asserts rather than leaving it to be discovered by an operator whose board went
+missing.
 
 **Upstream amendment to propose:** §13.2 says binary abbreviations are "listed
 in the glossary (§14)". The glossary entry for this plugin should read `htask`.
@@ -342,17 +338,14 @@ in the glossary (§14)". The glossary entry for this plugin should read `htask`.
 ## §7.1 — the tool prefix is not the server's registration name
 
 §7.1 fixes tool names as `<name>_<verb>` and says nothing about the name an
-MCP server registers itself under. This plugin held both in one constant, so
-they could not differ — and when the registration name was changed to carry
-the plugin identity (`herdr-tasks`), the parity test that cites §7.1 failed,
-because it was checking tool names against the server name.
+MCP server registers itself under. They are two different names here and are
+two constants: `ServerName` is `herdr-tasks`, so a client wiring the server in
+sees the plugin's identity; `ToolPrefix` is `tasks`, the short name §7.1
+binds. The §7.1 assertion checks the prefix, and the fifteen pinned tool names
+are `tasks_*`, which is what §7.1 requires and what its "semver-bound once
+released" protects.
 
-They are separate now: `ServerName` is `herdr-tasks`, `ToolPrefix` is `tasks`,
-and the §7.1 assertion checks the prefix. The fifteen pinned tool names are
-unchanged and stay `tasks_*`, which is what §7.1 requires and what §7.1's
-"semver-bound once released" protects.
-
-Recorded because nothing in the contract was violated in either direction:
-this is a place where the contract is silent and the implementation had
-assumed an equality it never stated. A plugin whose short name and plugin id
-happen to match would never have noticed.
+Recorded because the contract is silent here rather than violated in either
+direction, and because a single constant is the natural way to write this: a
+plugin whose short name and plugin id happen to match cannot tell the two
+apart.

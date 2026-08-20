@@ -45,10 +45,9 @@ type Verb struct {
 	// Args is the parameter list, in CLI positional order.
 	Args []Arg
 	// Gated is the §9.4 verb name passed to the policy gate. Empty means this
-	// verb is not offered to the gate — which is NOT the same as "changes
-	// nothing", and used to be documented as if it were: eleven verbs that
-	// write carry no gate name, including three that destroy. A Mutates verb
-	// with no Gated must say why in Ungated.
+	// verb is not offered to the gate, which is NOT the same as "changes
+	// nothing": eleven verbs that write carry no gate name, three of them
+	// destructive. A Mutates verb with no Gated must say why in Ungated.
 	Gated string
 	// Ungated is why a verb that writes passes no name to the policy gate.
 	// Required exactly when Mutates is true and Gated is empty, so the eleven
@@ -56,7 +55,7 @@ type Verb struct {
 	Ungated string
 	// Who is the principal rule: who may call this verb. Every verb that
 	// writes states one, because the alternative is a rule of "whoever asked"
-	// arrived at by omission — which is how deleting a rival's note came to be
+	// arrived at by omission — which is how destroying a rival's note becomes
 	// easier than fixing a typo in it.
 	Who string
 	// Mutates marks a verb that writes, for the --base-updated-at guard (§5.6).

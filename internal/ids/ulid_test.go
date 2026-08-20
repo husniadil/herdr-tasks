@@ -156,11 +156,11 @@ func TestIdsAreSpecULIDs(t *testing.T) {
 	}
 }
 
-// oldEncode is the rendering this store used to mint: the 128 bits LEFT-
-// aligned in the 26 characters, five bits at a time from the top. It lives in
-// the test because it is the fixture the migration has to read, and nothing in
-// the shipped code should be able to produce it again.
-func oldEncode(raw [16]byte) string {
+// leftAlignedEncode renders the 128 bits LEFT-aligned in the 26 characters,
+// five bits at a time from the top. It lives in the test because ids in this
+// rendering are what Reencode and migration 3 take as input, and nothing in
+// the shipped code produces it.
+func leftAlignedEncode(raw [16]byte) string {
 	out := make([]byte, 26)
 	for i := 0; i < 26; i++ {
 		bit := i * 5
@@ -173,18 +173,17 @@ func oldEncode(raw [16]byte) string {
 	return string(out)
 }
 
-// §5.4: converting an old id is exact — same 128 bits, spelled the way the
-// format says. A real id from this board before the change decodes to the
-// moment it was filed.
+// §5.4: conversion is exact — same 128 bits, spelled the way the format says.
+// A left-aligned id decodes to the millisecond it carries.
 func TestReencodeKeepsTheBitsAndFixesTheSpelling(t *testing.T) {
-	// Minted by the old encoder at a known millisecond.
+	// Left-aligned, at a known millisecond.
 	ms := int64(1_787_225_085_569)
 	var raw [16]byte
 	raw[0], raw[1] = byte(ms>>40), byte(ms>>32)
 	raw[2], raw[3] = byte(ms>>24), byte(ms>>16)
 	raw[4], raw[5] = byte(ms>>8), byte(ms)
 	raw[6], raw[15] = 0xAB, 0x5C
-	old := oldEncode(raw)
+	old := leftAlignedEncode(raw)
 
 	got, ok := Reencode(old)
 	if !ok {
@@ -198,7 +197,7 @@ func TestReencodeKeepsTheBitsAndFixesTheSpelling(t *testing.T) {
 	}
 	// The old string read by a spec decoder is the nonsense this is fixing.
 	if decoded, _ := specDecode(t, old); decoded == ms {
-		t.Fatalf("the old spelling already decoded correctly, so the fixture is wrong")
+		t.Fatalf("the left-aligned spelling already decoded correctly, so the fixture is wrong")
 	}
 	// Converting is a pure re-spelling: the same bits, twice.
 	again, ok := Reencode(old)
@@ -206,9 +205,9 @@ func TestReencodeKeepsTheBitsAndFixesTheSpelling(t *testing.T) {
 		t.Fatalf("Reencode is not deterministic: %q then %q", got, again)
 	}
 	// And ORDER is preserved, which is what makes a whole-store migration
-	// safe: two old ids convert to two new ids that compare the same way.
+	// safe: two left-aligned ids convert to two that compare the same way.
 	raw[15] = 0x5D
-	older, newer := old, oldEncode(raw)
+	older, newer := old, leftAlignedEncode(raw)
 	a, _ := Reencode(older)
 	b, _ := Reencode(newer)
 	if (older < newer) != (a < b) {
@@ -218,14 +217,15 @@ func TestReencodeKeepsTheBitsAndFixesTheSpelling(t *testing.T) {
 
 // What Reencode refuses, and — more importantly — what it CANNOT refuse.
 //
-// The old encoder left the bottom two bits as padding, so a string with either
-// of them set was certainly not minted by it. That is the only signal
-// available, and it is a weak one: three quarters of correctly-encoded ids
-// have a bit set down there, but the other quarter do not, so Reencode cannot
-// tell an already-migrated id from an old one. Running the migration twice
-// would therefore corrupt most of a store — which is why idempotence rests on
-// the schema version (TestTheReencodeRunsOnce in the store) and not on the ids
-// themselves. Pinning that here so nobody later mistakes this check for one.
+// The left-aligned rendering leaves the bottom two bits as padding, so a
+// string with either of them set was certainly not produced by it. That is the
+// only signal available, and it is a weak one: three quarters of
+// correctly-encoded ids have a bit set down there and the other quarter do
+// not, so Reencode cannot tell an already-converted id from a left-aligned
+// one. Running the migration twice would therefore corrupt most of a store,
+// which is why idempotence rests on the schema version
+// (TestTheReencodeRunsOnce in the store) and not on the ids themselves.
+// Pinned here so nobody mistakes this check for that guard.
 func TestReencodeRefusesOnlyWhatItCan(t *testing.T) {
 	if _, ok := Reencode("not an id"); ok {
 		t.Fatal("Reencode accepted a non-id")

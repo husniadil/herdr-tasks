@@ -32,8 +32,10 @@ import (
 // Version is the plugin version `htask version` and doctor print (§13.3).
 const Version = "0.1.0"
 
-// ContractVersion is the shared plugin contract this binary satisfies (§13.4).
-const ContractVersion = "v0 (0.1.0-draft)"
+// ContractVersion is the revision of the shared plugin contract this binary
+// satisfies. §13.4 requires a plugin to declare it in its README and in
+// `doctor` output, which is what a reader compares a binary against.
+const ContractVersion = "0.1.0-draft"
 
 // Daemon holds everything a verb needs to answer.
 type Daemon struct {
@@ -279,10 +281,10 @@ func (d *Daemon) Handle(req protocol.Request) (any, error) {
 
 // admit is everything that happens to a request BEFORE its verb runs: the verb
 // exists, every argument is one it declares, the principal is derived, and the
-// policy gate has had its say. `events --follow` used to skip all of it by
-// being routed straight to the stream, so a door newer than the daemon had the
-// part the daemon did not know silently dropped and was told it was following.
-// One function, called by both paths.
+// policy gate has had its say. `events --follow` runs it too: routing a
+// stream straight past these checks would let a door newer than the daemon
+// have the part the daemon does not know silently dropped, and be told it was
+// following. One function, called by both paths.
 func (d *Daemon) admit(req protocol.Request) (verbs.Verb, tasks.Actor, error) {
 	v, ok := verbs.ByName(req.Verb)
 	if !ok {
@@ -470,7 +472,7 @@ func (d *Daemon) emitted(project, entity, entityID string) {
 }
 
 // streamEvents is `events --follow`, the subscription primitive of §8.2. There
-// is no push bus in v0; this is a store read woken by a mutation.
+// is no push bus in the contract; this is a store read woken by a mutation.
 func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *json.Encoder) {
 	f := store.EventFilter{
 		Project:     req.Project,
