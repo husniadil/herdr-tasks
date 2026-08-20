@@ -3,6 +3,7 @@ package daemon
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
@@ -20,14 +21,97 @@ func goalTask() *tasks.Task {
 	}
 }
 
-// §16.2: the condition is paste-ready, which means it fits.
+// §16.2: the condition is paste-ready, which means it fits. The limit is a
+// MUST, so it holds for input chosen to break it, not only for a task someone
+// wrote carefully.
 func TestGoalIsUnder4000Characters(t *testing.T) {
-	got := BuildGoal(goalTask())
-	if len(got) == 0 {
-		t.Fatal("goal is empty")
+	huge := strings.Repeat("x", 30_000)
+	many := func(n, size int) []tasks.Criterion {
+		out := make([]tasks.Criterion, n)
+		for i := range out {
+			out[i] = tasks.Criterion{Text: strings.Repeat("c", size), Required: true}
+		}
+		return out
 	}
-	if len(got) >= GoalLimit {
-		t.Fatalf("goal is %d characters, want under %d", len(got), GoalLimit)
+	cases := map[string]func(*tasks.Task){
+		"an ordinary task":       func(*tasks.Task) {},
+		"a huge description":     func(x *tasks.Task) { x.Description = huge },
+		"huge feedback":          func(x *tasks.Task) { x.Feedback = huge },
+		"a huge release note":    func(x *tasks.Task) { x.ReleaseNote = huge },
+		"every context huge":     func(x *tasks.Task) { x.Description, x.Feedback, x.ReleaseNote = huge, huge, huge },
+		"a hundred criteria":     func(x *tasks.Task) { x.Validation = many(100, 200) },
+		"one enormous criterion": func(x *tasks.Task) { x.Validation = many(1, 30_000) },
+		"everything at once": func(x *tasks.Task) {
+			x.Description, x.Feedback, x.ReleaseNote = huge, huge, huge
+			x.Validation = many(100, 200)
+		},
+		"a pathological title": func(x *tasks.Task) { x.Title = huge },
+	}
+	for name, mangle := range cases {
+		t.Run(name, func(t *testing.T) {
+			task := goalTask()
+			mangle(task)
+			got := BuildGoal(task)
+			if len(got) == 0 {
+				t.Fatal("goal is empty")
+			}
+			if len(got) > GoalLimit {
+				t.Fatalf("goal is %d characters, past the %d the contract fixes", len(got), GoalLimit)
+			}
+			if !utf8.ValidString(got) {
+				t.Fatal("trimming cut a character in half")
+			}
+		})
+	}
+}
+
+// §16.2: context is what gives way when the budget is tight. The directive,
+// the Done when block's submit obligation, and the stop clause are the point
+// of the condition and survive every trim.
+func TestGoalKeepsItsMandatoryPartsUnderPressure(t *testing.T) {
+	task := goalTask()
+	task.Description = strings.Repeat("context. ", 4000)
+	task.Feedback = strings.Repeat("feedback. ", 4000)
+	task.ReleaseNote = strings.Repeat("left off. ", 4000)
+	for i := 0; i < 100; i++ {
+		task.Validation = append(task.Validation, tasks.Criterion{Text: strings.Repeat("c", 200), Required: true})
+	}
+	got := BuildGoal(task)
+	if len(got) > GoalLimit {
+		t.Fatalf("goal is %d characters", len(got))
+	}
+	for _, want := range []string{
+		"Make the lease sweep write an event.", // the directive
+		"Done when:",
+		"ht task submit 7", // the submit obligation
+		"its output is shown",
+		"ht task release 7 --note", // the stop clause
+		"ht task touch 7",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trimming dropped %q:\n%s", want, got)
+		}
+	}
+	// Context is the part that gave way.
+	if strings.Count(got, "context. ") > 200 {
+		t.Fatal("the description was not trimmed")
+	}
+}
+
+// A criteria list too long to fit is truncated only after context is gone, and
+// says so rather than trailing off mid-sentence.
+func TestGoalSaysWhenItDroppedCriteria(t *testing.T) {
+	task := goalTask()
+	task.Validation = nil
+	for i := 0; i < 100; i++ {
+		task.Validation = append(task.Validation, tasks.Criterion{Text: strings.Repeat("c", 200), Required: true})
+	}
+	got := BuildGoal(task)
+	if !strings.Contains(got, "further criteria") {
+		t.Fatalf("a truncated criteria list must say so:\n%s", got)
+	}
+	if !strings.Contains(got, "ht task get 7") {
+		t.Fatal("a truncated criteria list must point at the full one")
 	}
 }
 
