@@ -52,7 +52,27 @@ func newRootCmd() *cobra.Command {
 		}
 		parent, ok := groups[v.CLI[0]]
 		if !ok {
-			parent = &cobra.Command{Use: v.CLI[0], Short: groupShort(v.CLI[0])}
+			// A grouping command has to be Runnable AND refuse arguments.
+			// cobra returns help for a command that is not Runnable before it
+			// ever validates arguments (command.go:955 precedes :968), so
+			// NoArgs alone is unreachable on a parent with no Run: a stray
+			// argument reads as "no subcommand given", prints help on stdout
+			// and exits 0, where §6.2 and §6.3 promise one document and a
+			// failure code. RunE makes the parent Runnable so NoArgs is
+			// reached, and NoArgs turns the stray argument into the parse
+			// error the door already renders as a USAGE envelope. Zero
+			// arguments is not a stray argument, so `htask task` still
+			// answers with its help.
+			parent = &cobra.Command{
+				Use: v.CLI[0], Short: groupShort(v.CLI[0]), Args: cobra.NoArgs,
+				RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+				// Being Runnable makes cobra add `htask task [flags]` to the
+				// usage block, which is an artifact of the mechanism rather
+				// than a fact about the command: a group takes no flags of its
+				// own. Suppressed, so the help a reader already knows comes
+				// back byte for byte.
+				DisableFlagsInUseLine: true,
+			}
 			groups[v.CLI[0]] = parent
 			root.AddCommand(parent)
 		}

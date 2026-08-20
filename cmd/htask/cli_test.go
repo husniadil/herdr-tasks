@@ -1254,3 +1254,79 @@ func TestAStreamThatEndsOnPurposeExitsZero(t *testing.T) {
 		t.Fatalf("the end marker reached the caller's stdout: %s", f.out)
 	}
 }
+
+// parentCommands are the CLI's grouping commands — the first word of every
+// multi-word verb path. Read from the registry rather than listed here, so a
+// group added later is covered without anyone remembering to add a line.
+func parentCommands() []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, v := range verbs.All {
+		if len(v.CLI) > 1 && !seen[v.CLI[0]] {
+			seen[v.CLI[0]] = true
+			out = append(out, v.CLI[0])
+		}
+	}
+	return out
+}
+
+// §6.2 and §6.3: a call the door cannot carry out answers with exactly one
+// document and a failure status. A grouping command carries no Run, so a stray
+// argument reads to cobra as "no subcommand given" — which is a parse error
+// like an unknown flag, not a reason to print help and report success. A
+// machine caller that mistypes a subcommand must learn that from the answer
+// and not from counting lines.
+func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
+	w := newWorld(t)
+	parents := parentCommands()
+	if len(parents) < 3 {
+		t.Fatalf("found %d grouping commands in the registry, want at least task, note and parked", len(parents))
+	}
+	for _, parent := range parents {
+		stdout, stderr, status := w.run(w.env(), parent, "frobnicate", "--json")
+		if status != codes.Exit(codes.Usage) {
+			t.Errorf("%s frobnicate --json exited %d, want %d: %s%s",
+				parent, status, codes.Exit(codes.Usage), stdout, stderr)
+			continue
+		}
+		if got := oneEnvelope(t, stdout); got != codes.Usage {
+			t.Errorf("%s frobnicate --json answered %q, want USAGE", parent, got)
+		}
+		if !strings.Contains(stdout, "frobnicate") {
+			t.Errorf("%s frobnicate --json does not name the argument it refused: %s", parent, stdout)
+		}
+
+		// §6.1: the prose door refuses in the shape it already refuses every
+		// other parse error — one `htask: ...` line on stderr, nothing on
+		// stdout. Pinned against the door's own unknown-flag refusal rather
+		// than against a literal, so the two cannot drift apart.
+		stdout, stderr, status = w.run(w.env(), parent, "frobnicate")
+		flagOut, flagErr, flagStatus := w.run(w.env(), "task", "list", "--frobnicate")
+		if status != flagStatus {
+			t.Errorf("%s frobnicate exited %d; the door exits %d for an unknown flag: %s%s",
+				parent, status, flagStatus, stdout, stderr)
+		}
+		if stdout != "" || flagOut != "" {
+			t.Errorf("%s frobnicate wrote a refusal to stdout: %q", parent, stdout)
+		}
+		if lines := strings.Split(strings.TrimSpace(stderr), "\n"); len(lines) != 1 {
+			t.Errorf("%s frobnicate refused in %d lines, want one: %q", parent, len(lines), stderr)
+		}
+		if !strings.HasPrefix(stderr, "htask: ") || !strings.Contains(stderr, "frobnicate") {
+			t.Errorf("%s frobnicate refused as %q, want a `htask: ` line naming the argument (the door says %q for an unknown flag)",
+				parent, stderr, flagErr)
+		}
+	}
+
+	// And the thing NoArgs must not break: a grouping command with no
+	// subcommand at all is still someone asking what is in the group.
+	for _, parent := range parents {
+		stdout, stderr, status := w.run(w.env(), parent)
+		if status != 0 {
+			t.Errorf("%s with no subcommand exited %d, want its help: %s%s", parent, status, stdout, stderr)
+		}
+		if !strings.Contains(stdout+stderr, "Available Commands:") {
+			t.Errorf("%s with no subcommand printed no help:\n%s%s", parent, stdout, stderr)
+		}
+	}
+}
