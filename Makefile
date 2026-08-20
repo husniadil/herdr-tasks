@@ -1,4 +1,4 @@
-.PHONY: build test test-full install clean
+.PHONY: build test test-full e2e install clean
 
 BIN := bin/ht
 
@@ -37,7 +37,17 @@ test-full:
 	@# that OS to run on.
 	GOOS=linux GOARCH=amd64 go vet ./...
 	GOOS=darwin GOARCH=arm64 go vet ./...
+	@# Layer 3 is not run here — it needs a real herdr — but it is compiled
+	@# here, so the suite cannot rot behind its build tag.
+	go vet -tags e2e ./...
 	go test -race ./...
+
+# Layer 3 of §12.1: the SHIPPED binary against a real headless herdr server in
+# a throwaway named session on private socket paths. It is out of `test-full`
+# on purpose — CI and a machine without Herdr must still have a green gate —
+# and it skips loudly, naming what was missing, rather than passing quietly.
+e2e: build
+	go test -tags e2e -count=1 -v ./internal/e2e/...
 
 install:
 	go install ./cmd/ht

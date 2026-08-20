@@ -13,6 +13,10 @@ and review; notes are pre-decision ideas a human promotes or drops.
   that starts the daemon, walks the socket, or drives the fake `herdr`, with
   `-race` and a cross-compile vet of the other supported platform. Run it
   before every commit.
+- `make e2e` — layer 3: the built binary against a REAL throwaway headless
+  `herdr` on private socket paths. Out of the gate on purpose, because CI has
+  no Herdr; run it before a release tag, and when anything touching
+  `internal/herdrclient` or the pane lifecycle changes.
 - `make build` / `make install` — `./cmd/ht`.
 
 A green `make test` is not a green gate. Nothing is committed on it alone.

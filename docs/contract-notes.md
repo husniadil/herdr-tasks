@@ -63,3 +63,41 @@ and `note` reads as `task_events` / `note_events`. The tables here are
 `tasks_events` and `notes_events`, plural, matching the entity tables they sit
 beside (`tasks`, `notes`). No behaviour depends on the spelling; recorded so a
 future conformance suite that greps for the name is not surprised.
+
+## §3.4 — `herdr agent get` takes no `--json`, and wraps its answer
+
+Herdr 0.8.0's `agent get <target>` always prints JSON and rejects a `--json`
+flag with a usage error. The plugin passed the flag, and because §3.4 says to
+store `harness = "unknown"` rather than guess, the usage error came back as
+"unknown" for every claim instead of as a loud failure — a fallback hiding a
+failure, which the working agreements call a bug by definition. Layer 3 is
+what caught it; the flag is gone and both the wrapped answer
+(`{"result":{"agent":{…}}}`) and a bare object are read.
+
+Two further shape notes, from the same pass:
+
+- `agent_session` is an object in Herdr (`{"kind":"id","value":"…"}`) where
+  §3.4 describes a reference. It is flattened to its `value`.
+- An agent declared over the CLI (`pane report-agent`) gets no `agent_session`
+  at all in this Herdr, so §3.4's third fact is legitimately null there. The
+  end-to-end test asserts the snapshot stays empty rather than inventing one.
+
+## §11.5 — proving lease release when a pane dies, end to end
+
+The layer-3 test closes the claiming pane through the real Herdr and then runs
+`ht sweep --pane <id>`, the same pass a `pane.exited` reaction would run, and
+asserts the task is back in `todo` with a `swept` event on its trail. That is
+the nearest provable equivalent while the manifest carries no `[[events]]`
+reaction (see the §11.5 note above): what is not yet proved end to end is
+Herdr *delivering* the event, not what the plugin does when it has it.
+
+## §12.3 — what "never the operator's Herdr" costs in practice
+
+The throwaway server in `internal/e2e` needs more than a private
+`HERDR_SOCKET_PATH`. A `herdr server` started with only that still restores the
+default session's persisted state — the operator's live workspaces and panes
+appear on the private socket. Isolation needs a throwaway `HERDR_SESSION` as
+well, and this suite also overrides `HOME` and the XDG dirs, because Herdr puts
+a named session's state under `<config>/herdr/sessions/<name>/` regardless of
+`HERDR_CONFIG_PATH`. Recorded because "private socket" reads like enough and
+is not.
