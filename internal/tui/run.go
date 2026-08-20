@@ -60,7 +60,7 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		in = SizeMsg{Width: v.Width, Height: v.Height}
 	case tea.KeyMsg:
-		in = KeyMsg{Key: keyName(v)}
+		in = KeyMsg{Key: keyName(v), Paste: v.Paste, Alt: v.Alt}
 	case tea.MouseMsg:
 		m := tea.MouseEvent(v)
 		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {

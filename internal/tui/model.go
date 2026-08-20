@@ -9,6 +9,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
@@ -164,7 +165,17 @@ type Msg interface{ isMsg() }
 
 // KeyMsg is one keypress, named the way bubbletea names them ("up", "enter",
 // "ctrl+c") or the literal rune for a printable key.
-type KeyMsg struct{ Key string }
+//
+// Paste and Alt are carried rather than collapsed into Key, because the three
+// are different events that look identical once flattened. A paste is many
+// characters in one message and is TEXT, never a verb — collapsing it made a
+// one-character paste run whatever that letter is bound to. Alt+<letter> is a
+// chord nothing binds, and collapsing it ran the bare letter's verb.
+type KeyMsg struct {
+	Key   string
+	Paste bool
+	Alt   bool
+}
 
 // MouseMsg is one click at a cell. The TUI is mouse-first (§11.6): every verb
 // the keyboard reaches is reachable by clicking, and the keyboard is the
@@ -231,6 +242,19 @@ func Update(m Model, msg Msg) (Model, *Call) {
 	case MouseMsg:
 		return click(m, v)
 	case KeyMsg:
+		if v.Alt {
+			// Nothing binds a chord. Running the bare letter's verb instead
+			// is how alt+a came to approve a task.
+			return m, nil
+		}
+		if v.Paste {
+			// Pasted text is text. It reaches a prompt and nothing else — the
+			// verb switch is for keys the operator pressed.
+			if m.Prompt == nil {
+				return m, nil
+			}
+			return promptPaste(m, v.Key), nil
+		}
 		if m.Prompt != nil {
 			return promptKey(m, v.Key)
 		}
@@ -557,14 +581,42 @@ func promptKey(m Model, k string) (Model, *Call) {
 		typed = " "
 	}
 	if typed != "" {
-		r := []rune(p.Value)
-		if p.Cursor > len(r) {
-			p.Cursor = len(r)
-		}
-		p.Value = string(r[:p.Cursor]) + typed + string(r[p.Cursor:])
-		p.Cursor++
+		m.Prompt = insertAt(p, typed)
 	}
 	return m, nil
+}
+
+// promptPaste puts pasted text in at the cursor. Control characters become
+// spaces rather than being dropped: a body pasted out of an editor arrives
+// with newlines and tabs in it, the prompt is one row, and "one two" is what
+// the operator meant where "onetwo" is not. A raw newline would also make the
+// view a row taller than the screen, which is how the header goes.
+func promptPaste(m Model, text string) Model {
+	clean := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, text)
+	if clean == "" {
+		return m
+	}
+	m.Prompt = insertAt(m.Prompt, clean)
+	return m
+}
+
+// insertAt puts text in at the cursor and leaves the cursor after it.
+func insertAt(p *Prompt, text string) *Prompt {
+	r := []rune(p.Value)
+	if p.Cursor > len(r) {
+		p.Cursor = len(r)
+	}
+	if p.Cursor < 0 {
+		p.Cursor = 0
+	}
+	p.Value = string(r[:p.Cursor]) + text + string(r[p.Cursor:])
+	p.Cursor += len([]rune(text))
+	return p
 }
 
 // listVerb is the verb that re-reads a view.

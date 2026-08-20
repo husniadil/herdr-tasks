@@ -1592,3 +1592,105 @@ func TestClickAndRenderAgreeOnWhatWasDrawn(t *testing.T) {
 		}
 	}
 }
+
+// §11.6: a paste is one message carrying many characters. bubbletea has
+// bracketed paste on unless it is switched off, and it is not switched off
+// here, so a pasted note body, filter term or piece of feedback arrives whole
+// — and being dropped for not being exactly one character is a silent loss of
+// everything the operator meant to say.
+func TestAPasteLandsInThePromptWholeAndAtTheCursor(t *testing.T) {
+	m := promptOf(t, "Find in board", "")
+	m, _ = Update(m, KeyMsg{Key: "sweep releases a lease", Paste: true})
+	if m.Prompt.Value != "sweep releases a lease" {
+		t.Fatalf("the paste did not land: %q", m.Prompt.Value)
+	}
+	if m.Prompt.Cursor != len([]rune("sweep releases a lease")) {
+		t.Fatalf("cursor = %d, want after the pasted text", m.Prompt.Cursor)
+	}
+
+	// And into the middle of what is already there, which is where a
+	// correction is pasted.
+	mid := promptOf(t, "Find in board", "the sweep")
+	mid.Prompt.Cursor = 4
+	mid, _ = Update(mid, KeyMsg{Key: "lease ", Paste: true})
+	if mid.Prompt.Value != "the lease sweep" {
+		t.Fatalf("value = %q, want %q", mid.Prompt.Value, "the lease sweep")
+	}
+	if mid.Prompt.Cursor != len([]rune("the lease ")) {
+		t.Fatalf("cursor = %d, want after the pasted text", mid.Prompt.Cursor)
+	}
+}
+
+// §9.1: a paste is not a keystroke. approve and note.add are mutating, gated
+// verbs, and "a" runs one of them on each view — so a one-character paste
+// running the verb is the same class of accident as a stray click, and the
+// boundary between "does nothing" and "approves a task" must not be the
+// length of what was pasted.
+func TestAPasteNeverRunsAVerb(t *testing.T) {
+	b := board(t, task(1, tasks.StatusReview, "waiting on review"))
+	if _, call := Update(b, KeyMsg{Key: "a"}); call == nil || call.Verb != "task.approve" {
+		t.Fatalf("precondition: a typed 'a' should approve, got %#v", call)
+	}
+	if got, call := Update(b, KeyMsg{Key: "a", Paste: true}); call != nil {
+		t.Fatalf("a one-character paste ran %s", call.Verb)
+	} else if got.Prompt != nil {
+		t.Fatalf("a paste with no prompt open opened one")
+	}
+	if _, call := Update(b, KeyMsg{Key: "approve it", Paste: true}); call != nil {
+		t.Fatalf("a pasted phrase ran %s", call.Verb)
+	}
+
+	n := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: "an idea"}}, nil)
+	if _, call := Update(n, KeyMsg{Key: "a"}); call != nil {
+		t.Fatalf("precondition: a typed 'a' on the notes view returned a call before its prompt: %#v", call)
+	}
+	if got, _ := Update(n, KeyMsg{Key: "a"}); got.Prompt == nil {
+		t.Fatal("precondition: a typed 'a' on the notes view opens the add prompt")
+	}
+	if got, call := Update(n, KeyMsg{Key: "a", Paste: true}); call != nil || got.Prompt != nil {
+		t.Fatalf("a one-character paste on the notes view opened %v / ran %#v", got.Prompt, call)
+	}
+}
+
+// §11.6: alt+<letter> is not the letter. bubbletea reports it as the same
+// rune with a modifier, so dropping the modifier turns a chord nobody bound
+// into a verb that changes the board.
+func TestAltIsNotTheBareLetter(t *testing.T) {
+	b := board(t, task(1, tasks.StatusReview, "waiting on review"))
+	if _, call := Update(b, KeyMsg{Key: "a", Alt: true}); call != nil {
+		t.Fatalf("alt+a ran %s", call.Verb)
+	}
+	n := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: "an idea"}}, nil)
+	if got, call := Update(n, KeyMsg{Key: "a", Alt: true}); call != nil || got.Prompt != nil {
+		t.Fatalf("alt+a on the notes view opened %v / ran %#v", got.Prompt, call)
+	}
+	p := promptOf(t, "Find in board", "sweep")
+	if got, _ := Update(p, KeyMsg{Key: "a", Alt: true}); got.Prompt.Value != "sweep" {
+		t.Fatalf("alt+a typed into the prompt: %q", got.Prompt.Value)
+	}
+}
+
+// §11.6: the prompt is ONE row, and it stays one row whatever is pasted into
+// it. A raw newline in the value would make Render two rows longer and push
+// the header off the screen — the regression task 15 closed.
+func TestAPastedNewlineDoesNotBreakThePromptRow(t *testing.T) {
+	const height = 24
+	before := promptOf(t, "Find in board", "")
+	before.Width, before.Height = 80, height
+	rows := len(screen(before))
+
+	m, _ := Update(before, KeyMsg{Key: "one\ntwo\tthree", Paste: true})
+	if strings.ContainsAny(m.Prompt.Value, "\n\t") {
+		t.Fatalf("the prompt value carries a raw control character: %q", m.Prompt.Value)
+	}
+	if !strings.Contains(m.Prompt.Value, "one") || !strings.Contains(m.Prompt.Value, "three") {
+		t.Fatalf("filtering ate the text: %q", m.Prompt.Value)
+	}
+	m.Width, m.Height = 80, height
+	if got := len(screen(m)); got != rows {
+		t.Fatalf("the pasted value made the view %d rows, was %d", got, rows)
+	}
+	if !strings.Contains(screen(m)[0], "/repo") {
+		t.Fatalf("the header went: %q", screen(m)[0])
+	}
+}
