@@ -66,6 +66,11 @@ type Prompt struct {
 	Label string
 	// Value is what they have typed so far.
 	Value string
+	// Cursor is where the next rune goes, as an index into Value's RUNES —
+	// not its bytes, so a prompt behaves the same in every language. It is
+	// what makes this an editor rather than an append-only field: the first
+	// word could not be fixed without deleting everything after it.
+	Cursor int
 	// Required says an empty answer cannot be confirmed: `task reject` has no
 	// meaning without feedback.
 	Required bool
@@ -76,6 +81,14 @@ type Prompt struct {
 	// filter says the answer is a live search rather than a one-off argument:
 	// it is kept on the model so the poll goes on applying it.
 	filter bool
+}
+
+// newPrompt opens a prompt with the cursor after whatever it is pre-filled
+// with, which is where an operator expects to carry on typing. Every prompt is
+// built through here so a future pre-filled one cannot forget.
+func newPrompt(p Prompt) *Prompt {
+	p.Cursor = len([]rune(p.Value))
+	return &p
 }
 
 // Model is the whole state of the TUI. Data comes from the daemon through
@@ -228,13 +241,13 @@ func key(m Model, k string) (Model, *Call) {
 		// the daemon's answer, never a cache the operator edits.
 		return m, m.listCall()
 	case "/":
-		m.Prompt = &Prompt{
+		m.Prompt = newPrompt(Prompt{
 			Label:  "Find in " + string(m.View),
 			Value:  m.filter(),
 			call:   Call{Verb: listVerb(m.View), Args: map[string]any{}},
 			field:  "query",
 			filter: true,
-		}
+		})
 		return m, nil
 	case "esc":
 		// Herdr gives a popup no close key of its own, so esc is what an
@@ -322,12 +335,12 @@ func reject(m Model) (Model, *Call) {
 		m.Status = fmt.Sprintf("#%d is %s: only work in review can be rejected", t.Seq, t.Status)
 		return m, nil
 	}
-	m.Prompt = &Prompt{
+	m.Prompt = newPrompt(Prompt{
 		Label:    fmt.Sprintf("What must change in #%d?", t.Seq),
 		Required: true,
 		call:     Call{Verb: "task.reject", Args: map[string]any{"id": t.ID}},
 		field:    "feedback",
-	}
+	})
 	return m, nil
 }
 
@@ -361,12 +374,12 @@ func notesKey(m Model, k string) (Model, *Call) {
 	case "a":
 		// Filing an idea is the one write here that needs no selection: it is
 		// how the board gets its next row.
-		m.Prompt = &Prompt{
+		m.Prompt = newPrompt(Prompt{
 			Label:    "What is the note?",
 			Required: true,
 			call:     Call{Verb: "note.add", Args: map[string]any{}},
 			field:    "body",
-		}
+		})
 		return m, nil
 	case "K":
 		// Keep is the third of the operator's decisions and the one the popup
@@ -383,11 +396,11 @@ func notesKey(m Model, k string) (Model, *Call) {
 		if n == nil {
 			return m, nil
 		}
-		m.Prompt = &Prompt{
+		m.Prompt = newPrompt(Prompt{
 			Label: fmt.Sprintf("Verdict on note #%d (task, keep or drop)", n.Seq),
 			call:  Call{Verb: "note.verdict", Args: map[string]any{"id": n.ID}},
 			field: "verdict", Required: true,
-		}
+		})
 		return m, nil
 	case "p":
 		n := m.SelectedNote()
@@ -401,11 +414,11 @@ func notesKey(m Model, k string) (Model, *Call) {
 		if n == nil {
 			return m, nil
 		}
-		m.Prompt = &Prompt{
+		m.Prompt = newPrompt(Prompt{
 			Label: fmt.Sprintf("Why is note #%d dropped?", n.Seq),
 			call:  Call{Verb: "note.drop", Args: map[string]any{"id": n.ID}},
 			field: "reason",
-		}
+		})
 		return m, nil
 	}
 	return m, nil
@@ -472,16 +485,49 @@ func promptKey(m Model, k string) (Model, *Call) {
 		}
 		m.Status = call.Verb + "…"
 		return m, &call
+	case "left":
+		if p.Cursor > 0 {
+			p.Cursor--
+		}
+		return m, nil
+	case "right":
+		if p.Cursor < len([]rune(p.Value)) {
+			p.Cursor++
+		}
+		return m, nil
+	case "home", "ctrl+a":
+		p.Cursor = 0
+		return m, nil
+	case "end", "ctrl+e":
+		p.Cursor = len([]rune(p.Value))
+		return m, nil
 	case "backspace":
-		if r := []rune(p.Value); len(r) > 0 {
-			p.Value = string(r[:len(r)-1])
+		// The rune BEFORE the cursor, and the cursor follows it back.
+		if r := []rune(p.Value); p.Cursor > 0 && p.Cursor <= len(r) {
+			p.Value = string(r[:p.Cursor-1]) + string(r[p.Cursor:])
+			p.Cursor--
+		}
+		return m, nil
+	case "delete":
+		// The rune AT the cursor, which stays where it is.
+		if r := []rune(p.Value); p.Cursor < len(r) {
+			p.Value = string(r[:p.Cursor]) + string(r[p.Cursor+1:])
 		}
 		return m, nil
 	}
+	typed := ""
 	if len([]rune(k)) == 1 {
-		p.Value += k
+		typed = k
 	} else if k == "space" {
-		p.Value += " "
+		typed = " "
+	}
+	if typed != "" {
+		r := []rune(p.Value)
+		if p.Cursor > len(r) {
+			p.Cursor = len(r)
+		}
+		p.Value = string(r[:p.Cursor]) + typed + string(r[p.Cursor:])
+		p.Cursor++
 	}
 	return m, nil
 }

@@ -889,3 +889,150 @@ func TestFilterStatusSaysWhatIsTrue(t *testing.T) {
 		}
 	}
 }
+
+// promptOf opens a prompt and returns the model with it open.
+func promptOf(t *testing.T, label, value string) Model {
+	t.Helper()
+	m := board(t, task(1, tasks.StatusTodo, "a"))
+	m.Width, m.Height = 80, 24
+	m.Prompt = newPrompt(Prompt{Label: label, Value: value, call: Call{Verb: "task.list", Args: map[string]any{}}, field: "query"})
+	return m
+}
+
+// §11.6: the prompt was append-and-backspace only, so fixing the first word of
+// what you typed meant deleting everything after it. A cursor is the whole of
+// the difference, and every prompt shares this one — filter, note add, the
+// verdict and drop reasons, reject feedback.
+func TestPromptEditingMovesAndInsertsAtTheCursor(t *testing.T) {
+	m := promptOf(t, "Find in board", "abcdef")
+	if m.Prompt.Cursor != 6 {
+		t.Fatalf("a pre-filled prompt starts the cursor at %d, want the end", m.Prompt.Cursor)
+	}
+	// left and right walk, and stop at each end rather than wrapping or
+	// running off into a negative index.
+	for i := 0; i < 8; i++ {
+		m, _ = Update(m, KeyMsg{Key: "left"})
+	}
+	if m.Prompt.Cursor != 0 {
+		t.Fatalf("left ran to %d, want 0", m.Prompt.Cursor)
+	}
+	for i := 0; i < 8; i++ {
+		m, _ = Update(m, KeyMsg{Key: "right"})
+	}
+	if m.Prompt.Cursor != 6 {
+		t.Fatalf("right ran to %d, want the end at 6", m.Prompt.Cursor)
+	}
+	for _, k := range []string{"home", "ctrl+a"} {
+		m, _ = Update(m, KeyMsg{Key: "end"})
+		m, _ = Update(m, KeyMsg{Key: k})
+		if m.Prompt.Cursor != 0 {
+			t.Fatalf("%s left the cursor at %d", k, m.Prompt.Cursor)
+		}
+	}
+	for _, k := range []string{"end", "ctrl+e"} {
+		m, _ = Update(m, KeyMsg{Key: "home"})
+		m, _ = Update(m, KeyMsg{Key: k})
+		if m.Prompt.Cursor != 6 {
+			t.Fatalf("%s left the cursor at %d", k, m.Prompt.Cursor)
+		}
+	}
+
+	// A rune goes in AT the cursor, which is the point of the whole thing.
+	m, _ = Update(m, KeyMsg{Key: "home"})
+	for _, k := range []string{"X", "Y"} {
+		m, _ = Update(m, KeyMsg{Key: k})
+	}
+	if m.Prompt.Value != "XYabcdef" || m.Prompt.Cursor != 2 {
+		t.Fatalf("typing at the start gave %q with the cursor at %d", m.Prompt.Value, m.Prompt.Cursor)
+	}
+	m, _ = Update(m, KeyMsg{Key: "space"})
+	if m.Prompt.Value != "XY abcdef" || m.Prompt.Cursor != 3 {
+		t.Fatalf("space gave %q with the cursor at %d", m.Prompt.Value, m.Prompt.Cursor)
+	}
+
+	// backspace takes the rune BEFORE the cursor and moves back; delete takes
+	// the one AT it and stays put.
+	m, _ = Update(m, KeyMsg{Key: "backspace"})
+	if m.Prompt.Value != "XYabcdef" || m.Prompt.Cursor != 2 {
+		t.Fatalf("backspace gave %q with the cursor at %d", m.Prompt.Value, m.Prompt.Cursor)
+	}
+	m, _ = Update(m, KeyMsg{Key: "delete"})
+	if m.Prompt.Value != "XYbcdef" || m.Prompt.Cursor != 2 {
+		t.Fatalf("delete gave %q with the cursor at %d", m.Prompt.Value, m.Prompt.Cursor)
+	}
+	m, _ = Update(m, KeyMsg{Key: "home"})
+	m, _ = Update(m, KeyMsg{Key: "backspace"})
+	if m.Prompt.Value != "XYbcdef" || m.Prompt.Cursor != 0 {
+		t.Fatalf("backspace at the start changed something: %q at %d", m.Prompt.Value, m.Prompt.Cursor)
+	}
+	m, _ = Update(m, KeyMsg{Key: "end"})
+	m, _ = Update(m, KeyMsg{Key: "delete"})
+	if m.Prompt.Value != "XYbcdef" {
+		t.Fatalf("delete at the end changed something: %q", m.Prompt.Value)
+	}
+
+	// Submitting sends the whole value, not the part before the cursor.
+	m, _ = Update(m, KeyMsg{Key: "home"})
+	m, call := Update(m, KeyMsg{Key: "enter"})
+	if call == nil || call.Args["query"] != "XYbcdef" {
+		t.Fatalf("enter with the cursor at the start sent %#v", call)
+	}
+}
+
+// §11.6: task 15 clamps every drawn line to the pane, which made a defect
+// visible that was there all along — a value longer than the line is typed
+// blind, because what is dropped is the end, which is where the typing is.
+// The window follows the cursor instead.
+func TestPromptWindowFollowsTheCursor(t *testing.T) {
+	value := make([]rune, 300)
+	for i := range value {
+		value[i] = rune('a' + i%26)
+	}
+	val := string(value)
+
+	for _, width := range []int{40, 80} {
+		for _, cursor := range []int{0, 150, 300} {
+			m := promptOf(t, "Find in board", val)
+			m.Width = width
+			m.Prompt.Cursor = cursor
+
+			line := ""
+			for _, ln := range strings.Split(Render(m, 0), "\n") {
+				if strings.Contains(ln, "Find in board:") {
+					line = ln
+				}
+			}
+			if line == "" {
+				t.Fatalf("w=%d c=%d: the prompt was not drawn", width, cursor)
+			}
+			if len([]rune(line)) > width {
+				t.Errorf("w=%d c=%d: the prompt line is %d runes", width, cursor, len([]rune(line)))
+			}
+			// The cursor marker has to be on screen, with the value's own
+			// neighbours around it — that is what "you can see what you are
+			// typing" means.
+			r := []rune(line)
+			at := -1
+			for i, c := range r {
+				if c == promptCursor {
+					at = i
+				}
+			}
+			if at < 0 {
+				t.Fatalf("w=%d c=%d: no cursor in %q", width, cursor, line)
+			}
+			for k := 1; k <= 3; k++ {
+				if cursor-k >= 0 && at-k >= 0 {
+					if got, want := r[at-k], value[cursor-k]; got != want {
+						t.Errorf("w=%d c=%d: %d before the cursor is %q, want %q", width, cursor, k, got, want)
+					}
+				}
+				if cursor+k-1 < len(value) && at+k < len(r) {
+					if got, want := r[at+k], value[cursor+k-1]; got != want {
+						t.Errorf("w=%d c=%d: %d after the cursor is %q, want %q", width, cursor, k, got, want)
+					}
+				}
+			}
+		}
+	}
+}

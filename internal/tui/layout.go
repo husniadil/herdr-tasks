@@ -194,8 +194,7 @@ func Render(m Model, now int64) string {
 	// are looking at. The body is the part that can be scrolled back to.
 	var prompt []string
 	if m.Prompt != nil {
-		prompt = []string{"", clampWidth(fmt.Sprintf("%s: %s_", m.Prompt.Label, m.Prompt.Value), m.Width)}
-		prompt = clampLines(prompt, free-1)
+		prompt = clampLines([]string{"", promptLine(*m.Prompt, m.Width)}, free-1)
 	}
 	var detail []string
 	if m.Detail {
@@ -212,6 +211,57 @@ func Render(m Model, now int64) string {
 	lines = append(lines, footerLine(m))
 	lines = append(lines, clampWidth(statusLine(m), m.Width))
 	return strings.Join(lines, "\n")
+}
+
+// promptCursor marks where the next rune goes.
+const promptCursor = '_'
+
+// promptLine draws the prompt as one row, showing the part of the value the
+// cursor is in. A value longer than the pane used to be drawn from the start
+// and clipped, so everything past the edge — which is exactly where the typing
+// happens — was invisible: the operator typed blind. The window follows the
+// cursor instead, keeping it roughly centred so there is context on both
+// sides, and it stays ONE row whatever the value holds, because a prompt that
+// grew to two rows would push the header off the screen again.
+func promptLine(p Prompt, width int) string {
+	head := p.Label + ": "
+	r := []rune(p.Value)
+	cursor := p.Cursor
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(r) {
+		cursor = len(r)
+	}
+	if width <= 0 {
+		return head + string(r[:cursor]) + string(promptCursor) + string(r[cursor:])
+	}
+	// One column of the room is the cursor's own.
+	avail := width - len([]rune(head)) - 1
+	if avail < 1 {
+		// A pane too narrow for the label keeps the value and loses the label:
+		// what is being typed matters more than what it is called.
+		head = ""
+		if avail = width - 1; avail < 1 {
+			avail = 1
+		}
+	}
+	start := 0
+	if len(r) > avail {
+		start = cursor - avail/2
+		if start > len(r)-avail {
+			start = len(r) - avail
+		}
+		if start < 0 {
+			start = 0
+		}
+	}
+	end := start + avail
+	if end > len(r) {
+		end = len(r)
+	}
+	window := string(r[start:cursor]) + string(promptCursor) + string(r[cursor:end])
+	return clampWidth(head+window, width)
 }
 
 // minRows is the smallest screen the layout still draws something on: the
