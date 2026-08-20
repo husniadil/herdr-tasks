@@ -60,19 +60,29 @@ type agentEnvelope struct {
 
 // rawAgent is one agent as Herdr describes it. agent_session is an object
 // there (`{"kind":"id","value":"..."}`) and a reference string here (§3.4), so
-// it is decoded loosely and flattened to its value.
+// it is held raw and flattened by toAgent. Typing the field as that object
+// would make the whole decode fail on a Herdr that prints the string form —
+// and a failed decode here becomes harness "unknown", which is a fallback
+// hiding a fact Herdr had answered.
 type rawAgent struct {
-	PaneID  string `json:"pane_id"`
-	Name    string `json:"name"`
-	Harness string `json:"agent"`
-	Status  string `json:"agent_status"`
-	Session struct {
-		Value string `json:"value"`
-	} `json:"agent_session"`
+	PaneID  string          `json:"pane_id"`
+	Name    string          `json:"name"`
+	Harness string          `json:"agent"`
+	Status  string          `json:"agent_status"`
+	Session json.RawMessage `json:"agent_session"`
 }
 
 func (r rawAgent) toAgent() Agent {
-	return Agent{PaneID: r.PaneID, Name: r.Name, Harness: r.Harness, Status: r.Status, Session: r.Session.Value}
+	a := Agent{PaneID: r.PaneID, Name: r.Name, Harness: r.Harness, Status: r.Status}
+	var obj struct {
+		Value string `json:"value"`
+	}
+	if json.Unmarshal(r.Session, &obj) == nil {
+		a.Session = obj.Value
+		return a
+	}
+	_ = json.Unmarshal(r.Session, &a.Session)
+	return a
 }
 
 // AgentGet snapshots a pane's agent. A pane Herdr cannot answer for is not an

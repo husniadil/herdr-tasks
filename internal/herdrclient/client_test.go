@@ -1,6 +1,8 @@
 package herdrclient
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -95,4 +97,41 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// flatHerdr is a Herdr that prints the agent object bare, with agent_session
+// as a plain string. Nothing ships that shape today; the parser carries a
+// fallback for it (§11.2 is feature detection, not shape pinning), and a
+// fallback that has never been exercised is not a fallback.
+func flatHerdr(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "herdr")
+	script := `#!/bin/sh
+case "$1 $2" in
+  "agent get") printf '{"pane_id":"%s","name":"builder","agent":"claude","agent_status":"working","agent_session":"sess-%s"}\n' "$3" "$3" ;;
+  *) echo "unsupported: $*" >&2; exit 64 ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write flat herdr: %v", err)
+	}
+	return path
+}
+
+// §3.4: the bare object is read too, and its string agent_session survives.
+// The struct-typed session field made this decode fail as a type error, which
+// the caller turned into harness "unknown" — a silent fallback over a fact
+// Herdr had actually answered.
+func TestAgentGetReadsTheBareObjectWithAStringSession(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	got, err := New(flatHerdr(t)).AgentGet("wF:p1")
+	if err != nil {
+		t.Fatalf("AgentGet: %v", err)
+	}
+	if got.Harness != "claude" {
+		t.Fatalf("harness = %q, want claude — the bare shape was dropped", got.Harness)
+	}
+	if got.Name != "builder" || got.Session != "sess-wF:p1" {
+		t.Fatalf("snapshot = %+v", got)
+	}
 }
