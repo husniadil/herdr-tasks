@@ -202,11 +202,21 @@ func Claim(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 	if t.Status == StatusReview {
 		return Event{}, codes.New(codes.Conflict, "task is in review")
 	}
-	if t.ClaimedBy != "" && t.ClaimedBy != by.Principal {
-		return Event{}, codes.Errorf(codes.Conflict, "claimed by %s", t.ClaimedBy)
-	}
-	if t.Blocked {
-		return Event{}, codes.New(codes.Conflict, "task is blocked by an unfinished dependency")
+	// A claim by the principal that already holds it is a RENEWAL, not a new
+	// claim (§5.6): an agent whose reply was lost must be able to retry. The
+	// checks below are about taking work, so they do not apply to keeping it —
+	// a dependency added by `task update` while an agent is working would
+	// otherwise break its retry on a task it still holds, while `touch`, doing
+	// the same job, kept working. Blocked is a gate on taking work, not on
+	// keeping it; the operator who added the dependency takes that up with the
+	// agent, and `task get` still says the task is blocked.
+	if t.ClaimedBy != by.Principal {
+		if t.Blocked {
+			return Event{}, codes.New(codes.Conflict, "task is blocked by an unfinished dependency")
+		}
+		if t.ClaimedBy != "" {
+			return Event{}, codes.Errorf(codes.Conflict, "claimed by %s", t.ClaimedBy)
+		}
 	}
 	t.Status = StatusDoing
 	t.ClaimedBy = by.Principal

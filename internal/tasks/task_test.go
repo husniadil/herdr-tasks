@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -467,5 +468,114 @@ func TestOnlyTheHolderOrTheOperatorCancelsAClaimedTask(t *testing.T) {
 	free := newTask()
 	if _, err := Cancel(free, agent("wF:p2", "codex"), "stale idea", t0+4); err != nil {
 		t.Fatalf("an unclaimed task may be cancelled by anyone: %v", err)
+	}
+}
+
+// §5.6: a claim by the principal that already holds it is a renewal, not a
+// new claim — an agent that lost its reply must be able to retry. The Blocked
+// check ran after the renewal case was admitted, so it applied to renewals
+// too: anyone adding a dependency with `task update` while an agent was
+// working made that agent's retry fail, on a task it still held. Touch, doing
+// the same job through a different verb, kept working — so the two verbs
+// disagreed about the same row in the same second.
+func TestTheHoldersReClaimSurvivesADependencyAddedAfterTheClaim(t *testing.T) {
+	task := newTask()
+	holder := agent("wF:p1", "claude")
+	mustClaim(t, task, holder)
+	before := task.LeaseUntil
+
+	// What `task update --depends-on` does to a task someone is working on:
+	// Blocked is recomputed on every read, and Update refuses only terminal
+	// tasks, so this is reachable through an ordinary verb.
+	task.Blocked = true
+
+	if _, err := Claim(task, holder, t0+50, lease); err != nil {
+		t.Fatalf("the holder's re-claim was refused: %v", err)
+	}
+	if task.Status != StatusDoing {
+		t.Fatalf("status = %q, want doing", task.Status)
+	}
+	if task.ClaimedBy != holder.Principal {
+		t.Fatalf("claimed_by = %q, want %q", task.ClaimedBy, holder.Principal)
+	}
+	if task.LeaseUntil <= before {
+		t.Fatalf("lease_until = %d, want it extended past %d", task.LeaseUntil, before)
+	}
+}
+
+// The fix must not widen who may take blocked work.
+func TestABlockedTaskIsStillRefusedToEveryoneElse(t *testing.T) {
+	held := newTask()
+	holder := agent("wF:p1", "claude")
+	mustClaim(t, held, holder)
+	held.Blocked = true
+	_, err := Claim(held, agent("wF:p2", "codex"), t0+50, lease)
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("a rival is told %q; the reason it cannot be worked is that it is blocked", err)
+	}
+
+	// And an unclaimed blocked task still refuses a first claim.
+	free := newTask()
+	free.Blocked = true
+	_, err = Claim(free, holder, t0+1, lease)
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("first claim on a blocked task: code = %q, want CONFLICT", got)
+	}
+	if !strings.Contains(err.Error(), "blocked") {
+		t.Fatalf("the refusal does not say why: %v", err)
+	}
+	if free.ClaimedBy != "" || free.Status != StatusTodo {
+		t.Fatalf("the refused claim changed the task: %+v", free)
+	}
+}
+
+// §5.6: claim and touch are the holder's two ways of saying "still mine", so
+// wherever one works for the holder the other must. This is the contradiction
+// the note was about, stated as a rule rather than as one case.
+//
+// `review` is deliberately not in this table: touch succeeds there (the claim
+// is still set) and claim refuses (work in review is not work to take). That
+// is a real third disagreement, and it is not this fix — a lease renewed on
+// something already submitted is odd but harmless, while letting claim take a
+// task out of review would not be.
+func TestClaimAndTouchAgreeForTheHolder(t *testing.T) {
+	holder := agent("wF:p1", "claude")
+	states := map[string]func() *Task{
+		"doing": func() *Task {
+			x := newTask()
+			mustClaim(t, x, holder)
+			return x
+		},
+		"doing and blocked": func() *Task {
+			x := newTask()
+			mustClaim(t, x, holder)
+			x.Blocked = true
+			return x
+		},
+		"doing with a lapsed lease": func() *Task {
+			x := newTask()
+			mustClaim(t, x, holder)
+			x.LeaseUntil = t0 + 1
+			return x
+		},
+		"doing, blocked, and lapsed": func() *Task {
+			x := newTask()
+			mustClaim(t, x, holder)
+			x.Blocked, x.LeaseUntil = true, t0+1
+			return x
+		},
+	}
+	for name, build := range states {
+		_, touchErr := Touch(build(), holder, t0+99, lease)
+		_, claimErr := Claim(build(), holder, t0+99, lease)
+		if touchErr == nil && claimErr != nil {
+			t.Errorf("%s: touch works for the holder and claim does not (%v)", name, claimErr)
+		}
+		if touchErr != nil && claimErr == nil {
+			t.Errorf("%s: claim works for the holder and touch does not (%v)", name, touchErr)
+		}
 	}
 }

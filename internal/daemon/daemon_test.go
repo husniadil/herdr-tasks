@@ -1133,3 +1133,39 @@ func TestTheDaemonDoesNotWarnAboutADoorsContext(t *testing.T) {
 		t.Fatalf("the daemon wrote to the operator's log for an ordinary request: %q", out)
 	}
 }
+
+// §5.6 through the door, with a REAL dependency rather than a set field: the
+// holder's retry survives a dependency added while it was working, and the
+// task still reports itself blocked so the situation is visible rather than
+// merely permitted.
+func TestTheHoldersReClaimSurvivesADependencyAddedThroughTheDoor(t *testing.T) {
+	d := newDaemon(t, nil)
+	work := createTask(t, d, "being worked on").Task.ID
+	blocker := createTask(t, d, "not done yet").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": work}})
+
+	// The operator adds a dependency under the running agent.
+	mustCall(t, d, protocol.Request{Verb: "task.update",
+		Args: map[string]any{"id": work, "depends-on": []string{blocker}}})
+
+	// Both of the holder's "still mine" verbs work, and they agree.
+	mustCall(t, d, protocol.Request{Verb: "task.touch", PaneID: "wF:p1", Args: map[string]any{"id": work}})
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": work}})
+
+	// A rival still cannot take it, and is told why.
+	body := mustFail(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p2",
+		Args: map[string]any{"id": work}}, codes.Conflict)
+	if !strings.Contains(body.Message, "blocked") {
+		t.Fatalf("a rival is told %q, not that the task is blocked", body.Message)
+	}
+
+	// §6.2: and the blockedness is still on the document, so the operator can
+	// see the situation they created.
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": work}})
+	if !strings.Contains(string(raw), `"blocked":true`) {
+		t.Fatalf("the held task does not report itself blocked: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"doing"`) {
+		t.Fatalf("the task lost its claim: %s", raw)
+	}
+}
