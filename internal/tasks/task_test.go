@@ -170,7 +170,7 @@ func TestSubmitMovesToReviewWithEvidence(t *testing.T) {
 	task := newTask()
 	a := agent("wF:p1", "claude")
 	mustClaim(t, task, a)
-	if _, err := Submit(task, a, "done, gate green", []string{"make test-full: ok"}, t0+10); err != nil {
+	if _, err := Submit(task, a, "done, gate green", []string{"make test-full: ok"}, nil, t0+10); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if task.Status != StatusReview {
@@ -179,7 +179,7 @@ func TestSubmitMovesToReviewWithEvidence(t *testing.T) {
 	if task.SubmittedByHarness != "claude" || len(task.Evidence) != 1 {
 		t.Fatalf("submit snapshot wrong: %+v", task)
 	}
-	if got := codeOf(t, mustErr(Submit(task, a, "again", nil, t0+11))); got != codes.Conflict {
+	if got := codeOf(t, mustErr(Submit(task, a, "again", nil, nil, t0+11))); got != codes.Conflict {
 		t.Fatalf("double submit code = %q, want CONFLICT", got)
 	}
 }
@@ -187,7 +187,7 @@ func TestSubmitMovesToReviewWithEvidence(t *testing.T) {
 func TestSubmitByStrangerForbidden(t *testing.T) {
 	task := newTask()
 	mustClaim(t, task, agent("wF:p1", "claude"))
-	err := mustErr(Submit(task, agent("wF:p2", "codex"), "mine now", nil, t0+10))
+	err := mustErr(Submit(task, agent("wF:p2", "codex"), "mine now", nil, nil, t0+10))
 	if got := codeOf(t, err); got != codes.Forbidden {
 		t.Fatalf("code = %q, want FORBIDDEN", got)
 	}
@@ -197,7 +197,7 @@ func TestSubmitRequiresReport(t *testing.T) {
 	task := newTask()
 	a := agent("wF:p1", "claude")
 	mustClaim(t, task, a)
-	if got := codeOf(t, mustErr(Submit(task, a, "", nil, t0+10))); got != codes.Usage {
+	if got := codeOf(t, mustErr(Submit(task, a, "", nil, nil, t0+10))); got != codes.Usage {
 		t.Fatalf("code = %q, want USAGE", got)
 	}
 }
@@ -397,7 +397,7 @@ func mustRelease(t *testing.T, task *Task, a Actor) {
 
 func mustSubmit(t *testing.T, task *Task, a Actor) {
 	t.Helper()
-	if _, err := Submit(task, a, "report", nil, t0+10); err != nil {
+	if _, err := Submit(task, a, "report", nil, nil, t0+10); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 }
@@ -420,7 +420,7 @@ func TestRecusalCatchesSelfReviewAcrossAnUnknownHarness(t *testing.T) {
 	task := newTask()
 	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: ""}
 	mustClaim(t, task, blind)
-	if _, err := Submit(task, blind, "done", nil, t0+10); err != nil {
+	if _, err := Submit(task, blind, "done", nil, nil, t0+10); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if task.SubmittedByHarness != "unknown" {
@@ -600,4 +600,151 @@ func TestUpdateDoesNotOfferProvenance(t *testing.T) {
 	if task.DiscoveredFrom != "" {
 		t.Fatalf("a task made without provenance carries %q", task.DiscoveredFrom)
 	}
+}
+
+// §16.1: a criterion is a proof an evaluator can check, so the evidence that
+// proves it says which one it proves. The index is folded into the string
+// because verbs knows four argument kinds and none of them is a pair.
+func TestSubmitBindsEvidenceToTheCriterionItProves(t *testing.T) {
+	task := withCriteria(t, Criterion{Text: "the gate is green", Required: true},
+		Criterion{Text: "the docs say so", Required: true})
+	a := agent("wF:p1", "claude")
+	mustClaim(t, task, a)
+	if _, err := Submit(task, a, "done", []string{"make build: ok"},
+		[]string{"1: make test-full -> exit 0", " 2 :  htask task get 5 -> Done when"}, t0+10); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if len(task.EvidenceFor) != 2 {
+		t.Fatalf("citations = %+v, want 2", task.EvidenceFor)
+	}
+	if task.EvidenceFor[0] != (Citation{Criterion: 1, Text: "make test-full -> exit 0"}) {
+		t.Fatalf("first citation = %+v", task.EvidenceFor[0])
+	}
+	if task.EvidenceFor[1] != (Citation{Criterion: 2, Text: "htask task get 5 -> Done when"}) {
+		t.Fatalf("second citation = %+v", task.EvidenceFor[1])
+	}
+	// Task-level evidence stays where it was: citations are a parallel field,
+	// never a repurposing of the one that shipped.
+	if len(task.Evidence) != 1 || task.Evidence[0] != "make build: ok" {
+		t.Fatalf("evidence moved: %+v", task.Evidence)
+	}
+}
+
+// A citation naming a criterion that is not there is a typo, and a typo must
+// not half-submit: the task is still doing, with nothing written on it.
+func TestACitationOutsideTheCriteriaListIsRefusedWholesale(t *testing.T) {
+	task := withCriteria(t, Criterion{Text: "one", Required: true},
+		Criterion{Text: "two", Required: true}, Criterion{Text: "three", Required: true})
+	a := agent("wF:p1", "claude")
+	mustClaim(t, task, a)
+	err := mustErr(Submit(task, a, "done", nil, []string{"9: x"}, t0+10))
+	if got := codeOf(t, err); got != codes.Usage {
+		t.Fatalf("code = %q, want USAGE", got)
+	}
+	if !strings.Contains(err.Error(), "9") || !strings.Contains(err.Error(), "3") {
+		t.Fatalf("the message says neither what was cited nor how many there are: %v", err)
+	}
+	if task.Status != StatusDoing || task.Report != "" || len(task.EvidenceFor) != 0 {
+		t.Fatalf("a refused submit still wrote: status=%q report=%q cites=%+v",
+			task.Status, task.Report, task.EvidenceFor)
+	}
+}
+
+// A citation the doors cannot read at all — no number, no colon, nothing after
+// it — is the same wholesale refusal.
+func TestACitationThatIsNotACitationIsRefused(t *testing.T) {
+	for _, raw := range []string{"make test-full -> ok", "one: x", "1:   ", ": x"} {
+		task := withCriteria(t, Criterion{Text: "one", Required: true})
+		a := agent("wF:p1", "claude")
+		mustClaim(t, task, a)
+		err := mustErr(Submit(task, a, "done", nil, []string{raw}, t0+10))
+		if got := codeOf(t, err); got != codes.Usage {
+			t.Fatalf("%q: code = %q, want USAGE", raw, got)
+		}
+		if task.Status != StatusDoing {
+			t.Fatalf("%q: status = %q, want doing", raw, task.Status)
+		}
+	}
+}
+
+// Constraint 3 from triage: strictness is opt-in. Every task already on the
+// board is all-required, so a submit that cites nothing behaves exactly as it
+// always has; cite one and you are claiming coverage, so cite them all.
+func TestCitingOneCriterionMeansCitingEveryRequiredOne(t *testing.T) {
+	a := agent("wF:p1", "claude")
+
+	quiet := withCriteria(t, Criterion{Text: "one", Required: true},
+		Criterion{Text: "two", Required: true})
+	mustClaim(t, quiet, a)
+	if _, err := Submit(quiet, a, "done", []string{"make test: ok"}, nil, t0+10); err != nil {
+		t.Fatalf("a submit that cites nothing must still work: %v", err)
+	}
+	if quiet.Status != StatusReview {
+		t.Fatalf("status = %q, want review", quiet.Status)
+	}
+
+	partial := withCriteria(t, Criterion{Text: "one", Required: true},
+		Criterion{Text: "two", Required: true})
+	mustClaim(t, partial, a)
+	err := mustErr(Submit(partial, a, "done", nil, []string{"1: make test -> ok"}, t0+10))
+	if got := codeOf(t, err); got != codes.Usage {
+		t.Fatalf("code = %q, want USAGE", got)
+	}
+	if !strings.Contains(err.Error(), "2") {
+		t.Fatalf("the message does not name criterion 2: %v", err)
+	}
+	if partial.Status != StatusDoing {
+		t.Fatalf("status = %q, want doing", partial.Status)
+	}
+}
+
+// The (optional) marker is the one thing that ever read Criterion.Required.
+// Now it is load-bearing: an optional criterion needs no citation.
+func TestAnOptionalCriterionNeedsNoCitation(t *testing.T) {
+	task := withCriteria(t, Criterion{Text: "the gate is green", Required: true},
+		Criterion{Text: "a screenshot", Required: false})
+	a := agent("wF:p1", "claude")
+	mustClaim(t, task, a)
+	if _, err := Submit(task, a, "done", nil, []string{"1: make test-full -> exit 0"}, t0+10); err != nil {
+		t.Fatalf("an uncited optional criterion blocked the submit: %v", err)
+	}
+	if task.Status != StatusReview {
+		t.Fatalf("status = %q, want review", task.Status)
+	}
+}
+
+// A task with no criteria has nothing to cite, and saying so beats storing a
+// citation that points at nothing.
+func TestCitingATaskWithNoCriteriaIsRefused(t *testing.T) {
+	task := newTask()
+	a := agent("wF:p1", "claude")
+	mustClaim(t, task, a)
+	if got := codeOf(t, mustErr(Submit(task, a, "done", nil, []string{"1: x"}, t0+10))); got != codes.Usage {
+		t.Fatalf("code = %q, want USAGE", got)
+	}
+}
+
+// The submitted event counts what it carried, so the trail says a submission
+// claimed coverage without anyone re-reading the row.
+func TestTheSubmittedEventCountsCitations(t *testing.T) {
+	task := withCriteria(t, Criterion{Text: "one", Required: true})
+	a := agent("wF:p1", "claude")
+	mustClaim(t, task, a)
+	ev, err := Submit(task, a, "done", nil, []string{"1: make test -> ok"}, t0+10)
+	if err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if ev.Detail["citation_count"] != 1 {
+		t.Fatalf("detail = %+v, want citation_count 1", ev.Detail)
+	}
+}
+
+func withCriteria(t *testing.T, cs ...Criterion) *Task {
+	t.Helper()
+	task, _, err := New(NewTaskInput{ID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", Project: "/p",
+		Title: "ship it", Validation: cs}, human, t0)
+	if err != nil {
+		t.Fatalf("new: %v", err)
+	}
+	return task
 }

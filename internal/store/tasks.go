@@ -16,7 +16,7 @@ import (
 const taskColumns = `id, seq, project, title, description, status, priority, validation,
 	discovered_from, created_by, created_at, updated_at, claimed_by, claimed_by_name,
 	claimed_by_harness, claimed_by_session, claimed_at, lease_until, ever_claimed,
-	release_note, released_at, report, evidence, submitted_by, submitted_by_harness,
+	release_note, released_at, report, evidence, evidence_for, submitted_by, submitted_by_harness,
 	submitted_at, feedback, reviewed_by, completed_at, cancelled_at, archived_at,
 	pane_id, tab_id, workspace_id`
 
@@ -448,6 +448,7 @@ func scanTask(sc scanner) (*tasks.Task, error) {
 		releasedAt   sql.NullInt64
 		report       sql.NullString
 		evidence     sql.NullString
+		evidenceFor  sql.NullString
 		submittedBy  sql.NullString
 		submitHarn   sql.NullString
 		submittedAt  sql.NullInt64
@@ -463,7 +464,7 @@ func scanTask(sc scanner) (*tasks.Task, error) {
 	if err := sc.Scan(&t.ID, &t.Seq, &t.Project, &t.Title, &desc, &t.Status, &t.Priority, &validation,
 		&discovered, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &claimedBy, &claimName,
 		&claimHarness, &claimSession, &claimedAt, &leaseUntil, &everClaimed,
-		&releaseNote, &releasedAt, &report, &evidence, &submittedBy, &submitHarn,
+		&releaseNote, &releasedAt, &report, &evidence, &evidenceFor, &submittedBy, &submitHarn,
 		&submittedAt, &feedback, &reviewedBy, &completedAt, &cancelledAt, &archivedAt,
 		&pane, &tab, &ws); err != nil {
 		return nil, err
@@ -474,6 +475,9 @@ func scanTask(sc scanner) (*tasks.Task, error) {
 	}
 	if evidence.Valid && evidence.String != "" {
 		_ = json.Unmarshal([]byte(evidence.String), &t.Evidence)
+	}
+	if evidenceFor.Valid && evidenceFor.String != "" {
+		_ = json.Unmarshal([]byte(evidenceFor.String), &t.EvidenceFor)
 	}
 	t.DiscoveredFrom = discovered.String
 	t.ClaimedBy = tasks.Principal(claimedBy.String)
@@ -497,7 +501,7 @@ func taskArgs(t *tasks.Task) []any {
 		nullIfEmpty(t.ClaimedByHarness), nullIfEmpty(t.ClaimedBySession),
 		nullIfZero(t.ClaimedAt), nullIfZero(t.LeaseUntil),
 		boolInt(t.EverClaimed), nullIfEmpty(t.ReleaseNote), nullIfZero(t.ReleasedAt), nullIfEmpty(t.Report),
-		jsonOrNil(t.Evidence), nullIfEmpty(string(t.SubmittedBy)), nullIfEmpty(t.SubmittedByHarness),
+		jsonOrNil(t.Evidence), jsonOrNil(t.EvidenceFor), nullIfEmpty(string(t.SubmittedBy)), nullIfEmpty(t.SubmittedByHarness),
 		nullIfZero(t.SubmittedAt), nullIfEmpty(t.Feedback), nullIfEmpty(string(t.ReviewedBy)),
 		nullIfZero(t.CompletedAt), nullIfZero(t.CancelledAt), nullIfZero(t.ArchivedAt),
 		nullIfEmpty(t.PaneID), nullIfEmpty(t.TabID), nullIfEmpty(t.WorkspaceID),
@@ -505,7 +509,7 @@ func taskArgs(t *tasks.Task) []any {
 }
 
 func insertTask(tx *sql.Tx, t *tasks.Task) error {
-	_, err := tx.Exec("INSERT INTO tasks ("+taskColumns+") VALUES (?"+strings.Repeat(", ?", 33)+")",
+	_, err := tx.Exec("INSERT INTO tasks ("+taskColumns+") VALUES (?"+strings.Repeat(", ?", 34)+")",
 		append([]any{t.ID}, taskArgs(t)...)...)
 	return err
 }

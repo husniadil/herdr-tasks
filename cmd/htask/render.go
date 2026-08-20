@@ -161,12 +161,33 @@ func printTask(t *tasks.Task) {
 	}
 	if len(t.Validation) > 0 {
 		fmt.Println("\nDone when:")
-		for _, c := range t.Validation {
+		// The box is derived from the citations a submission carried, never
+		// stored and never flipped by hand (§16.1). The human door shows the
+		// same coverage the TUI does, because §6.1 has two audiences.
+		for i, c := range t.Validation {
+			box := " "
+			for _, e := range t.EvidenceFor {
+				if e.Criterion == i+1 {
+					box = "x"
+					break
+				}
+			}
 			suffix := ""
 			if !c.Required {
 				suffix = " (optional)"
 			}
-			fmt.Printf("  - %s%s\n", c.Text, suffix)
+			fmt.Printf("  [%s] %d. %s%s\n", box, i+1, c.Text, suffix)
+			for _, e := range t.EvidenceFor {
+				if e.Criterion == i+1 {
+					fmt.Printf("        %s\n", e.Text)
+				}
+			}
+		}
+		for _, e := range t.EvidenceFor {
+			if e.Criterion < 1 || e.Criterion > len(t.Validation) {
+				fmt.Printf("  [!] %d. cites a criterion this task no longer has\n        %s\n",
+					e.Criterion, e.Text)
+			}
 		}
 	}
 	if len(t.Deps) > 0 {

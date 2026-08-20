@@ -43,7 +43,7 @@ func TestBoundsAcceptWhatRealUseLooksLike(t *testing.T) {
 		t.Fatalf("claim: %v", err)
 	}
 	if _, err := Submit(task, agent("wF:p1", "claude"), atLimit(MaxText),
-		[]string{atLimit(MaxItem)}, t0+2); err != nil {
+		[]string{atLimit(MaxItem)}, nil, t0+2); err != nil {
 		t.Fatalf("a submission at the limit was refused: %v", err)
 	}
 }
@@ -60,7 +60,7 @@ func TestEveryTaskFreeTextFieldIsBounded(t *testing.T) {
 	}
 	submitted := func() *Task {
 		task := claimed()
-		if _, err := Submit(task, agent("wF:p1", "claude"), "done", nil, t0+2); err != nil {
+		if _, err := Submit(task, agent("wF:p1", "claude"), "done", nil, nil, t0+2); err != nil {
 			t.Fatalf("submit: %v", err)
 		}
 		return task
@@ -100,15 +100,23 @@ func TestEveryTaskFreeTextFieldIsBounded(t *testing.T) {
 			return err
 		},
 		"report": func() error {
-			_, err := Submit(claimed(), agent("wF:p1", "claude"), over(MaxText), nil, t0+2)
+			_, err := Submit(claimed(), agent("wF:p1", "claude"), over(MaxText), nil, nil, t0+2)
 			return err
 		},
 		"evidence text": func() error {
-			_, err := Submit(claimed(), agent("wF:p1", "claude"), "r", []string{over(MaxItem)}, t0+2)
+			_, err := Submit(claimed(), agent("wF:p1", "claude"), "r", []string{over(MaxItem)}, nil, t0+2)
 			return err
 		},
 		"evidence count": func() error {
-			_, err := Submit(claimed(), agent("wF:p1", "claude"), "r", make([]string, MaxItems+1), t0+2)
+			_, err := Submit(claimed(), agent("wF:p1", "claude"), "r", make([]string, MaxItems+1), nil, t0+2)
+			return err
+		},
+		"evidence-for text": func() error {
+			_, err := Submit(claimed(), agent("wF:p1", "claude"), "r", nil, []string{"1: " + over(MaxItem)}, t0+2)
+			return err
+		},
+		"evidence-for count": func() error {
+			_, err := Submit(claimed(), agent("wF:p1", "claude"), "r", nil, make([]string, MaxItems+1), t0+2)
 			return err
 		},
 		"feedback": func() error {

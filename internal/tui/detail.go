@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
 
 // Detail is the panel the operator opens on a selection. On the board it is
@@ -35,9 +37,7 @@ func Detail(m Model, now int64) string {
 		if t.Description != "" {
 			fmt.Fprintf(&b, "\n%s\n", t.Description)
 		}
-		for _, c := range t.Validation {
-			fmt.Fprintf(&b, "  · %s\n", c.Text)
-		}
+		checklist(&b, t)
 		if t.Report != "" {
 			fmt.Fprintf(&b, "\nreport: %s\n", t.Report)
 		}
@@ -88,4 +88,40 @@ func seqList(seqs []int64) string {
 		out = append(out, "#"+strconv.FormatInt(n, 10))
 	}
 	return strings.Join(out, ", ")
+}
+
+// checklist renders validation as the DERIVED coverage the reviewer came for
+// (§16.1): a box is checked because a submitted evidence entry cites that
+// criterion, never because anyone flipped it, and the citing lines sit under
+// the criterion they prove. The (optional) marker comes along because
+// Criterion.Required decides whether an empty box is a gap or a choice.
+func checklist(b *strings.Builder, t *tasks.Task) {
+	for i, c := range t.Validation {
+		box := " "
+		for _, e := range t.EvidenceFor {
+			if e.Criterion == i+1 {
+				box = "x"
+				break
+			}
+		}
+		opt := ""
+		if !c.Required {
+			opt = " (optional)"
+		}
+		fmt.Fprintf(b, "  [%s] %d. %s%s\n", box, i+1, c.Text, opt)
+		for _, e := range t.EvidenceFor {
+			if e.Criterion == i+1 {
+				fmt.Fprintf(b, "    %s\n", e.Text)
+			}
+		}
+	}
+	// A criteria list edited after a submission can leave a citation pointing
+	// at nothing. Dropping it silently would let a reviewer read full coverage
+	// off a checklist that quietly lost an item.
+	for _, e := range t.EvidenceFor {
+		if e.Criterion < 1 || e.Criterion > len(t.Validation) {
+			fmt.Fprintf(b, "  [!] %d. cites a criterion this task no longer has\n    %s\n",
+				e.Criterion, e.Text)
+		}
+	}
 }

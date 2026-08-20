@@ -140,6 +140,7 @@ var All = []Verb{
 			idArg("The task id or number"),
 			{Name: "report", Type: String, Desc: "What you did and how it was verified", Required: true},
 			{Name: "evidence", Type: Strings, Desc: "A command you ran and what it printed (repeatable)"},
+			{Name: "evidence-for", Type: Strings, Desc: "Evidence for one acceptance criterion, as \"<criterion>: what it printed\" (repeatable)"},
 		},
 	},
 	{

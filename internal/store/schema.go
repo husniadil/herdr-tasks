@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -149,4 +149,9 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// sorts after a new one. So every id moves in one transaction, or none
 	// does.
 	{Fn: reencodeIDs},
+	// 4 — which acceptance criterion a piece of evidence proves (§16.1). A NEW
+	// column, never a change to `evidence`: that one is a shipped --json field
+	// and a row written before this migration must read back exactly as it
+	// did, which is what TestEvidenceForFlatRows holds.
+	{SQL: `ALTER TABLE tasks ADD COLUMN evidence_for TEXT;`},
 }

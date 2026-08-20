@@ -5,6 +5,7 @@
 package tasks
 
 import (
+	"strconv"
 	"strings"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -60,6 +61,17 @@ func (a Actor) IsHuman() bool { return a.Principal.Kind() == "human" }
 type Criterion struct {
 	Text     string `json:"text"`
 	Required bool   `json:"required"`
+}
+
+// Citation binds one piece of evidence to the acceptance criterion it proves
+// (§16.1). Criterion is 1-based, matching the position the criteria list
+// prints. Citations live BESIDE Evidence rather than inside it: `evidence` is
+// a shipped --json field and repurposing it would break a caller that already
+// reads it. A citation is coverage bookkeeping written by the submitter, not a
+// verification anyone else performed.
+type Citation struct {
+	Criterion int    `json:"criterion"`
+	Text      string `json:"text"`
 }
 
 // Event is the append-only record of a state change (§5.5). The store writes
@@ -128,11 +140,12 @@ type Task struct {
 	ReleaseNote string `json:"release_note,omitempty"`
 	ReleasedAt  int64  `json:"released_at,omitempty"`
 
-	Report             string    `json:"report,omitempty"`
-	Evidence           []string  `json:"evidence,omitempty"`
-	SubmittedBy        Principal `json:"submitted_by,omitempty"`
-	SubmittedByHarness string    `json:"submitted_by_harness,omitempty"`
-	SubmittedAt        int64     `json:"submitted_at,omitempty"`
+	Report             string     `json:"report,omitempty"`
+	Evidence           []string   `json:"evidence,omitempty"`
+	EvidenceFor        []Citation `json:"evidence_for,omitempty"`
+	SubmittedBy        Principal  `json:"submitted_by,omitempty"`
+	SubmittedByHarness string     `json:"submitted_by_harness,omitempty"`
+	SubmittedAt        int64      `json:"submitted_at,omitempty"`
 
 	Feedback   string    `json:"feedback,omitempty"`
 	ReviewedBy Principal `json:"reviewed_by,omitempty"`
@@ -276,7 +289,7 @@ func Release(t *Task, by Actor, note string, now int64, kind string) (Event, err
 }
 
 // Submit sends the work to review with a report and its evidence.
-func Submit(t *Task, by Actor, report string, evidence []string, now int64) (Event, error) {
+func Submit(t *Task, by Actor, report string, evidence, evidenceFor []string, now int64) (Event, error) {
 	if strings.TrimSpace(report) == "" {
 		return Event{}, codes.New(codes.Usage, "a report is required")
 	}
@@ -292,16 +305,99 @@ func Submit(t *Task, by Actor, report string, evidence []string, now int64) (Eve
 	if err := boundList("evidence", evidence, MaxItem, MaxItems); err != nil {
 		return Event{}, err
 	}
+	if err := boundList("evidence-for", evidenceFor, MaxItem, MaxItems); err != nil {
+		return Event{}, err
+	}
+	cites, err := parseCitations(evidenceFor, len(t.Validation))
+	if err != nil {
+		return Event{}, err
+	}
+	if err := coversRequired(t.Validation, cites); err != nil {
+		return Event{}, err
+	}
 	t.Status = StatusReview
 	t.Report = report
 	t.Evidence = evidence
+	t.EvidenceFor = cites
 	t.SubmittedBy = by.Principal
 	t.SubmittedByHarness = harnessOf(by)
 	t.SubmittedAt = now
 	t.Feedback = ""
 	t.UpdatedAt = now
 	return Event{Kind: KindSubmitted, Actor: by.Principal, At: now,
-		Detail: map[string]any{"evidence_count": len(evidence)}}, nil
+		Detail: map[string]any{"evidence_count": len(evidence), "citation_count": len(cites)}}, nil
+}
+
+// parseCitations reads the "<criterion>: what it printed" form both doors
+// accept. The index is folded into the string on purpose: §6.1 parity is built
+// from one argument list, and that list knows string, int, bool and string[] —
+// none of them a pair. Anything unreadable is refused whole, because a
+// citation that half-parsed is a checked box nobody earned.
+func parseCitations(list []string, criteria int) ([]Citation, error) {
+	if len(list) == 0 {
+		return nil, nil
+	}
+	out := make([]Citation, 0, len(list))
+	for _, raw := range list {
+		s := strings.TrimSpace(raw)
+		if s == "" {
+			continue
+		}
+		head, text, ok := strings.Cut(s, ":")
+		if !ok {
+			return nil, codes.Errorf(codes.Usage,
+				"evidence-for wants \"<criterion>: what it printed\", got %q", raw)
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(head))
+		if err != nil {
+			return nil, codes.Errorf(codes.Usage,
+				"evidence-for wants a criterion number before the colon, got %q", strings.TrimSpace(head))
+		}
+		if criteria == 0 {
+			return nil, codes.Errorf(codes.Usage,
+				"this task has no acceptance criteria, so there is nothing for %q to cite", raw)
+		}
+		if n < 1 || n > criteria {
+			return nil, codes.Errorf(codes.Usage,
+				"no criterion %d: this task has %d", n, criteria)
+		}
+		if text = strings.TrimSpace(text); text == "" {
+			return nil, codes.Errorf(codes.Usage,
+				"criterion %d was cited with nothing to show for it", n)
+		}
+		out = append(out, Citation{Criterion: n, Text: text})
+	}
+	return out, nil
+}
+
+// coversRequired is the opt-in half of §16.1. Every task already on the board
+// is all-required, so a submit that cites nothing is the submit this plugin has
+// always accepted. Cite one criterion and you are claiming coverage — then
+// every required one needs a citation, or the checklist a reviewer reads would
+// show gaps the submitter never acknowledged.
+func coversRequired(list []Criterion, cites []Citation) error {
+	if len(cites) == 0 {
+		return nil
+	}
+	cited := make(map[int]bool, len(cites))
+	for _, c := range cites {
+		cited[c.Criterion] = true
+	}
+	missing := []string{}
+	for i, c := range list {
+		if c.Required && !cited[i+1] {
+			missing = append(missing, strconv.Itoa(i+1))
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	word := "criterion"
+	if len(missing) > 1 {
+		word = "criteria"
+	}
+	return codes.Errorf(codes.Usage, "no evidence cited for required %s %s",
+		word, strings.Join(missing, ", "))
 }
 
 // Approve closes the task. Recusal applies (§6.6).

@@ -452,7 +452,7 @@ func finish(t *testing.T, s *Store, task *tasks.Task) {
 	a := peer("wF:p1", "claude")
 	steps := []func(*tasks.Task) (tasks.Event, error){
 		func(x *tasks.Task) (tasks.Event, error) { return tasks.Claim(x, a, tick(t), 60_000) },
-		func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "done", nil, tick(t)) },
+		func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "done", nil, nil, tick(t)) },
 		func(x *tasks.Task) (tasks.Event, error) { return tasks.Approve(x, operator, tick(t)) },
 	}
 	for i, step := range steps {
@@ -495,7 +495,7 @@ func TestEventsKeepInsertionOrderWithinOneMillisecond(t *testing.T) {
 		a := peer("wF:p1", "claude")
 		steps := []func(*tasks.Task) (tasks.Event, error){
 			func(x *tasks.Task) (tasks.Event, error) { return tasks.Claim(x, a, frozen, 60_000) },
-			func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "r", nil, frozen) },
+			func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "r", nil, nil, frozen) },
 			func(x *tasks.Task) (tasks.Event, error) { return tasks.Approve(x, operator, frozen) },
 		}
 		for i, step := range steps {
@@ -1309,5 +1309,62 @@ func TestTheTrailKeepsItsOrderAcrossTheMigration(t *testing.T) {
 		if e.ID != evs[i+1].ID {
 			t.Fatalf("--since returned %q at %d, want %q", e.ID, i, evs[i+1].ID)
 		}
+	}
+}
+
+// §5.2 and the additive half of §14 evidence: citations arrived in a NEW
+// column, so a row a daemon wrote before it existed — a bare JSON array of
+// strings in `evidence`, nothing in `evidence_for` — must still read back
+// exactly as it did, with no citations and no decode error. This is the test
+// that would catch someone "upgrading" the evidence column in place.
+func TestEvidenceForFlatRows(t *testing.T) {
+	s := open(t)
+	a := peer("wF:p1", "claude")
+
+	legacy := create(t, s, "written by the old daemon")
+	if _, err := s.db.Exec(
+		`UPDATE tasks SET status = 'review', report = 'done', evidence = ?, evidence_for = NULL WHERE id = ?`,
+		`["a","b"]`, legacy.ID); err != nil {
+		t.Fatalf("planting the legacy row: %v", err)
+	}
+	got, err := s.GetTask(proj, legacy.ID)
+	if err != nil {
+		t.Fatalf("GetTask on a legacy row: %v", err)
+	}
+	if len(got.Evidence) != 2 || got.Evidence[0] != "a" || got.Evidence[1] != "b" {
+		t.Fatalf("flat evidence did not survive: %+v", got.Evidence)
+	}
+	if len(got.EvidenceFor) != 0 {
+		t.Fatalf("a legacy row invented citations: %+v", got.EvidenceFor)
+	}
+
+	// And the same store round-trips a row that DOES carry citations, so the
+	// empty case above is back-compat rather than a column nobody writes.
+	fresh, err := s.CreateTask(tasks.NewTaskInput{Project: proj, Title: "written by this daemon",
+		Validation: []tasks.Criterion{{Text: "the gate is green", Required: true}}}, operator, tick(t))
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	for _, step := range []func(*tasks.Task) (tasks.Event, error){
+		func(x *tasks.Task) (tasks.Event, error) { return tasks.Claim(x, a, tick(t), 60_000) },
+		func(x *tasks.Task) (tasks.Event, error) {
+			return tasks.Submit(x, a, "done", []string{"make build: ok"},
+				[]string{"1: make test-full -> exit 0"}, tick(t))
+		},
+	} {
+		if _, err := s.TaskTransition(proj, fresh.ID, 0, step); err != nil {
+			t.Fatalf("transition: %v", err)
+		}
+	}
+	back, err := s.GetTask(proj, fresh.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if len(back.EvidenceFor) != 1 || back.EvidenceFor[0].Criterion != 1 ||
+		back.EvidenceFor[0].Text != "make test-full -> exit 0" {
+		t.Fatalf("citations did not round-trip: %+v", back.EvidenceFor)
+	}
+	if len(back.Evidence) != 1 || back.Evidence[0] != "make build: ok" {
+		t.Fatalf("task-level evidence did not round-trip: %+v", back.Evidence)
 	}
 }

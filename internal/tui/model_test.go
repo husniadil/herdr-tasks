@@ -2140,3 +2140,84 @@ func TestTheDetailScrollDoesNotSurviveATabSwitch(t *testing.T) {
 		t.Errorf("the task's detail reopened at offset %d, carried over from the notes view", m.DetailOffset)
 	}
 }
+
+// §16.1 and §11.6: the detail panel renders validation as a DERIVED checklist.
+// The box is checked because a submitted evidence entry cites that criterion,
+// never because anyone flipped it, and the citing lines sit under the
+// criterion they prove rather than in the flat sibling list.
+func TestValidationChecklistIsDerivedFromCitations(t *testing.T) {
+	c := task(3, tasks.StatusReview, "the door")
+	c.Validation = []tasks.Criterion{
+		{Text: "the gate is green", Required: true},
+		{Text: "the docs say so", Required: true},
+		{Text: "a screenshot", Required: false},
+	}
+	c.Report = "wired it"
+	c.Evidence = []string{"make build: ok"}
+	c.EvidenceFor = []tasks.Citation{
+		{Criterion: 1, Text: "make test-full -> exit 0"},
+		{Criterion: 1, Text: "go vet ./... -> silent"},
+	}
+	m := board(t, c)
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	d := Detail(m, 0)
+
+	lines := strings.Split(d, "\n")
+	at := func(want string) int {
+		for i, l := range lines {
+			if strings.Contains(l, want) {
+				return i
+			}
+		}
+		t.Fatalf("detail has no line containing %q:\n%s", want, d)
+		return -1
+	}
+
+	green, docs, shot := lines[at("the gate is green")], lines[at("the docs say so")], lines[at("a screenshot")]
+	if !strings.Contains(green, "[x]") {
+		t.Fatalf("a cited criterion is not checked: %q", green)
+	}
+	if !strings.Contains(docs, "[ ]") {
+		t.Fatalf("an uncited criterion is not shown as a gap: %q", docs)
+	}
+	if !strings.Contains(shot, "(optional)") {
+		t.Fatalf("the detail still drops Criterion.Required: %q", shot)
+	}
+	if strings.Contains(shot, "[x]") {
+		t.Fatalf("an uncited optional criterion was checked: %q", shot)
+	}
+
+	// Both citing lines are nested under criterion 1, above criterion 2.
+	first, second := at("make test-full -> exit 0"), at("go vet ./... -> silent")
+	if first <= at("the gate is green") || second <= first || second >= at("the docs say so") {
+		t.Fatalf("citations are not nested under the criterion they prove:\n%s", d)
+	}
+	for _, l := range []string{lines[first], lines[second]} {
+		if !strings.HasPrefix(l, "    ") {
+			t.Fatalf("a citing line is not indented under its criterion: %q", l)
+		}
+	}
+	// A cited line is NOT also in the flat evidence list, and the task-level
+	// entry still is.
+	if strings.Contains(d, "evidence: make test-full") {
+		t.Fatalf("a citation was repeated in the flat evidence list:\n%s", d)
+	}
+	if !strings.Contains(d, "make build: ok") {
+		t.Fatalf("task-level evidence vanished:\n%s", d)
+	}
+}
+
+// A criterion list edited after a submission can leave a citation pointing at
+// nothing. Dropping it silently would let a reviewer read full coverage off a
+// checklist that lost an item, so the panel says so instead.
+func TestAnOrphanedCitationIsShownNotSwallowed(t *testing.T) {
+	c := task(4, tasks.StatusReview, "the door")
+	c.Validation = []tasks.Criterion{{Text: "the gate is green", Required: true}}
+	c.EvidenceFor = []tasks.Citation{{Criterion: 7, Text: "make e2e -> ok"}}
+	m := board(t, c)
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	d := Detail(m, 0)
+	if !strings.Contains(d, "make e2e -> ok") {
+		t.Fatalf("an orphaned citation was swallowed:\n%s", d)
+	}
+}

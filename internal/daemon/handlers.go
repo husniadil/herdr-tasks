@@ -213,7 +213,7 @@ func hTaskRelease(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 
 func hTaskSubmit(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
-		return tasks.Submit(t, by, argString(req.Args, "report"), argStrings(req.Args, "evidence"), d.Now())
+		return tasks.Submit(t, by, argString(req.Args, "report"), argStrings(req.Args, "evidence"), argStrings(req.Args, "evidence-for"), d.Now())
 	})
 }
 

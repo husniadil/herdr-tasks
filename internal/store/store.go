@@ -139,6 +139,10 @@ func jsonOrNil(v any) any {
 		if len(x) == 0 {
 			return nil
 		}
+	case []tasks.Citation:
+		if len(x) == 0 {
+			return nil
+		}
 	case []string:
 		if len(x) == 0 {
 			return nil
