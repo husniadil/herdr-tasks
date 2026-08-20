@@ -3,6 +3,10 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -858,5 +862,89 @@ func TestADependentOfACancelledTaskSaysSo(t *testing.T) {
 		if len(x.Abandoned) != 1 || x.Abandoned[0] != blocker.Seq {
 			t.Fatalf("the list says abandoned = %v", x.Abandoned)
 		}
+	}
+}
+
+// §6.3: "it is not there" and "I could not look" are different answers, and
+// telling the operator the first when the second is true is the worst kind of
+// wrong — during `parked resolve` it says the action they are looking at has
+// gone. readTask and readNote already tell them apart; GetParked mapped EVERY
+// failure to NOT_FOUND.
+func TestGetParkedTellsMissingFromBroken(t *testing.T) {
+	s := open(t)
+	id, err := s.Park(Parked{Project: proj, Subject: "agent:wF:p1", Verb: "tasks.approve",
+		Target: "#1", Reason: "the gate said no"}, tick(t))
+	if err != nil {
+		t.Fatalf("Park: %v", err)
+	}
+	if _, err := s.GetParked(proj, id); err != nil {
+		t.Fatalf("precondition: the row is there: %v", err)
+	}
+
+	// A genuinely absent id: unchanged.
+	_, err = s.GetParked(proj, "01ARZ3NDEKTSV4RRFFQ69G5FAV")
+	if got := codeOf(t, err); got != codes.NotFound {
+		t.Fatalf("an absent id: code = %q, want NOT_FOUND", got)
+	}
+	if !strings.Contains(err.Error(), "01ARZ3NDEKTSV4RRFFQ69G5FAV") {
+		t.Fatalf("the message does not name what was missing: %v", err)
+	}
+
+	// Now break the database under it. The row still exists; the read does not.
+	s.Close()
+	_, err = s.GetParked(proj, id)
+	if err == nil {
+		t.Fatal("a read on a closed database must fail")
+	}
+	if got := codeOf(t, err); got == codes.NotFound {
+		t.Fatalf("a broken read is reported as a missing row: %v", err)
+	}
+	if !strings.Contains(err.Error(), "closed") && !strings.Contains(err.Error(), "done") {
+		t.Fatalf("the error does not carry what the database said: %v", err)
+	}
+}
+
+// §6.3, kept from coming back: a read helper that maps a failure to NOT_FOUND
+// has to say WHICH failure. Source-level, because the point is that the next
+// helper written in this package cannot quietly repeat it.
+func TestEveryNotFoundInThisPackageDistinguishesNoRows(t *testing.T) {
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("glob: %v", err)
+	}
+	checked := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		fset := token.NewFileSet()
+		parsed, err := parser.ParseFile(fset, name, src, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		for _, decl := range parsed.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			body := string(src[fn.Body.Pos()-1 : fn.Body.End()])
+			if !strings.Contains(body, "codes.NotFound") {
+				continue
+			}
+			checked++
+			// A function that reads a row and answers NOT_FOUND must be
+			// answering it for the no-rows case specifically.
+			if !strings.Contains(body, "sql.ErrNoRows") {
+				t.Errorf("%s: %s answers NOT_FOUND without telling no-rows from any other failure",
+					name, fn.Name.Name)
+			}
+		}
+	}
+	if checked < 3 {
+		t.Fatalf("only %d functions answer NOT_FOUND; the sweep is not finding them", checked)
 	}
 }

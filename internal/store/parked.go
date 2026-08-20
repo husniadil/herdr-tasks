@@ -1,6 +1,9 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
+
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/ids"
 )
@@ -63,7 +66,11 @@ func (s *Store) ListParked(project string) ([]Parked, error) {
 	return out, wrap(rows.Err())
 }
 
-// GetParked reads one parked action.
+// GetParked reads one parked action. "It is not there" and "I could not look"
+// are different answers: reporting the first for a locked or broken database
+// tells the operator resolving an action that the action has gone, which is
+// the one thing it certainly has not. readTask and readNote already tell them
+// apart; this is the same shape.
 func (s *Store) GetParked(project, id string) (*Parked, error) {
 	var p Parked
 	err := s.db.QueryRow(
@@ -72,8 +79,11 @@ func (s *Store) GetParked(project, id string) (*Parked, error) {
 		 FROM parked WHERE project = ? AND id = ?`, project, id).
 		Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload, &p.State, &p.Reason,
 			&p.Error, &p.CreatedAt)
-	if err != nil {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, codes.Errorf(codes.NotFound, "no parked action %s", id)
+	}
+	if err != nil {
+		return nil, wrap(err)
 	}
 	return &p, nil
 }
