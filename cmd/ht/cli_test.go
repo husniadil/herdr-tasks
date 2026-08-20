@@ -490,3 +490,94 @@ func fakeDaemon(t *testing.T, w *world, answer string) net.Listener {
 	}()
 	return ln
 }
+
+// §8.4 / §11.5: Herdr says a pane died and its work comes back at once. The
+// shipped script is what runs, in a plugin root laid out the way Herdr sees
+// one, so the test exercises the real reaction and not a paraphrase of it.
+func TestPaneGoneReleasesThatPanesWorkAtOnce(t *testing.T) {
+	w := newWorld(t)
+	script := pluginRoot(t, w)
+
+	w.json(w.env(), "task", "create", "held by a pane that dies")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+
+	out, errOut, status := run(t, script, w.env("HERDR_PANE_ID=wF:p1"))
+	if status != 0 {
+		t.Fatalf("the reaction exited %d: %s%s", status, out, errOut)
+	}
+	doc := w.json(w.env(), "task", "get", "1")
+	task := doc["task"].(map[string]any)
+	if task["status"] != "todo" {
+		t.Fatalf("the dead pane's work did not come back: %v", task["status"])
+	}
+	if task["claimed_by"] != nil && task["claimed_by"] != "" {
+		t.Fatalf("the claim outlived the pane: %v", task["claimed_by"])
+	}
+	events := w.json(w.env(), "events", "--entity", "task")
+	if !strings.Contains(fmt.Sprint(events), "tasks.task.swept") {
+		t.Fatalf("the release must be in the trail (§11.5): %v", events)
+	}
+}
+
+// The other half, and the one that could do damage: Herdr reports a pane
+// event with no pane id when the pane had already left its state. A reaction
+// that treated that as "sweep everything" would take work off a pane that is
+// alive and holding an unexpired lease.
+func TestPaneGoneWithNoPaneIDTouchesNobody(t *testing.T) {
+	w := newWorld(t)
+	script := pluginRoot(t, w)
+
+	w.json(w.env(), "task", "create", "held by a pane that is fine")
+	w.json(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "1")
+
+	out, errOut, status := run(t, script, w.env())
+	if status != 0 {
+		t.Fatalf("a pane event with no id must not fail: exit %d: %s%s", status, out, errOut)
+	}
+	doc := w.json(w.env(), "task", "get", "1")
+	task := doc["task"].(map[string]any)
+	if task["status"] != "doing" || task["claimed_by"] != "agent:wF:p2" {
+		t.Fatalf("a live pane's unexpired claim was taken: %v / %v", task["status"], task["claimed_by"])
+	}
+}
+
+// pluginRoot lays out the shipped script over the world's binary the way the
+// plugin ships: <root>/scripts/on-pane-gone.sh next to <root>/bin/ht.
+func pluginRoot(t *testing.T, w *world) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.Symlink(w.bin, filepath.Join(root, "bin", "ht")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join("..", "..", "scripts", "on-pane-gone.sh"))
+	if err != nil {
+		t.Fatalf("read the shipped script: %v", err)
+	}
+	path := filepath.Join(root, "scripts", "on-pane-gone.sh")
+	if err := os.WriteFile(path, body, 0o755); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	return path
+}
+
+func run(t *testing.T, path string, env []string) (string, string, int) {
+	t.Helper()
+	cmd := exec.Command(path)
+	cmd.Env = env
+	var out, errb strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	status := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		status = ee.ExitCode()
+	} else if err != nil {
+		t.Fatalf("run %s: %v", path, err)
+	}
+	return out.String(), errb.String(), status
+}

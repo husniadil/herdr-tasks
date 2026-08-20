@@ -61,3 +61,40 @@ func TestManifestCommandsExist(t *testing.T) {
 		}
 	}
 }
+
+// eventBlock matches one `[[events]]` section's `on` and `command` argv0.
+var eventBlock = regexp.MustCompile(`(?m)^\[\[events\]\]\s*\non\s*=\s*"([^"]*)"\s*\ncommand\s*=\s*\[\s*"([^"]*)"`)
+
+// §8.4: a pane that dies gives its work back at once instead of waiting out
+// the lease. Herdr validates a hook's `on` against its dot-spelled names, so
+// the underscore spelling the event schema uses would be rejected at load —
+// the manifest would not fail here, it would fail in Herdr.
+func TestManifestReactsToAPaneGoingAway(t *testing.T) {
+	root := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(root, "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read the manifest: %v", err)
+	}
+	hooks := map[string]string{}
+	for _, m := range eventBlock.FindAllStringSubmatch(string(body), -1) {
+		hooks[m[1]] = m[2]
+	}
+	for _, want := range []string{"pane.closed", "pane.exited"} {
+		argv0, ok := hooks[want]
+		if !ok {
+			t.Fatalf("no [[events]] hook on %q; the manifest has %v", want, hooks)
+		}
+		// Herdr substitutes nothing into an argv: the ids arrive only in the
+		// environment, so a command that names the variable gets it literally.
+		if strings.Contains(argv0, "$") {
+			t.Errorf("hook on %q runs %q, but Herdr does not substitute argv — read the environment in a script", want, argv0)
+		}
+		info, err := os.Stat(filepath.Join(root, argv0))
+		if err != nil {
+			t.Fatalf("hook on %q runs %q, which is not there: %v", want, argv0, err)
+		}
+		if info.Mode()&0o100 == 0 {
+			t.Errorf("hook on %q runs %q, which is not executable (%s)", want, argv0, info.Mode())
+		}
+	}
+}

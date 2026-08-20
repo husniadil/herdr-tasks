@@ -41,6 +41,23 @@ title = "Release lapsed leases now"
 contexts = ["workspace"]
 command = ["./bin/ht", "sweep"]
 
+# A pane that dies should give its work back at once, not when the lease runs
+# out. Both events, because they are different deaths: `pane.exited` is the
+# command finishing while the pane stays, `pane.closed` is the pane going away.
+# Herdr spells hook names with dots here, though the event schema enums spell
+# them with underscores — see docs/contract-notes.md §8.4.
+#
+# The script reads HERDR_PANE_ID from the environment: Herdr substitutes
+# nothing into an argv, so a "$HERDR_PANE_ID" written here would arrive as
+# that literal string.
+[[events]]
+on = "pane.closed"
+command = ["./scripts/on-pane-gone.sh"]
+
+[[events]]
+on = "pane.exited"
+command = ["./scripts/on-pane-gone.sh"]
+
 # The human surface (§11.6, §1.3). The board is transient — open it, act on
 # what is in review, close it — so it is a popup. A popup gets no
 # HERDR_PANE_ID, which makes the operator's board `human` (§3.2), and human is
