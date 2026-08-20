@@ -248,3 +248,41 @@ func TestAPaneWaitThatRunsOutOfTimeSaysSoInsteadOfBlamingTheOutput(t *testing.T)
 		t.Fatalf("a timeout is still reported as a parse failure: %v", err)
 	}
 }
+
+// §5.9 through the whole stack: the shipped binary, a real daemon and a real
+// Herdr. The unit tests hold the state machine's refusal; this holds the part
+// a caller actually sees — the §6.3 exit status — because a bound that
+// answers USAGE in a Go test but exits 0 at the shell is not enforced.
+func TestFreeTextBoundsAreEnforcedThroughTheRealStack(t *testing.T) {
+	w := startWorld(t)
+	pane := w.pane("bounds")
+	w.beAgent(pane, "claude", "builder")
+
+	huge := strings.Repeat("x", 100_000)
+	doc, status := w.htStatus("task", "create", huge)
+	if status != 2 {
+		t.Fatalf("an over-long title exited %d, want 2 (USAGE, §6.3): %v", status, doc)
+	}
+	body, _ := doc["error"].(map[string]any)
+	if body == nil || body["code"] != "USAGE" {
+		t.Fatalf("error = %v, want a USAGE envelope (§6.2)", doc)
+	}
+	msg, _ := body["message"].(string)
+	if !strings.Contains(msg, "title") || !strings.Contains(msg, "200") {
+		t.Fatalf("the message must name the field and the limit: %q", msg)
+	}
+
+	// The bound must not have made ordinary work harder: everything the rest
+	// of this suite creates is well inside it.
+	created := w.ht("task", "create", "an ordinary title",
+		"--validation", "make test-full exits 0")
+	if created["task"] == nil {
+		t.Fatalf("a normal create was refused: %v", created)
+	}
+	id, _ := created["task"].(map[string]any)["id"].(string)
+	w.mustInPane(pane, "task", "claim", id)
+	w.mustInPane(pane, "task", "submit", id, "--report", "did it", "--evidence", "make test-full: exit 0")
+	if s := w.task(id)["status"]; s != "review" {
+		t.Fatalf("a submission inside the bounds did not reach review: %v", s)
+	}
+}

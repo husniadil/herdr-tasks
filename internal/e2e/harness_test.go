@@ -262,6 +262,25 @@ func (w *world) tryHT(args ...string) (map[string]any, error) {
 	return doc, nil
 }
 
+// htStatus runs the CLI and returns its JSON document with the process exit
+// status, for the §6.3 assertions where the status IS the claim.
+func (w *world) htStatus(args ...string) (map[string]any, int) {
+	w.t.Helper()
+	cmd := exec.Command(w.htPath, append(args, "--json")...)
+	cmd.Env = w.env
+	cmd.Dir = w.root
+	out, runErr := cmd.Output()
+	status := 0
+	if ee, ok := runErr.(*exec.ExitError); ok {
+		status = ee.ExitCode()
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		w.t.Fatalf("ht printed no JSON document (§6.2): %q (%v)", out, runErr)
+	}
+	return doc, status
+}
+
 // pane opens a fresh workspace and returns its root pane id. The pane is a
 // plain shell: Herdr injects HERDR_PANE_ID into it, which is the whole of what
 // §3.2 needs for a door running there to be `agent:<pane>`.
