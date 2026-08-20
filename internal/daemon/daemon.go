@@ -367,3 +367,12 @@ func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *js
 		}
 	}
 }
+
+// Reload swaps in a config re-read on SIGHUP (§10.1). The gate is rebuilt with
+// it, so a policy command added to the config takes effect without a restart.
+func (d *Daemon) Reload(cfg *config.Config) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.Config = cfg
+	d.Gate = gate.New(cfg.GateCommand)
+}
