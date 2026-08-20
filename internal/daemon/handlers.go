@@ -39,6 +39,7 @@ func init() {
 		"note.add":     hNoteAdd,
 		"note.list":    hNoteList,
 		"note.get":     hNoteGet,
+		"note.update":  hNoteUpdate,
 		"note.discuss": hNoteDiscuss,
 		"note.verdict": hNoteVerdict,
 		"note.promote": hNotePromote,
@@ -339,6 +340,12 @@ func (d *Daemon) noteTransition(req protocol.Request, fn func(*tasks.Note) (task
 	}
 	d.emitted(n.Project, "note", n.ID)
 	return NoteResult{Note: n}, nil
+}
+
+func hNoteUpdate(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	return d.noteTransition(req, func(n *tasks.Note) (tasks.Event, error) {
+		return tasks.NoteUpdate(n, by, argString(req.Args, "body"), d.Now())
+	})
 }
 
 func hNoteDiscuss(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {

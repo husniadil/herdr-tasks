@@ -45,6 +45,7 @@ const (
 	KindNoteDiscussing = "discussing"
 	KindNoteNeedsInput = "needs_input"
 	KindNoteProposed   = "proposed"
+	KindNoteEdited     = "edited"
 	KindNotePromoted   = "promoted"
 	KindNoteKept       = "kept"
 	KindNoteDropped    = "dropped"
@@ -110,6 +111,40 @@ func NewNote(in NewNoteInput, by Actor, now int64) (*Note, Event, error) {
 		PaneID:        in.PaneID,
 	}
 	return n, Event{Kind: KindNoteAdded, Actor: by.Principal, At: now}, nil
+}
+
+// NoteUpdate fixes a note's wording. The author may correct their own words
+// and the operator may correct anyone's — every note on a real board is an
+// agent's, so an author-only rule would lock the operator out of all of them —
+// but one agent does not rewrite another's note.
+//
+// The window is any note the operator has not decided yet. Not inbox-only: a
+// note reaches `discussing` seconds after it is filed, and a window that shut
+// there would be shut in practice. Once decided the body is frozen, because a
+// promoted note's body is what the task was made from.
+//
+// The trail records that the body changed, not what it was: this is the same
+// detail `task update` writes, and a note is edited to fix it, not to keep a
+// copy of the mistake.
+func NoteUpdate(n *Note, by Actor, body string, now int64) (Event, error) {
+	if !by.IsHuman() && by.Principal != n.Author {
+		return Event{}, codes.Errorf(codes.Forbidden,
+			"note #%d belongs to %s; its author or the operator edits it", n.Seq, n.Author)
+	}
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return Event{}, codes.New(codes.Usage, "body cannot be emptied; an unwanted note is dropped or deleted (§5.7)")
+	}
+	if err := bound("body", body, MaxText); err != nil {
+		return Event{}, err
+	}
+	if n.Status.Terminal() {
+		return Event{}, codes.Errorf(codes.Conflict, "note is %s; its wording is what was decided on", n.Status)
+	}
+	n.Body = body
+	n.UpdatedAt = now
+	return Event{Kind: KindNoteEdited, Actor: by.Principal, At: now,
+		Detail: map[string]any{"changed": []string{"body"}}}, nil
 }
 
 // NoteDiscuss opens or re-opens triage. A note re-enters discussion from any

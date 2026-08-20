@@ -208,6 +208,19 @@ var All = []Verb{
 		Args:  []Arg{idArg("The note id or number")},
 	},
 	{
+		Name: "note.update", CLI: []string{"note", "update"},
+		Short: "Fix the wording of a note",
+		Long: "The author fixes their own note and the operator fixes anyone's, until the\n" +
+			"operator has decided it. A decided note is what was decided on, so its\n" +
+			"wording no longer moves.",
+		Mutates: true,
+		Gated:   "tasks.note_update",
+		Args: []Arg{
+			idArg("The note id or number"),
+			{Name: "body", Type: String, Desc: "What the note should say instead", Required: true},
+		},
+	},
+	{
 		Name: "note.discuss", CLI: []string{"note", "discuss"},
 		Short:   "Open or re-open triage on a note",
 		Mutates: true,

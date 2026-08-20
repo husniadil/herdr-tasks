@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -148,5 +149,95 @@ func TestTerminalNoteRejectsDiscussion(t *testing.T) {
 	}
 	if got := codeOf(t, noteErr(NoteDiscuss(n, agent("wF:p1", "claude"), t0+2))); got != codes.Conflict {
 		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+}
+
+// §5.6 / §5.9: a note's wording can be fixed, by the person whose words they
+// are or by the operator, until the operator has decided it. What is refused
+// matters as much as what is allowed: one agent rewriting another agent's note
+// is the case this rule exists for.
+func TestNoteUpdateIsTheAuthorsOrTheOperators(t *testing.T) {
+	author := agent("wF:p1", "claude")
+	other := agent("wF:p2", "codex")
+
+	n := newNote(t)
+	ev, err := NoteUpdate(n, author, "the sweep logs nothing at all", t0+1)
+	if err != nil {
+		t.Fatalf("the author could not fix their own note: %v", err)
+	}
+	if n.Body != "the sweep logs nothing at all" {
+		t.Fatalf("body = %q", n.Body)
+	}
+	if ev.Kind != KindNoteEdited || ev.Actor != author.Principal {
+		t.Fatalf("event = %+v, want an %q by the author", ev, KindNoteEdited)
+	}
+	if n.UpdatedAt != t0+1 {
+		t.Fatalf("updated_at = %d, want the edit's clock", n.UpdatedAt)
+	}
+
+	// The operator did not write it and edits it anyway: every note on a real
+	// board is an agent's, so an author-only rule would lock them out of all
+	// of them.
+	if err := noteErr(NoteUpdate(newNote(t), human, "the operator's wording", t0+2)); err != nil {
+		t.Fatalf("the operator could not fix an agent's note: %v", err)
+	}
+	// A different agent may not.
+	if got := codeOf(t, noteErr(NoteUpdate(newNote(t), other, "not yours", t0+2))); got != codes.Forbidden {
+		t.Fatalf("another agent's edit was %s, want FORBIDDEN", got)
+	}
+
+	// Decided is frozen: a promoted note's body is what the task was made
+	// from, and a dropped one is the record of what was turned down.
+	for _, decide := range []struct {
+		to  NoteStatus
+		run func(*Note) error
+	}{
+		{NoteKept, func(x *Note) error { return noteErr(NoteKeep(x, human, "not now", t0+1)) }},
+		{NoteDropped, func(x *Note) error { return noteErr(NoteDrop(x, human, "no", t0+1)) }},
+		{NoteTask, func(x *Note) error { return noteErr(NotePromote(x, human, "T1", t0+1)) }},
+	} {
+		x := newNote(t)
+		if err := decide.run(x); err != nil {
+			t.Fatalf("%s: %v", decide.to, err)
+		}
+		if got := codeOf(t, noteErr(NoteUpdate(x, human, "too late", t0+2))); got != codes.Conflict {
+			t.Fatalf("editing a %s note was %s, want CONFLICT", decide.to, got)
+		}
+	}
+	// Mid-triage is still open: a typo the operator spots while an agent reads
+	// it is exactly when they want to fix it.
+	x := newNote(t)
+	if err := noteErr(NoteDiscuss(x, author, t0+1)); err != nil {
+		t.Fatalf("discuss: %v", err)
+	}
+	if err := noteErr(NoteUpdate(x, human, "fixed mid-discussion", t0+2)); err != nil {
+		t.Fatalf("editing a note under discussion: %v", err)
+	}
+}
+
+// §5.9: the body is bounded at write time, and emptying it is not an edit —
+// it is a delete by other means, and §5.7 says how a note is deleted.
+func TestNoteUpdateRefusesAnEmptyOrOversizedBody(t *testing.T) {
+	for _, body := range []string{"", "   ", "\t\n "} {
+		if got := codeOf(t, noteErr(NoteUpdate(newNote(t), human, body, t0+1))); got != codes.Usage {
+			t.Fatalf("emptying the body with %q was %s, want USAGE", body, got)
+		}
+	}
+	n := newNote(t)
+	before := n.Body
+	err := noteErr(NoteUpdate(n, human, "x", t0+1))
+	if err != nil {
+		t.Fatalf("a one-character body: %v", err)
+	}
+	n = newNote(t)
+	err = noteErr(NoteUpdate(n, human, string(make([]rune, MaxText+1)), t0+1))
+	if codeOf(t, err) != codes.Usage {
+		t.Fatalf("an oversized body was %s, want USAGE", codeOf(t, err))
+	}
+	if msg := err.Error(); !strings.Contains(msg, "body") || !strings.Contains(msg, "20000") {
+		t.Fatalf("the refusal does not name the field and the limit: %q", msg)
+	}
+	if n.Body != before {
+		t.Fatalf("a refused edit changed the note anyway: %q", n.Body)
 	}
 }
