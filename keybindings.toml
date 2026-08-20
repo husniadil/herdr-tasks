@@ -1,0 +1,22 @@
+# Keybindings for the tasks plugin.
+#
+# Herdr does not load a plugin's keybindings — a plugin cannot claim keys in
+# the operator's config. Copy the two blocks below into your own
+# ~/.config/herdr/config.toml and change the keys to whatever is free for you.
+#
+# `type = "plugin_action"` is what makes `command` a plugin action rather than
+# a shell command; the value is "<plugin id>.<action id>", both taken from
+# herdr-plugin.toml. Opening a board that is already open is a no-op, so a
+# key can be leaned on without piling up panes.
+
+[[keys.command]]
+key = "prefix+b"
+type = "plugin_action"
+command = "herdr-tasks.board"
+description = "Open the tasks board"
+
+[[keys.command]]
+key = "prefix+shift+b"
+type = "plugin_action"
+command = "herdr-tasks.notes"
+description = "Open the notes board"

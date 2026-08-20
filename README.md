@@ -43,6 +43,33 @@ ht doctor
 machine-readable document on stdout; without it the output is prose and is not
 meant to be parsed. The skill in `skills/tasks/` teaches the CLI to agents.
 
+## The boards, on a key
+
+Two popups: `board` for tasks in review, `notes` for ideas awaiting a verdict.
+Both are on Herdr's plugin menu, and both are plugin actions, so a key can
+reach them.
+
+Herdr does not load a plugin's keybindings — a plugin does not get to claim
+keys in your config. Copy the two blocks from `keybindings.toml` into
+`~/.config/herdr/config.toml` and change the keys to whatever is free:
+
+```sh
+cat keybindings.toml >> ~/.config/herdr/config.toml
+```
+
+```toml
+[[keys.command]]
+key = "prefix+b"
+type = "plugin_action"
+command = "herdr-tasks.board"
+description = "Open the tasks board"
+```
+
+`type = "plugin_action"` is what makes `command` an action rather than a shell
+command; the value is `<plugin id>.<action id>`, both from `herdr-plugin.toml`.
+Pressing the key when the board is already open is a no-op rather than an
+error, so it can be leaned on.
+
 ## The shared plugin contract
 
 This plugin conforms to the **shared plugin contract, v0** (0.1.0-draft). The
