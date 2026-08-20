@@ -1,0 +1,305 @@
+package main_test
+
+import (
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/testenv"
+)
+
+// world is one throwaway installation: its own binary, state dir, config dir,
+// project, and fake herdr. Nothing here touches the operator's Herdr, config
+// or state (§12.3).
+type world struct {
+	t       *testing.T
+	bin     string
+	state   string
+	config  string
+	project string
+	herdr   string
+}
+
+func newWorld(t *testing.T) *world {
+	t.Helper()
+	testenv.SkipUnlessFull(t)
+	dir := testenv.ShortDir(t)
+	bin := filepath.Join(dir, "ht")
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	w := &world{
+		t:       t,
+		bin:     bin,
+		state:   filepath.Join(dir, "state"),
+		config:  filepath.Join(dir, "config"),
+		project: filepath.Join(dir, "proj"),
+		herdr:   testenv.FakeHerdr(t),
+	}
+	for _, d := range []string{w.state, w.config, w.project} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	t.Cleanup(w.stopDaemon)
+	return w
+}
+
+func (w *world) env(extra ...string) []string {
+	base := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + w.state,
+		"HERDR_PLUGIN_STATE_DIR=" + w.state,
+		"HERDR_PLUGIN_CONFIG_DIR=" + w.config,
+		"HERDR_BIN_PATH=" + w.herdr,
+	}
+	return append(base, extra...)
+}
+
+// run invokes the CLI and returns stdout, stderr and the exit status.
+func (w *world) run(env []string, args ...string) (string, string, int) {
+	w.t.Helper()
+	cmd := exec.Command(w.bin, args...)
+	cmd.Dir = w.project
+	cmd.Env = env
+	var out, errb strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	status := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		status = ee.ExitCode()
+	} else if err != nil {
+		w.t.Fatalf("run %v: %v", args, err)
+	}
+	return out.String(), errb.String(), status
+}
+
+func (w *world) json(env []string, args ...string) map[string]any {
+	w.t.Helper()
+	stdout, stderr, status := w.run(env, append(args, "--json")...)
+	if status != 0 {
+		w.t.Fatalf("%v exited %d: %s%s", args, status, stdout, stderr)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &doc); err != nil {
+		w.t.Fatalf("%v printed something that is not one JSON document: %q", args, stdout)
+	}
+	return doc
+}
+
+func (w *world) stopDaemon() {
+	exec.Command("pkill", "-f", w.bin+" daemon").Run()
+}
+
+// §2.2: a CLI call that finds no live socket starts the daemon and waits for
+// it, bounded, rather than fail. §3.5: the socket is 0600.
+func TestCLIAutostartsTheDaemon(t *testing.T) {
+	w := newWorld(t)
+	sock := filepath.Join(w.state, "tasks.sock")
+	if _, err := os.Stat(sock); err == nil {
+		t.Fatal("precondition: no socket yet")
+	}
+	doc := w.json(w.env(), "task", "list")
+	if doc["count"] != float64(0) {
+		t.Fatalf("count = %v", doc["count"])
+	}
+	info, err := os.Stat(sock)
+	if err != nil {
+		t.Fatalf("the daemon did not create the socket: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("socket mode = %o, want 600 (§3.5)", perm)
+	}
+	if state, err := os.Stat(w.state); err == nil && state.Mode().Perm() != 0o700 {
+		t.Fatalf("state dir mode = %o, want 700 (§3.5)", state.Mode().Perm())
+	}
+}
+
+// §6.2 and §6.3: --json prints exactly one document, and a failure prints the
+// error envelope and exits with the code's status.
+func TestJSONEnvelopeAndExitStatuses(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "the first task")
+
+	stdout, _, status := w.run(w.env(), "task", "get", "404", "--json")
+	if status != codes.Exit(codes.NotFound) {
+		t.Fatalf("exit = %d, want %d for NOT_FOUND", status, codes.Exit(codes.NotFound))
+	}
+	var doc struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &doc); err != nil {
+		t.Fatalf("stdout is not the §6.2 envelope: %q", stdout)
+	}
+	if doc.Error.Code != codes.NotFound || doc.Error.Message == "" {
+		t.Fatalf("envelope = %+v", doc.Error)
+	}
+
+	// USAGE / 2 for a caller-validatable input error.
+	if _, _, status := w.run(w.env(), "task", "create", "--json"); status != codes.Exit(codes.Usage) {
+		t.Fatalf("exit = %d, want 2 for USAGE", status)
+	}
+	// CONFLICT / 6 for a claim someone else holds.
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "1", "--json"); status != codes.Exit(codes.Conflict) {
+		t.Fatalf("exit = %d, want 6 for CONFLICT", status)
+	}
+	// FORBIDDEN / 8 for recusal by harness.
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "submit", "1", "--report", "done")
+	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p9"), "task", "approve", "1", "--json"); status != codes.Exit(codes.Forbidden) {
+		t.Fatalf("exit = %d, want 8 for FORBIDDEN (§6.6)", status)
+	}
+}
+
+// §6.2: without --json, output is for humans and stdout carries no JSON.
+func TestHumanOutputIsNotJSON(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "readable")
+	stdout, _, status := w.run(w.env(), "task", "list")
+	if status != 0 {
+		t.Fatalf("exit = %d", status)
+	}
+	if strings.HasPrefix(strings.TrimSpace(stdout), "{") {
+		t.Fatalf("human output must not be JSON: %q", stdout)
+	}
+	if !strings.Contains(stdout, "readable") {
+		t.Fatalf("human output does not show the task: %q", stdout)
+	}
+}
+
+// §3.2: the principal is derived from HERDR_PANE_ID, and §3.4's facts come
+// from herdr through HERDR_BIN_PATH.
+func TestPrincipalAndHarnessComeFromTheEnvironment(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "claimable")
+	doc := w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+	task := doc["task"].(map[string]any)
+	if task["claimed_by"] != "agent:wF:p1" || task["claimed_by_harness"] != "claude" {
+		t.Fatalf("task = %+v", task)
+	}
+}
+
+// §4.1: every worktree of a repository is one project, and a task filed from a
+// subdirectory is in the same backlog.
+func TestProjectScopeIsTheRepository(t *testing.T) {
+	w := newWorld(t)
+	run := func(dir string, args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run(w.project, "init", "-q")
+	sub := filepath.Join(w.project, "internal", "deep")
+	os.MkdirAll(sub, 0o755)
+
+	w.json(w.env(), "task", "create", "from the root")
+	cmd := exec.Command(w.bin, "task", "list", "--json")
+	cmd.Dir, cmd.Env = sub, w.env()
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("list from a subdirectory: %v", err)
+	}
+	if !strings.Contains(string(out), "from the root") {
+		t.Fatalf("a subdirectory is the same project (§4.1): %s", out)
+	}
+}
+
+// §10.3 and §5.8: doctor reports and never fails; dump prints the whole store.
+func TestDoctorAndDump(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "dumped")
+	doctor := w.json(w.env(), "doctor")
+	for _, key := range []string{"version", "contract", "state_dir", "config_dir", "socket_live",
+		"herdr_reachable", "gate_configured", "hook_configured", "degraded", "gated_verbs"} {
+		if _, ok := doctor[key]; !ok {
+			t.Errorf("doctor omits %q (§10.3)", key)
+		}
+	}
+	if doctor["socket_live"] != true || doctor["herdr_reachable"] != true {
+		t.Fatalf("doctor = %+v", doctor)
+	}
+	dump := w.json(w.env(), "dump")
+	if _, ok := dump["schema_version"]; !ok {
+		t.Fatalf("dump omits the schema version: %+v", dump)
+	}
+	tasksOut, _ := dump["tasks"].([]any)
+	if len(tasksOut) != 1 {
+		t.Fatalf("dump tasks = %v", dump["tasks"])
+	}
+}
+
+// §16.2: `task goal` prints a paste-ready condition under 4,000 characters.
+func TestTaskGoalPrintsAPasteReadyCondition(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "Teach the sweep to speak",
+		"--description", "The sweep releases a lease silently.",
+		"--validation", "`make test-full` passes and its output is shown")
+	stdout, _, status := w.run(w.env(), "task", "goal", "1")
+	if status != 0 {
+		t.Fatalf("exit = %d", status)
+	}
+	if len(stdout) >= 4000 {
+		t.Fatalf("goal is %d characters", len(stdout))
+	}
+	for _, want := range []string{"Teach the sweep to speak", "Done when:", "ht task submit 1", "ht task release 1 --note", "ht task touch 1"} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("goal is missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
+// §8.2: the event trail streams, and every state change is in it.
+func TestEventsCarryEveryStateChange(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "watched")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "release", "1", "--note", "handing back")
+	doc := w.json(w.env(), "events")
+	events := doc["events"].([]any)
+	names := []string{}
+	for _, e := range events {
+		names = append(names, e.(map[string]any)["name"].(string))
+	}
+	want := "tasks.task.created,tasks.task.claimed,tasks.task.released"
+	if strings.Join(names, ",") != want {
+		t.Fatalf("events = %v, want %s", names, want)
+	}
+}
+
+// The note board, end to end: an agent proposes, only the operator decides.
+func TestNoteBoardIsAgentProposesOperatorDecides(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "the sweep should log")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "discuss", "1")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "verdict", "1", "task", "--reason", "worth doing")
+	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "note", "promote", "1", "--json"); status != codes.Exit(codes.Forbidden) {
+		t.Fatalf("an agent must not promote its own note: exit %d", status)
+	}
+	doc := w.json(w.env(), "note", "promote", "1")
+	if doc["task"] == nil {
+		t.Fatalf("promote = %+v", doc)
+	}
+	list := w.json(w.env(), "task", "list")
+	if list["count"] != float64(1) {
+		t.Fatalf("the promotion did not file a task: %+v", list)
+	}
+}
+
+// §13.3: version prints the version consumers check a floor against.
+func TestVersion(t *testing.T) {
+	w := newWorld(t)
+	doc := w.json(w.env(), "version")
+	if doc["version"] == "" || doc["contract"] == "" {
+		t.Fatalf("version = %+v", doc)
+	}
+}

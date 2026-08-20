@@ -56,9 +56,16 @@ func DBPath() string { return filepath.Join(StateDir(), Name+".db") }
 // ConfigPath is <config_dir>/tasks.toml (§10.1).
 func ConfigPath() string { return filepath.Join(ConfigDir(), Name+".toml") }
 
-// EnsureStateDir creates the state dir with mode 0700 (§3.5).
+// EnsureStateDir creates the state dir with mode 0700 (§3.5). It tightens a
+// dir that already exists more widely rather than accepting it: the boundary
+// is the local user account, and a state dir another account can read is not
+// that boundary.
 func EnsureStateDir() error {
-	return os.MkdirAll(StateDir(), 0o700)
+	dir := StateDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	return os.Chmod(dir, 0o700)
 }
 
 func homeDir() string {

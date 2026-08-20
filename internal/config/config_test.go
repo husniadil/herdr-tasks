@@ -123,3 +123,20 @@ func TestMalformedConfigFailsLoud(t *testing.T) {
 		t.Fatal("a config we cannot parse must fail loud, not fall back silently")
 	}
 }
+
+// §3.5: a state dir that already exists more widely is tightened, not
+// accepted.
+func TestEnsureStateDirTightensAnExistingDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "loose")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Setenv("HERDR_PLUGIN_STATE_DIR", dir)
+	if err := EnsureStateDir(); err != nil {
+		t.Fatalf("EnsureStateDir: %v", err)
+	}
+	info, _ := os.Stat(dir)
+	if perm := info.Mode().Perm(); perm != 0o700 {
+		t.Fatalf("mode = %o, want 700", perm)
+	}
+}
