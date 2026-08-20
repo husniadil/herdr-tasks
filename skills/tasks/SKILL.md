@@ -22,7 +22,9 @@ htask task get 12                    # the whole thing: criteria, deps, feedback
 htask task claim 12                  # one winner; CONFLICT means someone else won
 htask task touch 12                  # renew the lease — see below
 htask task submit 12 --report "what you did and how you verified it" \
-                  --evidence "make test-full: ok, 214 tests"
+                  --evidence "make test-full: ok, 214 tests" \
+                  --evidence-for "1: make test-full: ok, 214 tests" \
+                  --evidence-for "2: go test ./internal/store -run Sweep -v: PASS"
 ```
 
 **Renew the lease at the start of every turn.** `htask task touch <id>` is one
@@ -46,6 +48,22 @@ The note is what the next claimer reads first. Write it for them.
 repeatable and is meant to be checkable: the command you ran and what it
 printed. A criterion that says "the tests pass" is answered by evidence that
 shows them passing, not by a claim that they do.
+
+`--evidence-for` is the same kind of proof, bound to the criterion it proves.
+Write it as `"<criterion>: what it printed"`, where the number is the
+criterion's place in the list `htask task get 12` prints. It is repeatable, and
+several citations may point at the same criterion. `--evidence` stays what it
+was: proof for the task as a whole rather than for one line of it.
+
+The reviewer then reads a checklist rather than two lists side by side. A
+criterion is `[x]` because a citation landed on it and `[ ]` because none did,
+with the citing lines underneath; nobody ticks a box by hand, and a criterion
+marked `(optional)` needs no citation. Citing is opt-in — a submit that cites
+nothing is the submit this plugin always took — but the moment you cite one
+criterion you are claiming coverage, so every required criterion needs a
+citation or the submit is refused with `USAGE` naming the ones you left. A
+citation whose number is not in the list is refused the same way, and nothing
+is written: the task is still yours, still `doing`.
 
 ## Reviewing
 

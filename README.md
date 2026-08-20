@@ -38,12 +38,22 @@ a copy is a second version of the truth from the next commit onwards.
 htask task list --ready                       # unblocked, unclaimed work
 htask task claim 12                           # one winner
 htask task touch 12                           # renew the lease, every turn
-htask task submit 12 --report "…" --evidence "make test-full: ok"
+htask task submit 12 --report "…" --evidence "make test-full: ok" \
+                     --evidence-for "1: make test-full: ok, 214 tests"
 htask task approve 12                         # not if your harness wrote it
 htask note add "the sweep releases a lease without logging why"
 htask task goal 12                            # a paste-ready /goal condition
 htask doctor
 ```
+
+`--evidence` is proof for the task as a whole. `--evidence-for` is proof for
+one acceptance criterion, written as `"<criterion>: what it printed"` where the
+number is the criterion's place in the list `htask task get` prints. Cite one
+and `task get` shows the criteria as a checklist — `[x]` where a citation
+landed, `[ ]` where none did — with the citing lines under the criterion they
+prove. Citing is opt-in: a submit that cites nothing behaves exactly as it
+always has, and a submit that cites one criterion has to cite every required
+one, so a checklist is never half a claim.
 
 `htask --help` lists every verb. Add `--json` to any of them for exactly one
 machine-readable document on stdout; without it the output is prose and is not

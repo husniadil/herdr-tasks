@@ -107,21 +107,29 @@ func splitCommands(fields []string) [][]string {
 	return out
 }
 
-func checkCommand(t *testing.T, name, line string, cmd []string) {
-	t.Helper()
-	words, flags := []string{}, []string{}
-	{
-		for _, f := range cmd {
-			switch {
-			case strings.HasPrefix(f, "--"):
-				flags = append(flags, strings.TrimPrefix(strings.SplitN(f, "=", 2)[0], "--"))
-			case strings.HasPrefix(f, "-"):
-				t.Errorf("%s: %q uses a short flag; this CLI declares none", name, line)
-			default:
-				words = append(words, f)
-			}
+// wordsAndFlags splits one command into the verb path and the long flags it
+// passes. Both directions of the docs check read a command the same way, so
+// they read it in one place.
+func wordsAndFlags(cmd []string) (words, flags []string) {
+	for _, f := range cmd {
+		switch {
+		case strings.HasPrefix(f, "--"):
+			flags = append(flags, strings.TrimPrefix(strings.SplitN(f, "=", 2)[0], "--"))
+		default:
+			words = append(words, f)
 		}
 	}
+	return words, flags
+}
+
+func checkCommand(t *testing.T, name, line string, cmd []string) {
+	t.Helper()
+	for _, f := range cmd {
+		if strings.HasPrefix(f, "-") && !strings.HasPrefix(f, "--") {
+			t.Errorf("%s: %q uses a short flag; this CLI declares none", name, line)
+		}
+	}
+	words, flags := wordsAndFlags(cmd)
 	if len(words) > 0 && notInTheRegistry[words[0]] {
 		return
 	}
@@ -172,6 +180,102 @@ func TestDocsCiteTheRealSurfacePaths(t *testing.T) {
 			if _, err := os.Stat(filepath.Join("..", "..", p)); err != nil {
 				t.Errorf("%s names %s, which is not in the repository: %v", name, p, err)
 			}
+		}
+	}
+}
+
+// untaught names a flag the docs deliberately leave out, and why. It is a
+// written-down list rather than a silence: --evidence-for shipped with the
+// docs unchanged and the gate stayed green, because TestDocsCiteTheRealSurface
+// only reads from the docs towards the registry. The test below reads the
+// other way, so a new flag on a verb the docs already show has to be taught,
+// or excused here, in the commit that adds it.
+//
+// The key is "<verb> --<flag>". Being on this list is a claim that a reader
+// who never learns the flag still gets the verb right — true of a limit or a
+// filter, false of anything that changes what a call MEANS.
+var untaught = map[string]string{
+	"task.list --status":        "--ready and --mine are the two the docs teach; the rest are filters a reader finds in --help",
+	"task.list --query":         "a search filter; not knowing it costs nothing",
+	"task.list --archived":      "a filter; the default is the one the docs describe",
+	"task.list --limit":         "a filter; the default is the one the docs describe",
+	"note.list --limit":         "a filter; the default is the one the docs describe",
+	"events --since":            "the events verb is shown as a shape, and §8.2 documents its arguments",
+	"events --entity":           "the events verb is shown as a shape, and §8.2 documents its arguments",
+	"events --limit":            "a filter; the default is the one the docs describe",
+	"task.create --description": "the docs teach create through --validation, which is the part a reader gets wrong",
+	"task.create --priority":    "an ordering hint; a task created without it is still a correct task",
+	// The skill's "Everything else" block points at a verb in one line rather
+	// than teaching it; --priority is the one example it carries.
+	"task.update --title":       "named in the skill's Everything-else roundup, which points rather than teaches",
+	"task.update --description": "named in the skill's Everything-else roundup, which points rather than teaches",
+	"task.update --validation":  "named in the skill's Everything-else roundup, which points rather than teaches",
+	"task.update --depends-on":  "named in the skill's Everything-else roundup, which points rather than teaches",
+}
+
+// §6.1 in the direction the docs kept getting wrong: a flag a verb OFFERS is a
+// flag the docs have to teach, once the docs have taken on that verb at all.
+// Verbs no document shows are out of scope — README says `htask --help` lists
+// every verb, and forcing an example for each would make the docs longer
+// without making them truer.
+func TestDocsTeachEveryFlagOfTheVerbsTheyShow(t *testing.T) {
+	shown := map[string]map[string]bool{}
+	for _, doc := range docFiles(t) {
+		for _, line := range commandLines(doc) {
+			fields := strings.Fields(quoted.ReplaceAllString(line, `""`))
+			for _, cmd := range splitCommands(fields) {
+				words, flags := wordsAndFlags(cmd)
+				if len(words) > 0 && notInTheRegistry[words[0]] {
+					continue
+				}
+				v, ok := verbFor(words)
+				if !ok {
+					continue // already reported by TestDocsCiteTheRealSurface
+				}
+				if shown[v.Name] == nil {
+					shown[v.Name] = map[string]bool{}
+				}
+				for _, f := range flags {
+					shown[v.Name][f] = true
+				}
+			}
+		}
+	}
+	if len(shown) < 10 {
+		t.Fatalf("only %d verbs found in the docs; the extractor is reading nothing", len(shown))
+	}
+	for name, seen := range shown {
+		v, ok := verbs.ByName(name)
+		if !ok {
+			t.Fatalf("verbFor returned %q, which verbs.ByName does not know", name)
+		}
+		for _, a := range v.Args {
+			// A positional is never typed as --flag, so the docs teach it by
+			// showing the verb at all.
+			if a.Positional || seen[a.Name] {
+				continue
+			}
+			if _, excused := untaught[name+" --"+a.Name]; excused {
+				continue
+			}
+			t.Errorf("the docs show %s but never teach --%s. Teach it in README.md or skills/tasks/SKILL.md, or say in untaught why a reader does not need it.", name, a.Name)
+		}
+	}
+	// An excuse that is no longer true is worse than no excuse: it says a
+	// decision was made about a flag that has since been taught or removed.
+	for key, why := range untaught {
+		name, flag, ok := strings.Cut(key, " --")
+		if !ok || why == "" {
+			t.Errorf("untaught[%q] is not \"<verb> --<flag>\" with a reason", key)
+			continue
+		}
+		v, known := verbs.ByName(name)
+		if !known || !v.Accepts(flag) {
+			t.Errorf("untaught names %s --%s, which is not a flag this CLI has", name, flag)
+			continue
+		}
+		if shown[name][flag] {
+			t.Errorf("untaught still excuses %s --%s, but the docs now teach it; drop the entry", name, flag)
 		}
 	}
 }
