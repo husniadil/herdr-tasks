@@ -813,3 +813,201 @@ func waitForSocket(t *testing.T, path string, within time.Duration) bool {
 	}
 	return false
 }
+
+// oneEnvelope requires stdout to be exactly one §6.2 error document and
+// returns its code. "Exactly one" is the contract: a machine caller reads one
+// document or it reads nothing it can act on.
+func oneEnvelope(t *testing.T, stdout string) string {
+	t.Helper()
+	lines := []string{}
+	for _, ln := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if strings.TrimSpace(ln) != "" {
+			lines = append(lines, ln)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("stdout carries %d documents, want exactly one:\n%s", len(lines), stdout)
+	}
+	var doc struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &doc); err != nil {
+		t.Fatalf("stdout is not one JSON document: %q (%v)", lines[0], err)
+	}
+	if doc.Error == nil {
+		t.Fatalf("the document is not an error envelope: %q", lines[0])
+	}
+	if doc.Error.Message == "" {
+		t.Fatalf("the envelope says nothing: %q", lines[0])
+	}
+	return doc.Error.Code
+}
+
+// §6.2: --json answers with one document whichever side refused. The door's
+// own refusals — a missing positional, a flag cobra does not know — used to
+// exit with the right status and an EMPTY stdout, so a machine caller got an
+// envelope or an end-of-file depending on which side validated, which is not
+// something it can see from where it stands.
+func TestDoorSideJSONFailuresPrintOneEnvelope(t *testing.T) {
+	w := newWorld(t)
+	for name, args := range map[string][]string{
+		"a missing required positional": {"task", "claim"},
+		"a flag cobra does not know":    {"task", "list", "--nonesuch"},
+	} {
+		stdout, stderr, status := w.run(w.env(), append(args, "--json")...)
+		if status != codes.Exit(codes.Usage) {
+			t.Errorf("%s: exit %d, want %d", name, status, codes.Exit(codes.Usage))
+		}
+		if got := oneEnvelope(t, stdout); got != codes.Usage {
+			t.Errorf("%s: code %q, want USAGE", name, got)
+		}
+		// One document, one stream: the envelope IS the report, so the prose
+		// line must not also appear as if two things went wrong.
+		if strings.Contains(stderr, "ht: ") {
+			t.Errorf("%s: --json printed the envelope AND a prose line: %q", name, stderr)
+		}
+	}
+}
+
+// §6.2 / §6.3: the human half is unchanged — prose on stderr, nothing on
+// stdout, the same status.
+func TestWithoutJSONADoorFailureStillSpeaksProse(t *testing.T) {
+	w := newWorld(t)
+	stdout, stderr, status := w.run(w.env(), "task", "claim")
+	if status != codes.Exit(codes.Usage) {
+		t.Fatalf("exit %d, want %d", status, codes.Exit(codes.Usage))
+	}
+	if strings.TrimSpace(stdout) != "" {
+		t.Fatalf("prose mode wrote to stdout: %q", stdout)
+	}
+	if !strings.Contains(stderr, "ht: ") {
+		t.Fatalf("prose mode said nothing on stderr: %q", stderr)
+	}
+	if strings.Contains(stderr, `{"error"`) {
+		t.Fatalf("prose mode printed an envelope: %q", stderr)
+	}
+}
+
+// §6.2 for every verb, so a verb added later cannot reintroduce the gap: each
+// one, invoked with --json and its required positional missing, answers with
+// one envelope.
+func TestEveryVerbWithAMissingPositionalAnswersWithAnEnvelope(t *testing.T) {
+	w := newWorld(t)
+	checked := 0
+	for _, v := range verbs.All {
+		required := false
+		for _, a := range v.Args {
+			if a.Positional && a.Required {
+				required = true
+			}
+		}
+		if !required {
+			continue
+		}
+		checked++
+		stdout, stderr, status := w.run(w.env(), append(append([]string{}, v.CLI...), "--json")...)
+		if status != codes.Exit(codes.Usage) {
+			t.Errorf("%s: exit %d, want %d (%s%s)", v.Name, status, codes.Exit(codes.Usage), stdout, stderr)
+			continue
+		}
+		if got := oneEnvelope(t, stdout); got != codes.Usage {
+			t.Errorf("%s: code %q, want USAGE", v.Name, got)
+		}
+	}
+	if checked < 10 {
+		t.Fatalf("only %d verbs take a required positional; the walk is not covering the surface", checked)
+	}
+}
+
+// §6.2 for the streaming verb: an error that ends a stream is still one
+// envelope, and it is the LAST document on stdout — nothing can retract what
+// was already written, so the only honest place for it is the end.
+func TestAStreamThatCannotStartAnswersWithAnEnvelope(t *testing.T) {
+	w := newWorld(t)
+	// A state dir whose socket path is past what a unix socket allows: the
+	// daemon refuses to listen, so the client's start-and-wait gives up.
+	long := filepath.Join(w.state, strings.Repeat("d", 120))
+	if err := os.MkdirAll(long, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	stdout, stderr, status := w.run(w.env("TASKS_STATE_DIR="+long), "events", "--follow", "--json")
+	if status == 0 {
+		t.Fatalf("a stream that never started exited 0: %s%s", stdout, stderr)
+	}
+	if got := oneEnvelope(t, stdout); got != codes.Unavailable {
+		t.Errorf("code %q, want UNAVAILABLE", got)
+	}
+	if strings.Contains(stderr, "ht: ") {
+		t.Errorf("--json printed the envelope AND a prose line: %q", stderr)
+	}
+}
+
+// §6.2 for a stream that fails PART WAY: the documents already written stay
+// valid and untouched, and the envelope is the LAST document. Nothing can
+// retract what is already on stdout, so the end is the only honest place for
+// it.
+//
+// The daemon here is a fake that streams two events and then an error
+// response, because the shapes that produce a real mid-stream failure are
+// the follow path's own (a killed daemon is silently swallowed today — that
+// is the events --follow task, not this one).
+func TestAStreamThatFailsPartWayEndsWithTheEnvelope(t *testing.T) {
+	w := newWorld(t)
+	if err := os.MkdirAll(w.state, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ln, err := net.Listen("unix", filepath.Join(w.state, "tasks.sock"))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			bufio.NewReader(conn).ReadString('\n')
+			fmt.Fprintln(conn, `{"result":{"id":"E1","name":"tasks.task.created"}}`)
+			fmt.Fprintln(conn, `{"result":{"id":"E2","name":"tasks.task.claimed"}}`)
+			fmt.Fprintln(conn, `{"error":{"code":"UNAVAILABLE","message":"the trail could not be read"}}`)
+			conn.Close()
+		}
+	}()
+
+	stdout, stderr, status := w.run(w.env(), "events", "--follow", "--json")
+	if status != codes.Exit(codes.Unavailable) {
+		t.Fatalf("exit %d, want %d: %s%s", status, codes.Exit(codes.Unavailable), stdout, stderr)
+	}
+	lines := []string{}
+	for _, ln := range strings.Split(strings.TrimSpace(stdout), "\n") {
+		if strings.TrimSpace(ln) != "" {
+			lines = append(lines, ln)
+		}
+	}
+	if len(lines) != 3 {
+		t.Fatalf("stdout carries %d documents, want the two events and the envelope:\n%s", len(lines), stdout)
+	}
+	// The two events came through whole, in order, and were not rewritten.
+	for i, want := range []string{"E1", "E2"} {
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(lines[i]), &doc); err != nil {
+			t.Fatalf("event %d is not a document: %q", i, lines[i])
+		}
+		if doc["id"] != want {
+			t.Fatalf("document %d is %v, want %s", i, doc["id"], want)
+		}
+		if _, isErr := doc["error"]; isErr {
+			t.Fatalf("document %d is an envelope, not an event: %q", i, lines[i])
+		}
+	}
+	if got := oneEnvelope(t, lines[2]); got != codes.Unavailable {
+		t.Fatalf("the last document's code is %q, want UNAVAILABLE", got)
+	}
+	if strings.Contains(stderr, "ht: ") {
+		t.Fatalf("--json printed the envelope AND a prose line: %q", stderr)
+	}
+}

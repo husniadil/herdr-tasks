@@ -187,7 +187,7 @@ func request(verb string, args map[string]any) (protocol.Request, error) {
 func run(v verbs.Verb, req protocol.Request) error {
 	raw, err := client.Call(req)
 	if err != nil {
-		return renderError(err)
+		return err
 	}
 	if g.jsonOut {
 		os.Stdout.Write(compact(raw))
@@ -208,13 +208,14 @@ func runStream(v verbs.Verb, req protocol.Request) error {
 	})
 }
 
-// renderError prints the §6.2 envelope on stdout in --json mode and a sentence
-// on stderr otherwise, and carries the code out to the exit status.
-func renderError(err error) error {
-	if !g.jsonOut {
-		return err
-	}
-	body := map[string]any{"code": codes.Unexpected, "message": err.Error()}
+// printErrorEnvelope writes the §6.2 error document on stdout. It is called
+// from ONE place, main, so that every failure — the daemon's, the door's, and
+// cobra's — answers in the same shape on the same stream. Before this, only
+// the failures that reached the daemon did; the rest exited with the right
+// status and an empty stdout, and a machine caller could not tell which it
+// was going to get.
+func printErrorEnvelope(err error, code string) {
+	body := map[string]any{"code": code, "message": err.Error()}
 	if f, ok := err.(*client.Failure); ok {
 		body["code"], body["message"] = f.Body.Code, f.Body.Message
 		if f.Body.ParkedID != "" {
@@ -225,23 +226,6 @@ func renderError(err error) error {
 	}
 	out, _ := json.Marshal(map[string]any{"error": body})
 	fmt.Fprintln(os.Stdout, string(out))
-	// The message already went to stdout as the one JSON document; the error
-	// still travels so main can exit with the §6.3 status.
-	return &silent{err}
-}
-
-// silent is an error whose text main should not print again.
-type silent struct{ error }
-
-func (s *silent) Error() string { return "" }
-func (s *silent) Code() string {
-	if f, ok := s.error.(*client.Failure); ok {
-		return f.Code()
-	}
-	if ce, ok := s.error.(*codes.Error); ok {
-		return ce.Code
-	}
-	return codes.Unexpected
 }
 
 // compact keeps §6.2's "exactly one JSON document" literally one line.
