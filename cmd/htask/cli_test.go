@@ -104,6 +104,36 @@ func (w *world) stopDaemon() {
 	exec.Command("pkill", "-f", w.bin+" daemon").Run()
 }
 
+// daemonUp leaves this world with a daemon that is listening, so the next
+// command finds a socket instead of autostarting one of its own.
+//
+// §2.2 says a CLI call that finds no live socket starts the daemon and waits
+// for it, bounded by client.StartTimeout. That bound is what a real operator
+// waits before being told their daemon is broken, and it is right where it is.
+// It is the wrong thing for a test harness to lean on twice over: a background
+// follower and a foreground command each autostarting means two daemons racing
+// for one bind, each on its own clock, and on a saturated machine the loser
+// reports the operator's message about a problem the operator does not have.
+// So the harness starts the daemon itself, once, and waits — generously,
+// because a test-side wait costs nothing when the daemon is quick and costs a
+// false failure when it is not.
+func (w *world) daemonUp() {
+	w.t.Helper()
+	sock := filepath.Join(w.state, "tasks.sock")
+	if conn, err := net.DialTimeout("unix", sock, 200*time.Millisecond); err == nil {
+		conn.Close()
+		return
+	}
+	cmd := exec.Command(w.bin, "daemon")
+	cmd.Dir, cmd.Env = w.project, w.env()
+	if err := cmd.Start(); err != nil {
+		w.t.Fatalf("start the daemon: %v", err)
+	}
+	if !waitForSocket(w.t, sock, 30*time.Second) {
+		w.t.Fatal("the daemon this world started never listened")
+	}
+}
+
 // §2.2: a CLI call that finds no live socket starts the daemon and waits for
 // it, bounded, rather than fail. §3.5: the socket is 0600.
 func TestCLIAutostartsTheDaemon(t *testing.T) {
@@ -803,6 +833,23 @@ func TestAKilledDaemonDoesNotWedgeTheNextOne(t *testing.T) {
 	}
 }
 
+// §12.1 on the harness itself: startFollower used to spawn a background CLI
+// that autostarted the daemon, and the next foreground command started its own
+// 3s clock racing it to the bind (§2.2). Under load the foreground one lost and
+// the gate failed with the production "did not come up within 3s" message — a
+// true message about a false problem. The harness now brings the daemon up and
+// waits for it, so the race cannot happen; this holds that contract, because a
+// wait no test would miss is a wait the next refactor deletes.
+func TestStartFollowerLeavesADaemonListening(t *testing.T) {
+	w := newWorld(t)
+	startFollower(t, w)
+	conn, err := net.DialTimeout("unix", filepath.Join(w.state, "tasks.sock"), 200*time.Millisecond)
+	if err != nil {
+		t.Fatalf("startFollower returned with nothing listening: w.daemonUp's waitForSocket is not being done, so the next command would autostart a second daemon on its own 3s clock: %v", err)
+	}
+	conn.Close()
+}
+
 func waitForSocket(t *testing.T, path string, within time.Duration) bool {
 	t.Helper()
 	deadline := time.Now().Add(within)
@@ -1094,6 +1141,9 @@ func (s *syncBuffer) String() string {
 
 func startFollower(t *testing.T, w *world, args ...string) *follower {
 	t.Helper()
+	// Before the follower, not after: the follower is a background process,
+	// and whatever the test runs next must not be racing it to the bind.
+	w.daemonUp()
 	cmd := exec.Command(w.bin, append([]string{"events", "--follow", "--json"}, args...)...)
 	cmd.Dir, cmd.Env = w.project, w.env()
 	f := &follower{cmd: cmd, out: &syncBuffer{}, errOut: &syncBuffer{}}
