@@ -191,3 +191,22 @@ func TestDoctorSeesTheRealHerdrAndItsSchema(t *testing.T) {
 		}
 	}
 }
+
+// §12.3: a suite that leaves processes behind has not stayed out of the
+// operator's way. Every `ht` call autostarts a detached daemon (§2.2) that
+// nothing else stops, so the world must stop them itself — and prove it did,
+// because the failure mode is invisible until the machine has a dozen of them.
+func TestNoDaemonThisSuiteStartedSurvivesIt(t *testing.T) {
+	w := startWorld(t)
+	w.ht("task", "create", "a task, which starts a daemon")
+	started := w.daemonPIDs()
+	if len(started) == 0 {
+		t.Fatal("the CLI did not autostart a daemon; this test would prove nothing")
+	}
+
+	w.stop()
+
+	if left := w.daemonPIDs(); len(left) != 0 {
+		t.Fatalf("the world left %d daemon(s) running: %v (started: %v)", len(left), left, started)
+	}
+}

@@ -30,6 +30,7 @@ type world struct {
 	session   string
 	env       []string
 	server    *exec.Cmd
+	stopped   bool
 }
 
 // startWorld boots the throwaway Herdr and returns the world the tests drive.
@@ -49,7 +50,7 @@ func startWorld(t *testing.T) *world {
 	t.Cleanup(func() { os.RemoveAll(root) })
 
 	w := &world{
-		t: t, root: root, herdrPath: herdr, htPath: ht,
+		t: t, root: root, herdrPath: herdr, htPath: copyBinary(t, ht, filepath.Join(root, "ht")),
 		socket:  filepath.Join(root, "h.sock"),
 		session: fmt.Sprintf("ht-e2e-%d", os.Getpid()),
 	}
@@ -101,7 +102,17 @@ func startWorld(t *testing.T) *world {
 	return nil
 }
 
+// stop tears down everything this world started, and is safe to call twice.
 func (w *world) stop() {
+	if w.stopped {
+		return
+	}
+	w.stopped = true
+	// The CLI autostarts a detached daemon and nothing else ever stops it
+	// (§2.2, §2.4: Herdr has no shutdown hook). Without this the suite leaves
+	// one daemon per test running for good, each holding a state dir the test
+	// cleanup has already deleted.
+	w.stopDaemons()
 	if w.server == nil || w.server.Process == nil {
 		return
 	}
@@ -109,6 +120,47 @@ func (w *world) stop() {
 	// the one it resolved on a bad day is the operator's.
 	_ = w.server.Process.Kill()
 	_, _ = w.server.Process.Wait()
+}
+
+// stopDaemons signals every daemon started from THIS world's binary. The
+// binary is a per-world copy for exactly this reason: a pattern matching the
+// repository's own bin/ht would also kill the daemon a developer is running.
+func (w *world) stopDaemons() {
+	_ = exec.Command("pkill", "-TERM", "-f", w.htPath+" daemon").Run()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if len(w.daemonPIDs()) == 0 {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// daemonPIDs is every live daemon started from this world's binary.
+func (w *world) daemonPIDs() []string {
+	out, err := exec.Command("pgrep", "-f", w.htPath+" daemon").Output()
+	if err != nil {
+		return nil
+	}
+	pids := []string{}
+	for _, line := range strings.Fields(string(out)) {
+		pids = append(pids, line)
+	}
+	return pids
+}
+
+// copyBinary gives this world its own copy of the shipped binary, so the
+// daemons it starts can be told apart from anyone else's by their argv.
+func copyBinary(t *testing.T, from, to string) string {
+	t.Helper()
+	body, err := os.ReadFile(from)
+	if err != nil {
+		t.Fatalf("read %s: %v", from, err)
+	}
+	if err := os.WriteFile(to, body, 0o755); err != nil {
+		t.Fatalf("copy the binary under test: %v", err)
+	}
+	return to
 }
 
 // herdrBinary resolves the Herdr under test the way §11.1 says, and skips
@@ -250,6 +302,10 @@ func (w *world) htInPane(pane string, args ...string) (map[string]any, error) {
 	line := fmt.Sprintf("%s %s --json > %s 2>&1; echo $? > %s",
 		w.htPath, strings.Join(quoted, " "), out, done)
 	w.herdr("pane", "run", pane, line)
+	// FOLLOW-UP: this loop does not tell a timeout from a finish, so a command
+	// still running surfaces as "the pane printed no JSON document" rather
+	// than as the timeout it was. Worth fixing the first time it flakes; the
+	// fix is to carry the loop's exit reason into the error below.
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(done); err == nil {
