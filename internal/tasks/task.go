@@ -168,6 +168,9 @@ func New(in NewTaskInput, by Actor, now int64) (*Task, Event, error) {
 	if in.Project == "" {
 		return nil, Event{}, codes.New(codes.Usage, "project is required")
 	}
+	if err := boundTaskText(title, in.Description, in.Validation); err != nil {
+		return nil, Event{}, err
+	}
 	t := &Task{
 		ID:             in.ID,
 		Seq:            in.Seq,
@@ -242,6 +245,9 @@ func Release(t *Task, by Actor, note string, now int64, kind string) (Event, err
 	if kind != KindSwept && !by.IsHuman() && t.ClaimedBy != by.Principal {
 		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
 	}
+	if err := bound("note", note, MaxText); err != nil {
+		return Event{}, err
+	}
 	if t.Status == StatusDoing {
 		t.Status = StatusTodo
 	}
@@ -264,6 +270,12 @@ func Submit(t *Task, by Actor, report string, evidence []string, now int64) (Eve
 	}
 	if t.ClaimedBy != "" && t.ClaimedBy != by.Principal && !by.IsHuman() {
 		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
+	}
+	if err := bound("report", report, MaxText); err != nil {
+		return Event{}, err
+	}
+	if err := boundList("evidence", evidence, MaxItem, MaxItems); err != nil {
+		return Event{}, err
 	}
 	t.Status = StatusReview
 	t.Report = report
@@ -304,6 +316,9 @@ func Reject(t *Task, by Actor, feedback string, now int64) (Event, error) {
 		return Event{}, codes.Errorf(codes.Conflict, "task is %s, not in review", t.Status)
 	}
 	if err := CheckRecusal(t, by); err != nil {
+		return Event{}, err
+	}
+	if err := bound("feedback", feedback, MaxText); err != nil {
 		return Event{}, err
 	}
 	if t.ClaimedBy != "" {
@@ -347,6 +362,9 @@ func CheckRecusal(t *Task, by Actor) error {
 func Cancel(t *Task, by Actor, reason string, now int64) (Event, error) {
 	if t.Status.Terminal() {
 		return Event{}, codes.Errorf(codes.Conflict, "task is already %s", t.Status)
+	}
+	if err := bound("reason", reason, MaxText); err != nil {
+		return Event{}, err
 	}
 	t.Status = StatusCancelled
 	t.ClaimedBy, t.ClaimedByName, t.ClaimedBySession = "", "", ""
@@ -401,15 +419,24 @@ func Update(t *Task, by Actor, p UpdatePatch, now int64) (Event, error) {
 		if title == "" {
 			return Event{}, codes.New(codes.Usage, "title cannot be emptied")
 		}
+		if err := bound("title", title, MaxTitle); err != nil {
+			return Event{}, err
+		}
 		t.Title, changed = title, append(changed, "title")
 	}
 	if p.Description != nil {
+		if err := bound("description", *p.Description, MaxText); err != nil {
+			return Event{}, err
+		}
 		t.Description, changed = *p.Description, append(changed, "description")
 	}
 	if p.Priority != nil {
 		t.Priority, changed = *p.Priority, append(changed, "priority")
 	}
 	if p.Validation != nil {
+		if err := boundCriteria(*p.Validation); err != nil {
+			return Event{}, err
+		}
 		t.Validation, changed = *p.Validation, append(changed, "validation")
 	}
 	if p.Deps != nil {
@@ -474,4 +501,24 @@ func harnessOf(a Actor) string {
 		return "unknown"
 	}
 	return a.Harness
+}
+
+// boundTaskText applies §5.9 to the free text a task carries from creation.
+func boundTaskText(title, description string, validation []Criterion) error {
+	if err := bound("title", title, MaxTitle); err != nil {
+		return err
+	}
+	if err := bound("description", description, MaxText); err != nil {
+		return err
+	}
+	return boundCriteria(validation)
+}
+
+// boundCriteria applies §5.9 to an acceptance-criteria list.
+func boundCriteria(list []Criterion) error {
+	texts := make([]string, 0, len(list))
+	for _, c := range list {
+		texts = append(texts, c.Text)
+	}
+	return boundList("validation", texts, MaxItem, MaxItems)
 }

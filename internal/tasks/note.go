@@ -93,6 +93,9 @@ func NewNote(in NewNoteInput, by Actor, now int64) (*Note, Event, error) {
 	if in.Project == "" {
 		return nil, Event{}, codes.New(codes.Usage, "project is required")
 	}
+	if err := bound("body", body, MaxText); err != nil {
+		return nil, Event{}, err
+	}
 	n := &Note{
 		ID:            in.ID,
 		Seq:           in.Seq,
@@ -127,6 +130,9 @@ func NoteAskInput(n *Note, by Actor, question string, now int64) (Event, error) 
 	if n.Status != NoteDiscussing {
 		return Event{}, codes.Errorf(codes.Conflict, "note is %s, not discussing", n.Status)
 	}
+	if err := bound("question", question, MaxText); err != nil {
+		return Event{}, err
+	}
 	n.Status = NoteNeedsInput
 	n.Question = strings.TrimSpace(question)
 	n.UpdatedAt = now
@@ -140,6 +146,9 @@ func NoteAskInput(n *Note, by Actor, question string, now int64) (Event, error) 
 func NoteVerdict(n *Note, by Actor, v Verdict, reason string, now int64) (Event, error) {
 	if !v.valid() {
 		return Event{}, codes.Errorf(codes.Usage, "unknown verdict %q; want task, keep, or drop", v)
+	}
+	if err := bound("reason", reason, MaxText); err != nil {
+		return Event{}, err
 	}
 	switch n.Status {
 	case NoteDiscussing, NoteNeedsInput, NoteProposed:
@@ -185,6 +194,9 @@ func NoteDrop(n *Note, by Actor, reason string, now int64) (Event, error) {
 func decide(n *Note, by Actor, to NoteStatus, kind, reason string, now int64) (Event, error) {
 	if !by.IsHuman() {
 		return Event{}, codes.Errorf(codes.Forbidden, "only the operator decides a note; propose %s with note verdict instead", to)
+	}
+	if err := bound("reason", reason, MaxText); err != nil {
+		return Event{}, err
 	}
 	if n.Status.Terminal() {
 		return Event{}, codes.Errorf(codes.Conflict, "note is %s", n.Status)
