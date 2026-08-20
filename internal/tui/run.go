@@ -66,7 +66,7 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.Action != tea.MouseActionPress || m.Button != tea.MouseButtonLeft {
 			return p, nil
 		}
-		in = MouseMsg{X: m.X, Y: m.Y}
+		in = MouseMsg{X: m.X, Y: m.Y, At: time.Now().UnixMilli()}
 	case editedMsg:
 		return p, p.afterEditor(v)
 	case DataMsg, ErrMsg, DoneMsg:

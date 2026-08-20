@@ -76,10 +76,14 @@ func click(m Model, at MouseMsg) (Model, *Call) {
 	if at.Y >= m.Height-footerRows {
 		return footerClick(m, at.X)
 	}
+	// Only what was DRAWN is clickable. The column can be far deeper than the
+	// screen, and the rows past the last drawn card look blank — bounding by
+	// the column's length instead selected a card nobody could see.
+	drawn := frameOf(m, at.At).cards
 	if m.View == ViewBoard {
 		col := ColumnAt(m.Width, at.X)
 		row := RowAt(at.Y)
-		if row < 0 || row >= len(m.Column(col)) {
+		if row < 0 || row >= drawn || row >= len(m.Column(col)) {
 			return m, nil
 		}
 		m.Col, m.Row[col], m.Detail = col, row, true
@@ -87,14 +91,17 @@ func click(m Model, at MouseMsg) (Model, *Call) {
 	}
 	half := m.Width / 2
 	row := RowAt(at.Y)
+	if row < 0 || row >= drawn {
+		return m, nil
+	}
 	if at.X < half {
-		if row < 0 || row >= len(m.Notes) {
+		if row >= len(m.Notes) {
 			return m, nil
 		}
 		m.Pane, m.NoteRow, m.Detail = PaneNotes, row, true
 		return m, nil
 	}
-	if row < 0 || row >= len(m.Parked) {
+	if row >= len(m.Parked) {
 		return m, nil
 	}
 	m.Pane, m.ParkedRow, m.Detail = PaneParked, row, true
@@ -178,6 +185,33 @@ func footerLabel(v Verb) string { return " [" + v.Key + "] " + v.Label + " " }
 // So every fixed row is reserved here, including the status row when there is
 // no status, so that filling it cannot move anything.
 func Render(m Model, now int64) string {
+	f := frameOf(m, now)
+	lines := []string{clampWidth(header(m), m.Width)}
+	lines = append(lines, f.body...)
+	lines = append(lines, f.prompt...)
+	lines = append(lines, f.detail...)
+	lines = append(lines, "")
+	lines = append(lines, footerLine(m))
+	lines = append(lines, clampWidth(statusLine(m), m.Width))
+	return strings.Join(lines, "\n")
+}
+
+// frame is one screenful, divided. It exists so that the arithmetic deciding
+// how many rows the body gets is done ONCE and read by everyone who needs it:
+// Render draws it, and click() hit-tests against it. Two computations of the
+// same number is two contracts, and the difference between them was a click on
+// a blank row opening a card that was never on screen — with the footer's
+// approve and reject then aimed at it.
+type frame struct {
+	body   []string
+	prompt []string
+	detail []string
+	// cards is how many rows BELOW the body's heading carry data. Rows past
+	// it are the padding fitLines added, and nothing is drawn on them.
+	cards int
+}
+
+func frameOf(m Model, now int64) frame {
 	rows := m.Height
 	if rows < minRows {
 		rows = minRows
@@ -192,25 +226,29 @@ func Render(m Model, now int64) string {
 	// Chrome inside the budget is served before the body: a prompt the
 	// operator is typing into, and the detail panel they opened, are what they
 	// are looking at. The body is the part that can be scrolled back to.
-	var prompt []string
+	var f frame
 	if m.Prompt != nil {
-		prompt = clampLines([]string{"", promptLine(*m.Prompt, m.Width)}, free-1)
+		f.prompt = clampLines([]string{"", promptLine(*m.Prompt, m.Width)}, free-1)
 	}
-	var detail []string
 	if m.Detail {
 		if body := Detail(m, now); body != "" {
-			detail = clampLines(append([]string{""}, wrapTo(body, m.Width)...), free-len(prompt)-1)
+			f.detail = clampLines(append([]string{""}, wrapTo(body, m.Width)...), free-len(f.prompt)-1)
 		}
 	}
 
-	lines := []string{clampWidth(header(m), m.Width)}
-	lines = append(lines, fitLines(bodyLines(m, now), free-len(prompt)-len(detail))...)
-	lines = append(lines, prompt...)
-	lines = append(lines, detail...)
-	lines = append(lines, "")
-	lines = append(lines, footerLine(m))
-	lines = append(lines, clampWidth(statusLine(m), m.Width))
-	return strings.Join(lines, "\n")
+	budget := free - len(f.prompt) - len(f.detail)
+	full := bodyLines(m, now)
+	f.body = fitLines(full, budget)
+	// The heading is row 0 of the body and always survives, so the rows that
+	// can carry a card are what is left of the budget, bounded by what there
+	// was to draw.
+	if f.cards = budget - 1; f.cards > len(full)-1 {
+		f.cards = len(full) - 1
+	}
+	if f.cards < 0 {
+		f.cards = 0
+	}
+	return f
 }
 
 // promptCursor marks where the next rune goes.

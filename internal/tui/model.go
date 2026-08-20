@@ -169,7 +169,13 @@ type KeyMsg struct{ Key string }
 // MouseMsg is one click at a cell. The TUI is mouse-first (§11.6): every verb
 // the keyboard reaches is reachable by clicking, and the keyboard is the
 // fallback rather than the other way round.
-type MouseMsg struct{ X, Y int }
+// At is the clock the click is hit-tested against, so click() divides the
+// screen exactly as the frame the operator clicked on was divided. Zero is
+// what the tests use, and what Render(m, 0) draws.
+type MouseMsg struct {
+	X, Y int
+	At   int64
+}
 
 // SizeMsg is a resize.
 type SizeMsg struct{ Width, Height int }

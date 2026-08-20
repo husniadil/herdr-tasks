@@ -3,6 +3,7 @@ package tui
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -304,12 +305,27 @@ func TestFooterVerbsAreClickableWhereTheyAreDrawn(t *testing.T) {
 // A click on the empty middle of the board selects nothing and runs nothing.
 // Approve and parked.resolve are mutating, gated verbs (§9.1); neither may be
 // reachable by a stray click.
+//
+// The board is DEEPER than the screen on purpose. Built on one card, every row
+// this sweeps is out of bounds for the trivial reason that the column holds
+// one element — which tests nothing about what was drawn. With forty cards the
+// rows below the last drawn one are still empty on screen but are real
+// elements of the column, and that is the case that matters.
 func TestAClickOnEmptySpaceRunsNothing(t *testing.T) {
-	m := board(t, task(1, tasks.StatusReview, "a"))
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "todo"))
+	}
+	m := board(t, append(deep, task(41, tasks.StatusReview, "a"))...)
 	m.Width, m.Height = 80, 24
 	for y := firstCard + 1; y < m.Height-footerRows; y++ {
-		if _, call := Update(m, MouseMsg{X: 2, Y: y}); call != nil {
+		got, call := Update(m, MouseMsg{X: 2, Y: y})
+		if call != nil {
 			t.Fatalf("a click on empty row %d ran %s", y, call.Verb)
+		}
+		if drawnAt(t, m, y) == "" && got.Detail {
+			t.Fatalf("a click on row %d, where nothing is drawn, opened card #%d",
+				y, m.Column(got.Col)[got.Row[got.Col]].Seq)
 		}
 	}
 	n := New(ViewNotes, "/repo")
@@ -319,6 +335,112 @@ func TestAClickOnEmptySpaceRunsNothing(t *testing.T) {
 	for y := firstCard + 1; y < n.Height-footerRows; y++ {
 		if _, call := Update(n, MouseMsg{X: 2, Y: y}); call != nil {
 			t.Fatalf("a click on empty row %d of the notes view ran %s", y, call.Verb)
+		}
+	}
+}
+
+// drawnAt is what Render actually put on screen row y, trimmed. "" means the
+// row is blank — either padding below the body or the gap above the footer.
+func drawnAt(t *testing.T, m Model, y int) string {
+	t.Helper()
+	lines := screen(m)
+	if y < 0 || y >= len(lines) {
+		return ""
+	}
+	return strings.TrimSpace(lines[y])
+}
+
+// §11.6: the complement, so "bound the click" cannot be implemented as
+// "refuse everything". Every row that IS drawn selects the card drawn on it,
+// including the first and the last.
+func TestAClickOnADrawnCardSelectsThatCard(t *testing.T) {
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "todo"))
+	}
+	m := board(t, deep...)
+	m.Width, m.Height = 80, 24
+
+	drawn := []int{}
+	for y := firstCard; y < m.Height-footerRows; y++ {
+		if drawnAt(t, m, y) != "" {
+			drawn = append(drawn, y)
+		}
+	}
+	if len(drawn) < 2 {
+		t.Fatalf("the board drew %d card rows; this test needs a deep board", len(drawn))
+	}
+	for _, y := range []int{drawn[0], drawn[len(drawn)-1]} {
+		got, call := Update(m, MouseMsg{X: 2, Y: y})
+		if call != nil {
+			t.Fatalf("clicking a drawn card ran %s", call.Verb)
+		}
+		if !got.Detail {
+			t.Fatalf("clicking drawn row %d selected nothing", y)
+		}
+		want := RowAt(y)
+		if got.Col != 0 || got.Row[0] != want {
+			t.Fatalf("clicking row %d selected column %d row %d, want column 0 row %d",
+				y, got.Col, got.Row[got.Col], want)
+		}
+		// And it is the card whose text is on that row.
+		if seq := got.Column(got.Col)[got.Row[got.Col]].Seq; !strings.Contains(drawnAt(t, m, y), fmt.Sprintf("#%d ", seq)) {
+			t.Fatalf("row %d draws %q but the click selected #%d", y, drawnAt(t, m, y), seq)
+		}
+	}
+}
+
+// §11.6: with the detail panel open the body shrinks to what is left, so most
+// of the column is no longer on screen — and a click there was opening cards
+// the operator could not see, behind the panel they were reading.
+func TestAClickBehindTheDetailPanelSelectsNothing(t *testing.T) {
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "a todo with enough words to wrap the panel"))
+	}
+	m := board(t, deep...)
+	m.Width, m.Height = 80, 24
+	m.Detail = true
+	m.Col, m.Row[0] = 0, 0
+
+	for y := firstCard; y < m.Height-footerRows; y++ {
+		if drawnAt(t, m, y) != "" {
+			continue
+		}
+		got, call := Update(m, MouseMsg{X: 2, Y: y})
+		if call != nil {
+			t.Fatalf("a click on row %d ran %s", y, call.Verb)
+		}
+		if got.Row[0] != 0 {
+			t.Fatalf("a click on row %d, where no card is drawn, moved the selection to #%d",
+				y, got.Column(0)[got.Row[0]].Seq)
+		}
+	}
+}
+
+// §11.6: the notes view is clamped by the same arithmetic, in both panes.
+func TestAClickPastTheDrawnNotesSelectsNothing(t *testing.T) {
+	notes := []*tasks.Note{}
+	parked := []store.Parked{}
+	for i := 1; i <= 40; i++ {
+		notes = append(notes, &tasks.Note{ID: fmt.Sprintf("N%d", i), Seq: int64(i), Status: "inbox", Body: "an idea"})
+		parked = append(parked, store.Parked{ID: fmt.Sprintf("P%d", i), Verb: "tasks.approve", Subject: "agent:wF:p1"})
+	}
+	m := notesModel(t, notes, parked)
+	m.Width, m.Height = 80, 24
+
+	for _, x := range []int{2, 60} {
+		for y := firstCard; y < m.Height-footerRows; y++ {
+			if drawnAt(t, m, y) != "" {
+				continue
+			}
+			got, call := Update(m, MouseMsg{X: x, Y: y})
+			if call != nil {
+				t.Fatalf("x=%d: a click on row %d ran %s", x, y, call.Verb)
+			}
+			if got.Detail {
+				t.Fatalf("x=%d: a click on row %d, where nothing is drawn, opened a detail panel", x, y)
+			}
 		}
 	}
 }
@@ -1390,6 +1512,81 @@ func TestThePromptFitsInCellsWhileTypingWideRunes(t *testing.T) {
 			for i, ln := range lines {
 				if cells(ln) > m.Width {
 					t.Fatalf("h=%d c=%d: line %d is %d cells wide: %.30q…", height, cursor, i, cells(ln), ln)
+				}
+			}
+		}
+	}
+}
+
+// §11.6: Render and click() must divide the screen the same way. The proof is
+// in two halves, and it needs both: that the frame is what Render actually
+// draws, and that the frame is what click() bounds against. Drop either and
+// the two can drift back apart — which is what let a click on a blank row open
+// a card that was never on screen.
+func TestClickAndRenderAgreeOnWhatWasDrawn(t *testing.T) {
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "a todo with enough words to wrap a panel"))
+	}
+	notes := []*tasks.Note{}
+	parked := []store.Parked{}
+	for i := 1; i <= 40; i++ {
+		notes = append(notes, &tasks.Note{ID: fmt.Sprintf("N%d", i), Seq: int64(i), Status: "inbox", Body: "an idea"})
+		parked = append(parked, store.Parked{ID: fmt.Sprintf("P%d", i), Verb: "tasks.approve", Subject: "agent:wF:p1"})
+	}
+
+	for _, height := range []int{10, 24, 40} {
+		withDetail := board(t, deep...)
+		withDetail.Detail = true
+		withPrompt := board(t, deep...)
+		withPrompt.Prompt = &Prompt{Label: "Find in board", Value: "api"}
+		shallow := board(t, task(1, tasks.StatusTodo, "only one"))
+		for name, m := range map[string]Model{
+			"deep board":              board(t, deep...),
+			"deep board, detail open": withDetail,
+			"deep board, prompt open": withPrompt,
+			"deep notes":              notesModel(t, notes, parked),
+			"a board with one card":   shallow,
+		} {
+			m.Width, m.Height = 80, height
+			f := frameOf(m, 0)
+			lines := screen(m)
+
+			// Half one: the frame is what Render drew. Without this the frame
+			// could say anything and both sides would agree on a fiction.
+			for i, want := range f.body {
+				if got := lines[1+i]; got != want {
+					t.Fatalf("h=%d %s: Render drew %q on body row %d, the frame says %q",
+						height, name, got, i, want)
+				}
+			}
+
+			// Half two: click() bounds by the frame, in both directions. A
+			// prompt swallows clicks whatever is drawn — a stray click must
+			// not interrupt typing — so that state expects none of them.
+			for y := firstCard; y < m.Height-footerRows; y++ {
+				row := RowAt(y)
+				depth := len(m.Notes)
+				if m.View == ViewBoard {
+					depth = len(m.Column(ColumnAt(m.Width, 2)))
+				}
+				want := m.Prompt == nil && row < f.cards && row < depth
+				got, call := Update(m, MouseMsg{X: 2, Y: y})
+				if call != nil {
+					t.Fatalf("h=%d %s: a click on row %d ran %s", height, name, y, call.Verb)
+				}
+				picked := got.Detail && got.Col == 0 && got.Row[0] == row
+				if m.View == ViewNotes {
+					picked = got.Detail && got.Pane == PaneNotes && got.NoteRow == row
+				}
+				if picked != want {
+					t.Errorf("h=%d %s: a click on row %d picked=%v, want %v (%d card rows drawn, %d in the column)",
+						height, name, y, picked, want, f.cards, depth)
+				}
+				if !want && (got.Detail != m.Detail || got.Row != m.Row ||
+					got.NoteRow != m.NoteRow || got.Pane != m.Pane) {
+					t.Errorf("h=%d %s: a click on row %d, which draws no card, moved the selection",
+						height, name, y)
 				}
 			}
 		}
