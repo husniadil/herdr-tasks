@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -37,7 +38,7 @@ func Call(req protocol.Request) (json.RawMessage, error) {
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&resp); err != nil {
 		return nil, codes.Errorf(codes.Unavailable, "read the answer to %s: %v", req.Verb, err)
 	}
-	warnOnSkew(resp.Fingerprint)
+	warnOnSkew(os.Stderr, resp.Fingerprint, resp.Build)
 	if resp.Error != nil {
 		return nil, &Failure{Body: resp.Error}
 	}
@@ -48,25 +49,44 @@ func Call(req protocol.Request) (json.RawMessage, error) {
 // not once per call in a loop.
 var skewWarned sync.Once
 
-// warnOnSkew says so when the answering daemon does not speak this door's
-// surface. It warns rather than refuses: the request has already been
-// answered, and a door that failed here would break the upgrade it is meant
-// to make visible. An empty fingerprint counts — a daemon predating the field
-// is exactly the one that drops arguments it never learned.
-func warnOnSkew(got string) {
+// warnOnSkew says so when the answering daemon is not this door's equal. It
+// warns rather than refuses: the request has already been answered, and a
+// door that failed here would break the upgrade it is meant to make visible.
+//
+// There are two ways to disagree and they are not the same news. A different
+// SURFACE means the daemon is dropping arguments it never learned. A different
+// BUILD means the same argument is answered by different code — nothing is
+// dropped, the behaviour simply is not this binary's, which is how a stale
+// daemon went on accepting text the bounds had already refused. The surface
+// is said when both differ: a different surface is necessarily a different
+// build, and dropped arguments are the more urgent half.
+//
+// An empty value on either counts as a mismatch. A daemon predating a field
+// is exactly the daemon the field was added to catch.
+func warnOnSkew(w io.Writer, got string, build verbs.Build) {
 	mine := verbs.Fingerprint()
-	if got == mine {
-		return
+	switch {
+	case got != mine:
+		skewWarned.Do(func() {
+			daemon := "reports " + got
+			if got == "" {
+				daemon = "is too old to say which"
+			}
+			fmt.Fprintf(w,
+				"ht: this door speaks %s and the daemon %s; parts of a request it does not know are dropped — restart the daemon\n",
+				mine, daemon)
+		})
+	case !verbs.ThisBuild().Same(build):
+		skewWarned.Do(func() {
+			daemon := "is " + build.Short()
+			if build.Short() == "" {
+				daemon = "is too old to say which"
+			}
+			fmt.Fprintf(w,
+				"ht: this door is build %s and the daemon %s; it answers with different code — restart the daemon\n",
+				verbs.ThisBuild().Short(), daemon)
+		})
 	}
-	skewWarned.Do(func() {
-		daemon := "reports " + got
-		if got == "" {
-			daemon = "is too old to say which"
-		}
-		fmt.Fprintf(os.Stderr,
-			"ht: this door speaks %s and the daemon %s; parts of a request it does not know are dropped — restart the daemon\n",
-			mine, daemon)
-	})
 }
 
 // Stream sends one request and hands every answer to fn until the daemon stops

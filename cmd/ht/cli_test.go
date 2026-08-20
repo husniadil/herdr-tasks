@@ -451,11 +451,31 @@ func TestSkewIsReportedByTheDoor(t *testing.T) {
 	}
 }
 
-// The matching case: a daemon speaking this door's own surface says nothing.
+// buildOf is what a daemon running THIS binary reports about itself: the same
+// executable path and the same stat (§13.3). The door compares on the path, so
+// this is the answer that means "I am the binary you are".
+func buildOf(t *testing.T, bin string) string {
+	t.Helper()
+	fi, err := os.Stat(bin)
+	if err != nil {
+		t.Fatalf("stat the door binary: %v", err)
+	}
+	raw, err := json.Marshal(verbs.Build{
+		Exe:   bin,
+		Stamp: fmt.Sprintf("%d-%d", fi.Size(), fi.ModTime().UnixMilli()),
+	})
+	if err != nil {
+		t.Fatalf("marshal the build: %v", err)
+	}
+	return string(raw)
+}
+
+// The matching case: a daemon speaking this door's own surface, running this
+// door's own binary, says nothing.
 func TestSkewIsSilentWhenTheSurfacesMatch(t *testing.T) {
 	w := newWorld(t)
 	ln := fakeDaemon(t, w,
-		`{"result":{"tasks":[],"count":0},"fingerprint":"`+verbs.Fingerprint()+`"}`)
+		`{"result":{"tasks":[],"count":0},"fingerprint":"`+verbs.Fingerprint()+`","build":`+buildOf(t, w.bin)+`}`)
 	defer ln.Close()
 	_, stderr, status := w.run(w.env(), "task", "list", "--json")
 	if status != 0 {

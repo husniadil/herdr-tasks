@@ -154,6 +154,7 @@ func (d *Daemon) Answer(req protocol.Request) protocol.Response {
 	// Every answer, not only doctor's: the door that needs to know it is
 	// talking to a stranger is the one making an ordinary call.
 	resp.Fingerprint = verbs.Fingerprint()
+	resp.Build = verbs.ThisBuild()
 	return resp
 }
 

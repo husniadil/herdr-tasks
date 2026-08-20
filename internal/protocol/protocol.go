@@ -2,7 +2,11 @@
 // document per line over the Unix socket at <state_dir>/tasks.sock (§2.2).
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/husniadil/herdr-tasks/internal/verbs"
+)
 
 // Request is one verb call. The principal is derived by the door from its own
 // environment (§3.2) and carried here as pane id or an explicit --as: the
@@ -34,6 +38,10 @@ type Response struct {
 	// field is exactly the daemon that would drop an argument it never
 	// learned. Additive, so an old door simply ignores it.
 	Fingerprint string `json:"fingerprint,omitempty"`
+	// Build is which binary answered (§13.3). The fingerprint says what the
+	// daemon SPEAKS; this says what it IS, and a change to a rule or a bound
+	// moves only the second. Additive, like the field above it.
+	Build verbs.Build `json:"build,omitempty"`
 }
 
 // ErrorBody is the §6.2 envelope. ParkedID is the §9.3 addition a DENIED

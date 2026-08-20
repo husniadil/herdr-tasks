@@ -640,3 +640,26 @@ func TestDoctorReportsTheFingerprint(t *testing.T) {
 		t.Fatalf("doctor fingerprint = %q, want %q", report.Fingerprint, verbs.Fingerprint())
 	}
 }
+
+// §13.3: `build` answers a question `fingerprint` cannot — which binary — and
+// it is a SECOND field rather than a wider hash, because `fingerprint` is
+// shipped and a shipped field is never repurposed. Both are stamped on every
+// answer, not only doctor's: the door that needs to know it is talking to a
+// stranger is the one making an ordinary call.
+func TestDoctorAndEveryAnswerCarryTheBuildBesideTheFingerprint(t *testing.T) {
+	d := newDaemon(t, nil)
+	report := d.Doctor(protocol.Request{Project: proj}, tasks.Actor{Principal: tasks.PrincipalHuman})
+	if report.Build != verbs.ThisBuild() {
+		t.Fatalf("doctor build = %+v, want %+v", report.Build, verbs.ThisBuild())
+	}
+	if report.Fingerprint != verbs.Fingerprint() {
+		t.Fatalf("adding the build moved the fingerprint: %q", report.Fingerprint)
+	}
+	resp := d.Answer(protocol.Request{Verb: "task.list", Project: proj})
+	if resp.Build != verbs.ThisBuild() {
+		t.Fatalf("an ordinary answer carried build %+v, want %+v", resp.Build, verbs.ThisBuild())
+	}
+	if resp.Fingerprint != verbs.Fingerprint() {
+		t.Fatalf("an ordinary answer carried fingerprint %q, want %q", resp.Fingerprint, verbs.Fingerprint())
+	}
+}
