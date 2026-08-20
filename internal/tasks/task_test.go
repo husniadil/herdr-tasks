@@ -748,3 +748,51 @@ func withCriteria(t *testing.T, cs ...Criterion) *Task {
 	}
 	return task
 }
+
+// §11.5 with the rule task 30 asked for: wherever touch works for the holder,
+// claim works too. Submitting hands the work off, so the lease it was held
+// under is over — and the holder is told that plainly rather than left
+// renewing a lease on work it is no longer doing.
+func TestTouchRefusesOnceTheWorkIsSubmitted(t *testing.T) {
+	task := newTask()
+	a := agent("wF:p1", "claude")
+	mustClaim(t, task, a)
+	if task.LeaseUntil == 0 {
+		t.Fatal("precondition: a claim sets a lease")
+	}
+	if _, err := Submit(task, a, "done", nil, nil, t0+10); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	// The lease ends; the attribution does not. The board still says who
+	// submitted this, and §6.6 still has a harness to recuse.
+	if task.LeaseUntil != 0 {
+		t.Fatalf("lease_until = %d after submit, want 0", task.LeaseUntil)
+	}
+	if task.ClaimedBy != a.Principal {
+		t.Fatalf("claimed_by = %q after submit, want %q", task.ClaimedBy, a.Principal)
+	}
+	if task.SubmittedByHarness != "claude" {
+		t.Fatalf("submitted_by_harness = %q, want claude", task.SubmittedByHarness)
+	}
+
+	err := mustErr(Touch(task, a, t0+11, lease))
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("touch code = %q, want CONFLICT", got)
+	}
+	if !strings.Contains(err.Error(), string(StatusReview)) {
+		t.Fatalf("the refusal does not name the status: %v", err)
+	}
+	if !strings.Contains(err.Error(), "lease") {
+		t.Fatalf("the refusal does not say what there is none of: %v", err)
+	}
+	if got := codeOf(t, mustErr(Claim(task, a, t0+11, lease))); got != codes.Conflict {
+		t.Fatalf("claim code = %q, want CONFLICT: the two verbs must agree", got)
+	}
+
+	// And touch still renews where the work really is in hand.
+	doing := newTask()
+	mustClaim(t, doing, a)
+	if _, err := Touch(doing, a, t0+12, lease); err != nil {
+		t.Fatalf("touch on a doing task: %v", err)
+	}
+}

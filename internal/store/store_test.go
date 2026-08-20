@@ -1368,3 +1368,50 @@ func TestEvidenceForFlatRows(t *testing.T) {
 		t.Fatalf("task-level evidence did not round-trip: %+v", back.Evidence)
 	}
 }
+
+// §11.5: the sweep takes a lease back from work that was ABANDONED. Work that
+// was submitted was handed off, and a swept event written about it says the
+// daemon took work from someone who stopped — a false statement in a table
+// nothing ever rewrites. The submitted row must be out of the sweep's reach.
+func TestSweepCannotReachASubmittedTask(t *testing.T) {
+	s := open(t)
+	a := peer("wF:p1", "claude")
+	task := create(t, s, "handed off, not abandoned")
+	for i, step := range []func(*tasks.Task) (tasks.Event, error){
+		func(x *tasks.Task) (tasks.Event, error) { return tasks.Claim(x, a, tick(t), 60_000) },
+		func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "done", nil, nil, tick(t)) },
+	} {
+		if _, err := s.TaskTransition(proj, task.ID, 0, step); err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+	}
+	// Far past any lease this task could have been holding.
+	released, err := s.SweepLeases(clock + 10_000_000)
+	if err != nil {
+		t.Fatalf("SweepLeases: %v", err)
+	}
+	if len(released) != 0 {
+		t.Fatalf("the sweep took back %d submitted task(s): %v", len(released), released)
+	}
+	// Read the absence from the trail, not only from the return value: a sweep
+	// that released nothing and a sweep that wrote nothing are two claims.
+	evs, err := s.Events(EventFilter{Project: proj})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	for _, e := range evs {
+		if e.Kind == "swept" {
+			t.Fatalf("a swept event was written about work that was submitted: %+v", e)
+		}
+	}
+	got, err := s.GetTask(proj, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Status != tasks.StatusReview || got.ClaimedBy != a.Principal {
+		t.Fatalf("the submitted task moved: status=%q claimed_by=%q", got.Status, got.ClaimedBy)
+	}
+	if got.LeaseUntil != 0 {
+		t.Fatalf("lease_until = %d on a submitted task, want 0", got.LeaseUntil)
+	}
+}

@@ -257,6 +257,14 @@ func Touch(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 	if t.ClaimedBy != by.Principal {
 		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
 	}
+	// Wherever touch works for the holder, claim works too — the rule task 30
+	// asked for. Claim refuses a task in review; so does this, and for the
+	// same reason: there is no work in hand to keep. Without it one touch
+	// would put back the lease Submit just ended.
+	if t.Status != StatusDoing {
+		return Event{}, codes.Errorf(codes.Conflict,
+			"task is %s, not doing; there is no lease to renew", t.Status)
+	}
 	t.LeaseUntil = now + leaseMS
 	t.UpdatedAt = now
 	return Event{Kind: KindTouched, Actor: by.Principal, At: now,
@@ -316,6 +324,13 @@ func Submit(t *Task, by Actor, report string, evidence, evidenceFor []string, no
 		return Event{}, err
 	}
 	t.Status = StatusReview
+	// The lease ends here. It is the promise that work in hand is still being
+	// done, and submitted work is not in hand: leaving it set would keep the
+	// row inside the sweep's reach, so the daemon would eventually write a
+	// swept event — "the lease expired" — about work that was handed off
+	// rather than abandoned (§11.5). ClaimedBy stays, because it is the
+	// board's answer to who submitted this and §6.6 still needs a harness.
+	t.LeaseUntil = 0
 	t.Report = report
 	t.Evidence = evidence
 	t.EvidenceFor = cites
