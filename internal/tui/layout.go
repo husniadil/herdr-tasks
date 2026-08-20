@@ -146,10 +146,11 @@ var (
 )
 
 // footerClick turns a click on the footer into the keystroke it is labelled
-// with, so no verb is keyboard-only.
+// with, so no verb is keyboard-only. It walks the verbs the footer DREW, not
+// every verb the state has: on a narrow pane those are not the same list.
 func footerClick(m Model, x int) (Model, *Call) {
 	at := 0
-	for _, v := range m.Verbs() {
+	for _, v := range m.footerVerbs() {
 		label := footerLabel(v)
 		if x >= at && x < at+len(label) {
 			return Update(m, KeyMsg{Key: v.Key})
@@ -163,40 +164,182 @@ func footerLabel(v Verb) string { return " [" + v.Key + "] " + v.Label + " " }
 
 // Render draws the whole view as plain text. It is pure, which is what makes
 // the layout testable; run.go hands the string to bubbletea.
+//
+// It builds LINES and joins them, rather than writing newlines into a buffer,
+// because the number that matters is the one bubbletea counts: it splits the
+// view on "\n" and, when there are more pieces than the terminal has rows,
+// keeps only the last Height of them (standard_renderer.go:186 — it drops from
+// the TOP because it cannot move the cursor into scrollback). A document
+// written as N newlines is N+1 pieces, so the old arithmetic was one over
+// before anything was added to it, and the status line — written after the
+// footer, outside the budget entirely — was one more. What went was the
+// header: the only line that says which project this board is scoped to.
+//
+// So every fixed row is reserved here, including the status row when there is
+// no status, so that filling it cannot move anything.
 func Render(m Model, now int64) string {
-	var b strings.Builder
-	b.WriteString(tab(boardTab, m.View == ViewBoard))
-	b.WriteString(tab(notesTab, m.View == ViewNotes))
-	b.WriteString("  " + m.Project + "\n")
-	if m.View == ViewBoard {
-		renderBoard(&b, m, now)
-	} else {
-		renderNotes(&b, m)
+	rows := m.Height
+	if rows < minRows {
+		rows = minRows
 	}
+	// The fixed bottom: a blank line, the footer, and the status row.
+	const bottom = 3
+	free := rows - 1 - bottom
+	if free < 1 {
+		free = 1
+	}
+
+	// Chrome inside the budget is served before the body: a prompt the
+	// operator is typing into, and the detail panel they opened, are what they
+	// are looking at. The body is the part that can be scrolled back to.
+	var prompt []string
 	if m.Prompt != nil {
-		fmt.Fprintf(&b, "\n%s: %s_\n", m.Prompt.Label, m.Prompt.Value)
+		prompt = []string{"", clampWidth(fmt.Sprintf("%s: %s_", m.Prompt.Label, m.Prompt.Value), m.Width)}
+		prompt = clampLines(prompt, free-1)
 	}
+	var detail []string
 	if m.Detail {
-		b.WriteString("\n" + Detail(m, now))
+		if body := Detail(m, now); body != "" {
+			detail = clampLines(append([]string{""}, wrapTo(body, m.Width)...), free-len(prompt)-1)
+		}
 	}
-	// Pad to the bottom of the screen. click() hit-tests the footer by row, so
-	// a footer that floats up with short content would leave its own verbs
-	// dead and turn a click on empty space into whichever verb comes first —
-	// approve, or resolving a parked action (§9.3).
-	for lines := strings.Count(b.String(), "\n"); lines < m.Height-footerRows; lines++ {
-		b.WriteString("\n")
+
+	lines := []string{clampWidth(header(m), m.Width)}
+	lines = append(lines, fitLines(bodyLines(m, now), free-len(prompt)-len(detail))...)
+	lines = append(lines, prompt...)
+	lines = append(lines, detail...)
+	lines = append(lines, "")
+	lines = append(lines, footerLine(m))
+	lines = append(lines, clampWidth(statusLine(m), m.Width))
+	return strings.Join(lines, "\n")
+}
+
+// minRows is the smallest screen the layout still draws something on: the
+// header, one row of board, and the three fixed rows below it.
+const minRows = 5
+
+func header(m Model) string {
+	return tab(boardTab, m.View == ViewBoard) + tab(notesTab, m.View == ViewNotes) + "  " + m.Project
+}
+
+func statusLine(m Model) string {
+	if m.Err != "" {
+		return m.Err
 	}
-	b.WriteString("\n")
-	for _, v := range m.Verbs() {
+	return m.Status
+}
+
+// footerLine draws the verbs, dropping from the right until they fit the pane.
+// A footer wider than the pane wraps, and a wrapped footer costs a row the
+// budget did not know about — the very thing that hid the header. Whatever
+// goes, the close verb stays: it is the only way out of a popup (§11.6).
+func footerLine(m Model) string {
+	var b strings.Builder
+	for _, v := range m.footerVerbs() {
 		b.WriteString(footerLabel(v))
 	}
-	b.WriteString("\n")
-	if m.Err != "" {
-		b.WriteString(m.Err + "\n")
-	} else if m.Status != "" {
-		b.WriteString(m.Status + "\n")
-	}
 	return b.String()
+}
+
+// footerVerbs is what the footer actually draws, and therefore what
+// footerClick hit-tests: the two must be the same list or a click lands on the
+// wrong verb.
+func (m Model) footerVerbs() []Verb {
+	all := m.Verbs()
+	width := 0
+	for _, v := range all {
+		width += len(footerLabel(v))
+	}
+	if m.Width <= 0 || width <= m.Width {
+		return all
+	}
+	// The last verb is the way out and is kept; the ones before it go, from
+	// the right, until what is left fits.
+	out, last := all[:len(all)-1], all[len(all)-1]
+	for len(out) > 0 {
+		width = len(footerLabel(last))
+		for _, v := range out {
+			width += len(footerLabel(v))
+		}
+		if width <= m.Width {
+			break
+		}
+		out = out[:len(out)-1]
+	}
+	return append(out, last)
+}
+
+// bodyLines is the view's own rows, its heading first. The heading survives
+// clamping because it carries the counts: "todo (40)" over twelve drawn cards
+// says what is not on the screen, where twelve cards alone would not.
+func bodyLines(m Model, now int64) []string {
+	if m.View == ViewBoard {
+		return boardLines(m, now)
+	}
+	return notesLines(m)
+}
+
+// fitLines clamps a body to n rows and pads it back out to n, so the fixed
+// rows below it stay where click() expects them whatever the body holds.
+func fitLines(lines []string, n int) []string {
+	if n < 1 {
+		n = 1
+	}
+	out := make([]string, 0, n)
+	if len(lines) > 0 {
+		out = append(out, lines[0])
+	}
+	for i := 1; i < len(lines) && len(out) < n; i++ {
+		out = append(out, lines[i])
+	}
+	for len(out) < n {
+		out = append(out, "")
+	}
+	return out[:n]
+}
+
+func clampLines(lines []string, n int) []string {
+	if n < 0 {
+		n = 0
+	}
+	if len(lines) > n {
+		return lines[:n]
+	}
+	return lines
+}
+
+// clampWidth keeps a line inside the pane. A line wider than the pane wraps,
+// and a wrapped line is two rows the height budget counted as one.
+func clampWidth(s string, w int) string {
+	if w <= 0 {
+		return s
+	}
+	if r := []rune(s); len(r) > w {
+		return string(r[:w])
+	}
+	return s
+}
+
+// wrapTo breaks text into lines that fit the pane, so a long note body is
+// readable down the panel instead of running off the side of it.
+func wrapTo(s string, w int) []string {
+	if w <= 0 {
+		return strings.Split(s, "\n")
+	}
+	out := []string{}
+	for _, line := range strings.Split(s, "\n") {
+		r := []rune(line)
+		if len(r) == 0 {
+			out = append(out, "")
+			continue
+		}
+		for len(r) > w {
+			out = append(out, string(r[:w]))
+			r = r[w:]
+		}
+		out = append(out, string(r))
+	}
+	return out
 }
 
 // tab draws one view tab. The active one is bracketed, and padded back to the
@@ -209,28 +352,27 @@ func tab(label string, on bool) string {
 	return label
 }
 
-func renderBoard(b *strings.Builder, m Model, now int64) {
+// boardLines is the state columns: the headings, then a row per card depth.
+func boardLines(m Model, now int64) []string {
 	width := m.Width / len(Columns)
-	for i, c := range Columns {
-		head := fmt.Sprintf("%s (%d)", c, len(m.Column(i)))
-		b.WriteString(pad(head, width))
-	}
-	b.WriteString("\n")
+	head := ""
 	deepest := 0
-	for i := range Columns {
+	for i, c := range Columns {
+		head += pad(fmt.Sprintf("%s (%d)", c, len(m.Column(i))), width)
 		if n := len(m.Column(i)); n > deepest {
 			deepest = n
 		}
 	}
+	out := []string{head}
 	if deepest == 0 {
-		b.WriteString(emptyState(m.Project, m.BoardElsewhere, "task"))
-		return
+		return append(out, emptyState(m.Project, m.BoardElsewhere, "task")...)
 	}
 	for row := 0; row < deepest; row++ {
+		line := ""
 		for i := range Columns {
 			col := m.Column(i)
 			if row >= len(col) {
-				b.WriteString(pad("", width))
+				line += pad("", width)
 				continue
 			}
 			t := col[row]
@@ -238,10 +380,11 @@ func renderBoard(b *strings.Builder, m Model, now int64) {
 			if i == m.Col && row == m.Row[i] {
 				mark = ">"
 			}
-			b.WriteString(pad(fmt.Sprintf("%s#%d %s%s", mark, t.Seq, t.Title, lease(t, now)), width))
+			line += pad(fmt.Sprintf("%s#%d %s%s", mark, t.Seq, t.Title, lease(t, now)), width)
 		}
-		b.WriteString("\n")
+		out = append(out, line)
 	}
+	return out
 }
 
 // emptyState is what a view with nothing on it says (§4.2). A popup takes its
@@ -252,13 +395,13 @@ func renderBoard(b *strings.Builder, m Model, now int64) {
 // The scope is named, the cause of the scope is named, and where the work
 // actually is is named when it is somewhere else. The way over is not a key:
 // the board follows the pane, so the gesture is to focus the pane you meant.
-func emptyState(project string, elsewhere int, what string) string {
-	line := fmt.Sprintf("\n  Nothing here. This board is %s, which is the focused pane's project.\n", project)
+func emptyState(project string, elsewhere int, what string) []string {
+	out := []string{"", fmt.Sprintf("  Nothing here. This board is %s, which is the focused pane's project.", project)}
 	if elsewhere > 0 {
-		line += fmt.Sprintf("  %d %s(s) in other projects — focus a pane in the one you meant and reopen.\n",
-			elsewhere, what)
+		out = append(out, fmt.Sprintf("  %d %s(s) in other projects — focus a pane in the one you meant and reopen.",
+			elsewhere, what))
 	}
-	return line
+	return out
 }
 
 // lease is the claim made visible on the card: who holds it and how much of
@@ -278,16 +421,16 @@ func lease(t *tasks.Task, now int64) string {
 	return " · " + who + " " + humanLeft(t.LeaseUntil-now)
 }
 
-func renderNotes(b *strings.Builder, m Model) {
+// notesLines is the notes list beside the parked gate actions.
+func notesLines(m Model) []string {
 	half := m.Width / 2
-	b.WriteString(pad("notes", half) + pad("parked", half) + "\n")
+	out := []string{pad("notes", half) + pad("parked", half)}
 	rows := len(m.Notes)
 	if len(m.Parked) > rows {
 		rows = len(m.Parked)
 	}
-	if len(m.Notes) == 0 && len(m.Parked) == 0 {
-		b.WriteString(emptyState(m.Project, m.NotesElsewhere, "note"))
-		return
+	if rows == 0 {
+		return append(out, emptyState(m.Project, m.NotesElsewhere, "note")...)
 	}
 	for row := 0; row < rows; row++ {
 		left := ""
@@ -308,8 +451,9 @@ func renderNotes(b *strings.Builder, m Model) {
 			}
 			right = fmt.Sprintf("%s%s by %s", mark, p.Verb, p.Subject)
 		}
-		b.WriteString(pad(left, half) + pad(right, half) + "\n")
+		out = append(out, pad(left, half)+pad(right, half))
 	}
+	return out
 }
 
 func pad(s string, w int) string {

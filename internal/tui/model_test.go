@@ -707,3 +707,185 @@ func TestTUIEmptyCountsArriveFromTheirOwnList(t *testing.T) {
 		t.Fatalf("the notes count is %d, want 7 — the two lists share a key name", data.NotesElsewhere)
 	}
 }
+
+// screen is what bubbletea will do with a view: it splits on "\n" and, when
+// there are more lines than the terminal has rows, keeps only the LAST rows of
+// them (standard_renderer.go:186 in v1.3.10, which drops from the top because
+// it cannot move the cursor into scrollback). So the header is the first thing
+// sacrificed, and "fits" means at most Height elements — not Height newlines.
+func screen(m Model) []string { return strings.Split(Render(m, 0), "\n") }
+
+// states is every shape the popup can be in that has ever changed its height.
+func states(t *testing.T, height int) map[string]Model {
+	t.Helper()
+	base := func() Model {
+		m := board(t, task(1, tasks.StatusReview, "a task"), task(2, tasks.StatusTodo, "another"))
+		m.Width, m.Height = 80, height
+		return m
+	}
+	filtered := base()
+	filtered.BoardFilter, filtered.Status = "api", "filter: api"
+	erred := base()
+	erred.Prompt = &Prompt{Label: "Find in board"}
+	erred.Err = "USAGE: Find in board"
+	prompt := base()
+	prompt.Prompt = &Prompt{Label: "Find in board", Value: "api"}
+	detail := base()
+	detail.Detail = true
+	both := base()
+	both.Detail, both.BoardFilter, both.Status = true, "api", "filter: api"
+	return map[string]Model{
+		"at rest": base(), "filter applied": filtered, "err showing": erred,
+		"prompt open": prompt, "detail open": detail, "filter and detail": both,
+	}
+}
+
+// §11.6: the header names the project the board is scoped to, which is the one
+// thing an operator cannot work out from an empty board — and it is line 0, so
+// it is the first line lost when the document is one row too tall. It was:
+// the status line was written after the footer, outside the budget, so any
+// applied filter or error pushed the header off the screen.
+func TestRenderFitsTheScreenSoTheHeaderSurvives(t *testing.T) {
+	for _, height := range []int{10, 24, 40} {
+		for name, m := range states(t, height) {
+			lines := screen(m)
+			if len(lines) > height {
+				t.Errorf("h=%d %s: %d lines for %d rows — bubbletea drops the top %d",
+					height, name, len(lines), height, len(lines)-height)
+			}
+			head := lines[0]
+			for _, want := range []string{"/repo", "board", "notes"} {
+				if !strings.Contains(head, want) {
+					t.Errorf("h=%d %s: line 0 does not carry %q: %q", height, name, want, head)
+				}
+			}
+		}
+	}
+}
+
+// When there is more to show than there are rows, the rows that go are the
+// ones the operator can get back by scrolling a list — never the header that
+// says which project this is, and never the footer that says how to leave.
+func TestRenderClampsTheBodyNotTheChrome(t *testing.T) {
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, "a task"))
+	}
+	manyNotes := []*tasks.Note{}
+	for i := 1; i <= 40; i++ {
+		manyNotes = append(manyNotes, &tasks.Note{ID: "N", Seq: int64(i), Status: "inbox", Body: "an idea"})
+	}
+	long := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: strings.Repeat("x", 20_000)}}, nil)
+	long.Detail = true
+
+	for name, m := range map[string]Model{
+		"40 tasks":             board(t, deep...),
+		"40 notes":             notesModel(t, manyNotes, nil),
+		"detail on a 20k body": long,
+	} {
+		m.Width, m.Height = 80, 24
+		lines := screen(m)
+		if len(lines) > 24 {
+			t.Errorf("%s: %d lines for 24 rows", name, len(lines))
+		}
+		if !strings.Contains(lines[0], "/repo") {
+			t.Errorf("%s: the header went instead of the body: %q", name, lines[0])
+		}
+		if !strings.Contains(Render(m, 0), "[esc] close") {
+			t.Errorf("%s: the way out went instead of the body", name)
+		}
+		// Every line has to fit the width too, or one "line" is several rows
+		// and the count above is measuring the wrong thing.
+		for i, ln := range lines {
+			if len([]rune(ln)) > m.Width {
+				t.Errorf("%s: line %d is %d columns wide, which wraps into extra rows: %.40q…",
+					name, i, len([]rune(ln)), ln)
+			}
+		}
+	}
+
+	// What is hidden is still counted: the heading says how many there are.
+	full := board(t, deep...)
+	full.Width, full.Height = 80, 24
+	out := Render(full, 0)
+	if !strings.Contains(out, "todo (40)") {
+		t.Fatalf("the column heading no longer reports the true total:\n%s", out)
+	}
+	if drawn := strings.Count(out, "#40 "); drawn != 0 {
+		t.Fatalf("40 cards were drawn into 24 rows")
+	}
+}
+
+// §11.6 is mouse-first, and click() hit-tests the DOCUMENT with fixed row
+// constants while the operator clicks the SCREEN. If the two ever disagree, a
+// click selects the row above the one it landed on and nothing says so.
+func TestMouseRowsStayWhereClickHitTestsThem(t *testing.T) {
+	for _, height := range []int{10, 24, 40} {
+		for name, m := range states(t, height) {
+			lines := screen(m)
+			if !strings.Contains(lines[headingRow], "todo") {
+				t.Errorf("h=%d %s: the column headings are not on row %d: %q", height, name, headingRow, lines[headingRow])
+			}
+			if !strings.Contains(lines[firstCard], "#1") {
+				t.Errorf("h=%d %s: the first card is not on row %d: %q", height, name, firstCard, lines[firstCard])
+			}
+			at := -1
+			for i, ln := range lines {
+				if strings.Contains(ln, "[esc] close") {
+					at = i
+				}
+			}
+			if at < height-footerRows {
+				t.Errorf("h=%d %s: the footer is on row %d, outside the %d rows click() treats as the footer",
+					height, name, at, footerRows)
+			}
+		}
+	}
+}
+
+// The filter's status line is what pushed the header off, and it also lied:
+// an emptied filter left the words "filter:" with nothing after them, and esc
+// left the old term showing over a board that was no longer filtered.
+func TestFilterStatusSaysWhatIsTrue(t *testing.T) {
+	m := board(t, task(1, tasks.StatusTodo, "a"))
+	m.Width, m.Height = 80, 24
+
+	m, _ = Update(m, KeyMsg{Key: "/"})
+	m = type_(m, "api")
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	if !strings.Contains(m.Status, "api") {
+		t.Fatalf("an applied filter does not say so: %q", m.Status)
+	}
+
+	// Submitting an empty prompt drops the filter, so there is nothing to say.
+	m, _ = Update(m, KeyMsg{Key: "/"})
+	for range "api" {
+		m, _ = Update(m, KeyMsg{Key: "backspace"})
+	}
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	if m.Status != "" {
+		t.Fatalf("an emptied filter left a status behind: %q", m.Status)
+	}
+	if m.BoardFilter != "" {
+		t.Fatalf("an emptied filter is still applied: %q", m.BoardFilter)
+	}
+
+	// esc is the other way out of a filter, and it has to clear the same thing.
+	m, _ = Update(m, KeyMsg{Key: "/"})
+	m = type_(m, "api")
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	m, _ = Update(m, KeyMsg{Key: "esc"})
+	if m.Status != "" {
+		t.Fatalf("esc cleared the filter but left its status: %q", m.Status)
+	}
+	if m.Quit {
+		t.Fatal("esc left the board instead of clearing the filter")
+	}
+	for _, s := range []string{"", "filter: api"} {
+		x := board(t, task(1, tasks.StatusTodo, "a"))
+		x.Width, x.Height, x.Status = 80, 24, s
+		if lines := screen(x); len(lines) > 24 || !strings.Contains(lines[0], "/repo") {
+			t.Fatalf("status %q: %d lines, line 0 = %q", s, len(lines), lines[0])
+		}
+	}
+}

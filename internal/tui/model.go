@@ -246,7 +246,11 @@ func key(m Model, k string) (Model, *Call) {
 			return m, nil
 		}
 		if m.filter() != "" {
+			// The other way out of a filter, and it clears the same things:
+			// leaving the old term in the status describes a board that is no
+			// longer filtered.
 			m = m.setFilter("")
+			m.Status = ""
 			return m, m.listCall()
 		}
 		m.Quit = true
@@ -454,9 +458,16 @@ func promptKey(m Model, k string) (Model, *Call) {
 		m.Prompt, m.Err = nil, ""
 		if p.filter {
 			// An emptied filter answers with no `query` at all, so pressing
-			// enter on a cleared prompt is the other way to drop the search.
+			// enter on a cleared prompt is the other way to drop the search —
+			// and it says nothing afterwards. A status is a fact about the
+			// board; "filter: " with nothing after it was neither true nor
+			// empty, and it held the status row open, which is what kept the
+			// header off the screen.
 			m = m.setFilter(strings.TrimSpace(p.Value))
-			m.Status = "filter: " + m.filter()
+			m.Status = ""
+			if q := m.filter(); q != "" {
+				m.Status = "filter: " + q
+			}
 			return m, &call
 		}
 		m.Status = call.Verb + "…"
