@@ -282,6 +282,15 @@ var All = []Verb{
 		Short: "Report version, dirs, socket, Herdr, hooks, gate and anything degraded",
 	},
 	{
+		Name: "sweep", CLI: []string{"sweep"},
+		Short:   "Release leases that have lapsed, or every lease a pane holds",
+		Long:    "The daemon does this on a timer (§11.5). Run it by hand, or from a Herdr\nevent reaction, when a pane died and its work should return to the queue now.",
+		Mutates: true,
+		Args: []Arg{
+			{Name: "pane", Type: String, Desc: "Release every lease this Herdr pane holds, expired or not"},
+		},
+	},
+	{
 		Name: "dump", CLI: []string{"dump"},
 		Short: "Print the whole store as JSON",
 	},

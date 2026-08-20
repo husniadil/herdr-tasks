@@ -218,8 +218,9 @@ func printDoctor(r daemon.DoctorReport) {
 	fmt.Println()
 	fmt.Printf("herdr         %s (%s)\n", r.HerdrBin, live(r.HerdrReachable))
 	if r.HerdrReachable {
-		fmt.Printf("herdr schema  requests: %s\n", strings.Join(r.HerdrRequests, ", "))
-		fmt.Printf("              events:   %s\n", strings.Join(r.HerdrEvents, ", "))
+		// The protocol number is shown, never decided on (§11.2).
+		fmt.Printf("herdr schema  protocol %d, %d requests, %d event kinds\n",
+			r.HerdrProtocol, len(r.HerdrRequests), len(r.HerdrEvents))
 	}
 	fmt.Printf("lease         %ds, swept every %ds\n", r.LeaseSeconds, r.SweepSeconds)
 	if r.GateConfigured {

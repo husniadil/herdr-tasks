@@ -32,6 +32,7 @@ type DoctorReport struct {
 	Harness         string   `json:"harness,omitempty"`
 	HerdrBin        string   `json:"herdr_bin"`
 	HerdrReachable  bool     `json:"herdr_reachable"`
+	HerdrProtocol   int      `json:"herdr_protocol,omitempty"`
 	HerdrRequests   []string `json:"herdr_requests,omitempty"`
 	HerdrEvents     []string `json:"herdr_events,omitempty"`
 	GateConfigured  bool     `json:"gate_configured"`
@@ -88,7 +89,7 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 
 	if sc, err := d.Herdr.Schema(); err == nil {
 		r.HerdrReachable = true
-		r.HerdrRequests, r.HerdrEvents = sc.Requests, sc.Events
+		r.HerdrRequests, r.HerdrEvents, r.HerdrProtocol = sc.Requests, sc.Events, sc.Protocol
 	} else {
 		r.Degraded = append(r.Degraded, "herdr is not reachable through "+r.HerdrBin+": "+err.Error())
 	}

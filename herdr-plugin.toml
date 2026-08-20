@@ -1,0 +1,42 @@
+id = "herdr-tasks"
+name = "Tasks"
+version = "0.1.0"
+min_herdr_version = "0.8.0"
+description = "A task backlog and notes board for agents: claims with leases, evidence, review, and ideas a human promotes or drops"
+platforms = ["macos", "linux"]
+
+# One statically linked Go binary is the daemon, the CLI and the MCP server.
+# Compiling on install keeps the repository free of release artefacts, and Go's
+# build cache makes the second install fast.
+[[build]]
+id = "binary"
+command = ["go", "build", "-o", "bin/ht", "./cmd/ht"]
+
+# Starts the daemon and exits, which is what Herdr expects of a startup
+# command. The daemon detaches, so it survives the pane that opened it.
+[[startup]]
+id = "daemon"
+command = ["scripts/start.sh"]
+
+# Herdr has no shutdown hook, so disabling or unlinking the plugin leaves the
+# daemon running. This is the way to actually turn it off.
+[[actions]]
+id = "stop"
+title = "Stop the tasks daemon"
+contexts = ["workspace"]
+command = ["scripts/stop.sh"]
+
+[[actions]]
+id = "restart"
+title = "Restart the tasks daemon"
+contexts = ["workspace"]
+command = ["scripts/restart.sh"]
+
+# Releases every lease held by panes that are gone. The daemon already sweeps
+# lapsed leases on a timer; this is the button for "that pane died, give its
+# work back now".
+[[actions]]
+id = "sweep"
+title = "Release leases from dead panes"
+contexts = ["workspace"]
+command = ["bin/ht", "sweep"]

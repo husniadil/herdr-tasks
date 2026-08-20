@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,24 +68,69 @@ func (c *Client) AgentGet(pane string) (Agent, error) {
 }
 
 // Schema is what `herdr api schema --json` says this Herdr can do (§11.2).
+// Requests are the request methods (`agent.get`, `pane.run`) and Events the
+// event kinds Herdr publishes. The protocol number is read for doctor output
+// only: §11.2 forbids deciding anything on it.
 type Schema struct {
+	Protocol int      `json:"protocol"`
 	Requests []string `json:"requests"`
 	Events   []string `json:"events"`
 }
 
-// Has reports whether Herdr listed a request or an event.
+// rawSchema is the document Herdr actually prints: a JSON Schema whose
+// `request` branch is a oneOf over method constants and whose `event` branch
+// carries an EventKind enum. Feature detection reads those two lists.
+type rawSchema struct {
+	Protocol int `json:"protocol"`
+	Schemas  struct {
+		Request struct {
+			OneOf []struct {
+				Properties struct {
+					Method struct {
+						Const string `json:"const"`
+					} `json:"method"`
+				} `json:"properties"`
+			} `json:"oneOf"`
+		} `json:"request"`
+		Event struct {
+			Defs struct {
+				EventKind struct {
+					Enum []string `json:"enum"`
+				} `json:"EventKind"`
+			} `json:"$defs"`
+		} `json:"event"`
+	} `json:"schemas"`
+	// Requests and Events are the flat form. Nothing publishes it today; it is
+	// read so a future Herdr that simplifies the document still works here,
+	// which is what "feature-detect, never pin" asks for.
+	Requests []string `json:"requests"`
+	Events   []string `json:"events"`
+}
+
+func (r rawSchema) toSchema() Schema {
+	s := Schema{Protocol: r.Protocol, Requests: r.Requests, Events: r.Events}
+	for _, branch := range r.Schemas.Request.OneOf {
+		if m := branch.Properties.Method.Const; m != "" {
+			s.Requests = append(s.Requests, m)
+		}
+	}
+	s.Events = append(s.Events, r.Schemas.Event.Defs.EventKind.Enum...)
+	return s
+}
+
+// Has reports whether Herdr listed a request or an event. Herdr names its
+// event kinds with underscores (`pane_exited`) where the contract writes dots
+// (`pane.exited`), so both spellings match — see docs/contract-notes.md.
 func (s *Schema) Has(capability string) bool {
 	if s == nil {
 		return false
 	}
-	for _, r := range s.Requests {
-		if r == capability {
-			return true
-		}
-	}
-	for _, e := range s.Events {
-		if e == capability {
-			return true
+	alt := strings.ReplaceAll(capability, ".", "_")
+	for _, list := range [][]string{s.Requests, s.Events} {
+		for _, got := range list {
+			if got == capability || got == alt {
+				return true
+			}
 		}
 	}
 	return false
@@ -102,9 +148,13 @@ func (c *Client) Schema() (*Schema, error) {
 	if err != nil {
 		return nil, err
 	}
-	var s Schema
-	if err := json.Unmarshal(out, &s); err != nil {
+	var raw rawSchema
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, codes.Errorf(codes.Unavailable, "herdr api schema: unreadable answer: %v", err)
+	}
+	s := raw.toSchema()
+	if len(s.Requests) == 0 {
+		return nil, codes.New(codes.Unavailable, "herdr api schema listed no requests")
 	}
 	c.schema = &s
 	return c.schema, nil

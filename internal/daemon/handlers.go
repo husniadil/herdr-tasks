@@ -50,6 +50,7 @@ func init() {
 		"parked.resolve": hParkedResolve,
 
 		"events": hEvents,
+		"sweep":  hSweep,
 		"doctor": hDoctor,
 		"dump":   hDump,
 	}
@@ -514,6 +515,27 @@ func hEvents(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
 		return nil, err
 	}
 	return EventsResult{Events: list, Count: len(list)}, nil
+}
+
+// SweepResult says which leases came back (§11.5).
+type SweepResult struct {
+	Released []string `json:"released"`
+	Count    int      `json:"count"`
+}
+
+func hSweep(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
+	if pane := argString(req.Args, "pane"); pane != "" {
+		released, err := d.Store.ReleaseByPane(pane, d.Now())
+		if err != nil {
+			return nil, err
+		}
+		if len(released) > 0 {
+			d.notify()
+		}
+		return SweepResult{Released: released, Count: len(released)}, nil
+	}
+	released := d.Sweep()
+	return SweepResult{Released: released, Count: len(released)}, nil
 }
 
 func hDump(d *Daemon, _ protocol.Request, _ tasks.Actor) (any, error) {

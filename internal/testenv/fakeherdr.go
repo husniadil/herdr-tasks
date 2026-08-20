@@ -26,7 +26,16 @@ case "$1 $2" in
       "$pane" "$name" "$harness" "$pane"
     ;;
   "api schema")
-    echo '{"requests":["agent.get","agent.prompt","pane.run"],"events":["pane.exited","pane.agent_status_changed"]}'
+    # The shape real herdr prints: a JSON Schema whose request branch is a
+    # oneOf over method constants and whose event branch is an EventKind enum.
+    cat <<'JSON'
+{"protocol":19,"schema_version":1,"schemas":{
+  "request":{"oneOf":[
+    {"properties":{"method":{"const":"agent.get"}}},
+    {"properties":{"method":{"const":"agent.prompt"}}},
+    {"properties":{"method":{"const":"pane.run"}}}]},
+  "event":{"$defs":{"EventKind":{"enum":["pane_exited","pane_closed","pane_agent_status_changed"]}}}}}
+JSON
     ;;
   *) echo "fake herdr: unsupported: $*" >&2; exit 64 ;;
 esac

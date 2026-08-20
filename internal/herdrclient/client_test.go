@@ -46,6 +46,14 @@ func TestSchemaListsCapabilities(t *testing.T) {
 	if !sc.Has("agent.get") {
 		t.Fatalf("schema = %+v, want agent.get", sc)
 	}
+	// Herdr spells its event kinds with underscores; the contract writes dots.
+	// Both must match — see docs/contract-notes.md.
+	if !sc.Has("pane.exited") || !sc.Has("pane_exited") {
+		t.Fatalf("schema = %+v, want the pane.exited event under either spelling", sc)
+	}
+	if sc.Protocol != 19 {
+		t.Fatalf("protocol = %d; read for doctor only, never decided on (§11.2)", sc.Protocol)
+	}
 	if sc.Has("agent.teleport") {
 		t.Fatal("a capability Herdr did not list must not be claimed")
 	}
