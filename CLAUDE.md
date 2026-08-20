@@ -31,10 +31,14 @@ the contract until it is amended upstream.
 
 ## Non-negotiables
 
-1. **Dependency budget: three libraries** — cobra, modernc.org/sqlite, and the
+1. **Dependency budget: four libraries** — cobra, modernc.org/sqlite, the
    official MCP go-sdk (`github.com/modelcontextprotocol/go-sdk`, pinned
-   v1.7.0). Adding or swapping one is a deliberate decision, recorded here in
-   the same commit that makes it.
+   v1.7.0), and bubbletea (`github.com/charmbracelet/bubbletea`) for the TUI.
+   Adding or swapping one is a deliberate decision, recorded here in the same
+   commit that makes it. bubbletea earns its place because §11.6 asks for a
+   mouse-first pane and the alternative is our own terminal input parser;
+   nothing else from the charm family is imported directly, and the model and
+   update logic stay pure so the tests never start a terminal.
 
 2. **The `--json` shape and the error-code vocabulary are semver-bound.** A
    shipped field or code is never repurposed or removed; only new ones are
@@ -70,7 +74,7 @@ the contract until it is amended upstream.
 ## Layering
 
 ```
-doors:      CLI (cmd/ht) · MCP (internal/mcpdoor) · TUI (later)
+doors:      CLI (cmd/ht) · MCP (internal/mcpdoor) · TUI (internal/tui)
                           │
 daemon:     internal/daemon — socket server, sweeps, the policy gate
                           │

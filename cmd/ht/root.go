@@ -58,7 +58,7 @@ func newRootCmd() *cobra.Command {
 		}
 		parent.AddCommand(cmd)
 	}
-	root.AddCommand(newDaemonCmd(), newMCPCmd(), newVersionCmd())
+	root.AddCommand(newDaemonCmd(), newMCPCmd(), newTUICmd(), newVersionCmd())
 	return root
 }
 

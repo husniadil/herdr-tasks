@@ -40,3 +40,23 @@ id = "sweep"
 title = "Release lapsed leases now"
 contexts = ["workspace"]
 command = ["bin/ht", "sweep"]
+
+# The human surface (§11.6, §1.3). The board is transient — open it, act on
+# what is in review, close it — so it is a popup. A popup gets no
+# HERDR_PANE_ID, which makes the operator's board `human` (§3.2), and human is
+# exactly the principal the only verbs it offers belong to.
+[[panes]]
+id = "board"
+title = "Tasks board"
+placement = "popup"
+width = "90%"
+height = "80%"
+command = ["bin/ht", "tui", "board"]
+
+[[panes]]
+id = "notes"
+title = "Notes and parked actions"
+placement = "popup"
+width = "90%"
+height = "80%"
+command = ["bin/ht", "tui", "notes"]
