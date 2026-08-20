@@ -48,3 +48,54 @@ func TestValidRejectsWrongShape(t *testing.T) {
 		}
 	}
 }
+
+// §5.4 / §8.2: the store orders its event trail by id, so ids minted inside
+// one millisecond must still increase. Randomness alone does not give that.
+func TestULIDIsMonotonicWithinAMillisecond(t *testing.T) {
+	const frozen = int64(1_700_000_000_000)
+	prev := New(frozen)
+	for i := 1; i < 5000; i++ {
+		got := New(frozen)
+		if !(prev < got) {
+			t.Fatalf("id %d went backwards within one millisecond: %q then %q", i, prev, got)
+		}
+		prev = got
+	}
+}
+
+// A clock that steps back must not mint an id that sorts before one already
+// issued: the trail's order is insertion order, not the host's opinion of time.
+func TestULIDSurvivesAClockStepBackwards(t *testing.T) {
+	late := New(1_700_000_000_000)
+	early := New(1_600_000_000_000)
+	if !(late < early) {
+		t.Fatalf("a backwards clock reordered the trail: %q then %q", late, early)
+	}
+}
+
+// Monotonic ids are still unique across a concurrent burst.
+func TestULIDIsUniqueUnderConcurrency(t *testing.T) {
+	const frozen = int64(1_700_000_000_000)
+	const workers, each = 8, 500
+	out := make(chan string, workers*each)
+	done := make(chan struct{})
+	for w := 0; w < workers; w++ {
+		go func() {
+			for i := 0; i < each; i++ {
+				out <- New(frozen)
+			}
+			done <- struct{}{}
+		}()
+	}
+	for w := 0; w < workers; w++ {
+		<-done
+	}
+	close(out)
+	seen := make(map[string]bool, workers*each)
+	for id := range out {
+		if seen[id] {
+			t.Fatalf("duplicate id %q", id)
+		}
+		seen[id] = true
+	}
+}

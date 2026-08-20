@@ -474,3 +474,65 @@ func TestQueryTreatsWildcardsAsLiterals(t *testing.T) {
 		t.Fatalf("query \"%%\" matched %d tasks, want the 1 with a literal %%", len(all))
 	}
 }
+
+// §8.2: the trail streams in insertion order. Several events on one entity
+// inside a single millisecond is the ordinary case, not an edge case: a claim
+// and its submit can land in the same tick.
+func TestEventsKeepInsertionOrderWithinOneMillisecond(t *testing.T) {
+	const frozen = int64(1_700_000_000_000)
+	for trial := 0; trial < 40; trial++ {
+		s := open(t)
+		task, err := s.CreateTask(tasks.NewTaskInput{Project: proj, Title: "frozen"}, operator, frozen)
+		if err != nil {
+			t.Fatalf("CreateTask: %v", err)
+		}
+		a := peer("wF:p1", "claude")
+		steps := []func(*tasks.Task) (tasks.Event, error){
+			func(x *tasks.Task) (tasks.Event, error) { return tasks.Claim(x, a, frozen, 60_000) },
+			func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "r", nil, frozen) },
+			func(x *tasks.Task) (tasks.Event, error) { return tasks.Approve(x, operator, frozen) },
+		}
+		for i, step := range steps {
+			if _, err := s.TaskTransition(proj, task.ID, 0, step); err != nil {
+				t.Fatalf("step %d: %v", i, err)
+			}
+		}
+		evs, err := s.Events(EventFilter{Project: proj})
+		if err != nil {
+			t.Fatalf("Events: %v", err)
+		}
+		got := make([]string, 0, len(evs))
+		for _, e := range evs {
+			got = append(got, e.Kind)
+		}
+		if want := "created,claimed,submitted,approved"; strings.Join(got, ",") != want {
+			t.Fatalf("trial %d: trail = %v, want %s", trial, got, want)
+		}
+		s.Close()
+	}
+}
+
+// §8.2: --since resumes from an id, which only works if the ids of same-ms
+// events order the same way the events happened.
+func TestEventsSinceDoesNotSkipASameMillisecondEvent(t *testing.T) {
+	const frozen = int64(1_700_000_000_000)
+	s := open(t)
+	task, err := s.CreateTask(tasks.NewTaskInput{Project: proj, Title: "frozen"}, operator, frozen)
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	a := peer("wF:p1", "claude")
+	if _, err := s.TaskTransition(proj, task.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
+		return tasks.Claim(x, a, frozen, 60_000)
+	}); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	all, _ := s.Events(EventFilter{Project: proj})
+	if len(all) != 2 {
+		t.Fatalf("events = %d", len(all))
+	}
+	rest, _ := s.Events(EventFilter{Project: proj, SinceID: all[0].ID})
+	if len(rest) != 1 || rest[0].Kind != "claimed" {
+		t.Fatalf("--since dropped or duplicated a same-millisecond event: %+v", rest)
+	}
+}
