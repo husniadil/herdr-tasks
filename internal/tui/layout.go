@@ -122,9 +122,9 @@ var closeVerb = Verb{"esc", "close"}
 func (m Model) verbs() []Verb {
 	if m.View == ViewBoard {
 		if t := m.SelectedTask(); t != nil && t.Status == "review" {
-			return []Verb{{"a", "approve"}, {"x", "reject"}, {"enter", "detail"}, {"tab", "notes"}}
+			return []Verb{{"a", "approve"}, {"x", "reject"}, {"enter", "detail"}, findVerb, {"tab", "notes"}}
 		}
-		return []Verb{{"enter", "detail"}, {"tab", "notes"}}
+		return []Verb{{"enter", "detail"}, findVerb, {"tab", "notes"}}
 	}
 	if m.Pane == PaneParked {
 		if m.SelectedParked() != nil {
@@ -133,10 +133,17 @@ func (m Model) verbs() []Verb {
 		return []Verb{{"tab", "board"}}
 	}
 	if m.SelectedNote() != nil {
-		return []Verb{{"v", "verdict"}, {"p", "promote"}, {"d", "drop"}, {"tab", "board"}}
+		return []Verb{{"v", "verdict"}, {"p", "promote"}, {"K", "keep"}, {"d", "drop"}, addVerb, findVerb, {"tab", "board"}}
 	}
-	return []Verb{{"tab", "board"}}
+	// With nothing selected there is still an idea to file and a board to
+	// search: neither needs a row under the cursor.
+	return []Verb{addVerb, findVerb, {"tab", "board"}}
 }
+
+var (
+	addVerb  = Verb{"a", "add"}
+	findVerb = Verb{"/", "find"}
+)
 
 // footerClick turns a click on the footer into the keystroke it is labelled
 // with, so no verb is keyboard-only.

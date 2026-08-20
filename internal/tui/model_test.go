@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
@@ -433,6 +435,199 @@ func TestVerbsAlwaysAdvertiseAWayOut(t *testing.T) {
 		}
 		if !found {
 			t.Fatalf("%s: the footer offers no way out: %+v", name, m.Verbs())
+		}
+	}
+}
+
+// type presses one key per rune, the way an operator fills a prompt.
+func type_(m Model, text string) Model {
+	for _, r := range text {
+		m, _ = Update(m, KeyMsg{Key: string(r)})
+	}
+	return m
+}
+
+// §11.6: the popup is the human's primary surface, so finding a row must not
+// mean leaving it for the CLI. The filter is sent to the daemon as the same
+// `query` both list verbs take, rather than sifting the rows already loaded:
+// one search, one meaning, whichever door asked.
+func TestTUIFilterSendsTheQueryToTheDaemon(t *testing.T) {
+	m := board(t, task(1, tasks.StatusTodo, "a"))
+	m, call := Update(m, KeyMsg{Key: "/"})
+	if call != nil || m.Prompt == nil {
+		t.Fatalf("/ sent %#v before asking what to search for", call)
+	}
+	m = type_(m, "api")
+	m, call = Update(m, KeyMsg{Key: "enter"})
+	if call == nil || call.Verb != "task.list" || call.Args["query"] != "api" {
+		t.Fatalf("the filter sent %#v", call)
+	}
+	if m.BoardFilter != "api" {
+		t.Fatalf("the filter was not remembered: %q", m.BoardFilter)
+	}
+	// It survives the poll, or it would last exactly one refresh.
+	if _, call = Update(m, KeyMsg{Key: "r"}); call.Args["query"] != "api" {
+		t.Fatalf("a refresh under a filter sent %#v", call)
+	}
+
+	// A filter belongs to the board it was typed on. The notes view is a
+	// different list of different rows, and silently searching it for what was
+	// typed on the board would hide notes with no way to tell why.
+	n, _ := Update(m, KeyMsg{Key: "tab"})
+	if n.View != ViewNotes {
+		t.Fatalf("tab did not reach the notes view")
+	}
+	_, call = Update(n, KeyMsg{Key: "r"})
+	if call == nil || call.Verb != "note.list" {
+		t.Fatalf("refresh on the notes view sent %#v", call)
+	}
+	if _, ok := call.Args["query"]; ok {
+		t.Fatalf("the board's filter leaked into the notes view: %#v", call.Args)
+	}
+
+	// esc unwinds the filter before it leaves, and says so to the daemon.
+	m, call = Update(m, KeyMsg{Key: "esc"})
+	if m.Quit {
+		t.Fatal("esc closed the board instead of clearing the filter")
+	}
+	if m.BoardFilter != "" {
+		t.Fatalf("esc left the filter at %q", m.BoardFilter)
+	}
+	if call == nil || call.Verb != "task.list" {
+		t.Fatalf("clearing the filter sent %#v, not a re-read", call)
+	}
+	if _, ok := call.Args["query"]; ok {
+		t.Fatalf("the cleared filter was still sent: %#v", call.Args)
+	}
+	if m, _ = Update(m, KeyMsg{Key: "esc"}); !m.Quit {
+		t.Fatal("esc with nothing left open did not leave the board")
+	}
+}
+
+// §3.2 / §11.6: a popup pane carries no HERDR_PANE_ID, so the operator's board
+// is the `human` principal — and these are human verbs. Filing an idea and
+// keeping one were the two the popup could not reach: promote and drop were
+// there, keep was not, and there was no way to write a note down at all.
+func TestTUIHumanWritesFileANoteAndKeepOne(t *testing.T) {
+	m := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: "an idea"}}, nil)
+	m2, call := Update(m, KeyMsg{Key: "a"})
+	if call != nil || m2.Prompt == nil {
+		t.Fatalf("add sent %#v before asking what the note says", call)
+	}
+	m2, call = Update(m2, KeyMsg{Key: "enter"})
+	if call != nil {
+		t.Fatalf("an empty note was filed: %#v", call)
+	}
+	if !strings.HasPrefix(m2.Err, "USAGE") {
+		t.Fatalf("an empty body was not refused: %q", m2.Err)
+	}
+	m2 = type_(m2, "the sweep is quiet")
+	m2, call = Update(m2, KeyMsg{Key: "enter"})
+	if call == nil || call.Verb != "note.add" || call.Args["body"] != "the sweep is quiet" {
+		t.Fatalf("add sent %#v", call)
+	}
+	if m2.Prompt != nil {
+		t.Fatal("the prompt stayed open after it was answered")
+	}
+
+	// Keep is the third decision. It needs no reason: it is "yes, not now",
+	// where a drop is a rejection and owes one.
+	_, call = Update(m, KeyMsg{Key: "K"})
+	if call == nil || call.Verb != "note.keep" || call.Args["id"] != "N1" {
+		t.Fatalf("keep sent %#v", call)
+	}
+	if _, call = Update(notesModel(t, nil, nil), KeyMsg{Key: "K"}); call != nil {
+		t.Fatalf("keep with nothing selected sent %#v", call)
+	}
+}
+
+// §11.6 is mouse-first: a verb the footer does not show is a verb the mouse
+// cannot reach, so every new key is checked in the footer AND through the
+// click that footerClick maps back to it.
+func TestVerbsAndFooterClickReachTheNewKeys(t *testing.T) {
+	labelled := func(m Model, key string) bool {
+		for _, v := range m.Verbs() {
+			if v.Key == key {
+				return true
+			}
+		}
+		return false
+	}
+	notes := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: "an idea"}}, nil)
+	for _, key := range []string{"a", "K", "/"} {
+		if !labelled(notes, key) {
+			t.Fatalf("the notes footer does not offer %q: %+v", key, notes.Verbs())
+		}
+	}
+	if !labelled(board(t, task(1, tasks.StatusTodo, "a")), "/") {
+		t.Fatal("the board footer does not offer the filter")
+	}
+	// Empty boards still need the two verbs that do not act on a selection.
+	for _, key := range []string{"a", "/"} {
+		if !labelled(notesModel(t, nil, nil), key) {
+			t.Fatalf("the empty notes footer does not offer %q", key)
+		}
+	}
+
+	// Clicking a label runs the key it is drawn with, at the x it is drawn at.
+	notes.Width, notes.Height = 80, 24
+	at := 0
+	for _, v := range notes.Verbs() {
+		label := footerLabel(v)
+		if v.Key == "K" {
+			_, call := Update(notes, MouseMsg{X: at + 2, Y: notes.Height - 1})
+			if call == nil || call.Verb != "note.keep" {
+				t.Fatalf("clicking %q at x=%d sent %#v", label, at+2, call)
+			}
+		}
+		if v.Key == "a" {
+			m2, call := Update(notes, MouseMsg{X: at + 2, Y: notes.Height - 1})
+			if call != nil || m2.Prompt == nil {
+				t.Fatalf("clicking %q at x=%d sent %#v instead of opening the prompt", label, at+2, call)
+			}
+		}
+		at += len(label)
+	}
+}
+
+// recorder is a Sender that answers every list verb with an empty document and
+// keeps what it was asked, so the runtime's own wiring is testable without a
+// daemon, a socket or a terminal (§12.1 layer 1).
+type recorder struct{ got []protocol.Request }
+
+func (r *recorder) Call(req protocol.Request) (json.RawMessage, error) {
+	r.got = append(r.got, req)
+	return json.RawMessage(`{"tasks":[],"notes":[],"parked":[]}`), nil
+}
+
+// The pure model asking for a query is only half of it: the poll is what
+// actually reads the board, and a filter the poll dropped would look like it
+// worked and then vanish two seconds later. This drives the runtime's load.
+func TestTUIFilterSurvivesThePollThatRedrawsTheBoard(t *testing.T) {
+	m := New(ViewBoard, "/repo")
+	m.BoardFilter, m.NotesFilter = "api", "sweep"
+	rec := &recorder{}
+	p := &program{model: m, send: rec, base: protocol.Request{Project: "/repo"}}
+	if msg := p.load(p.model.Filters())(); msg == nil {
+		t.Fatal("the load produced no message")
+	}
+	want := map[string]any{"task.list": "api", "note.list": "sweep", "parked.list": nil}
+	if len(rec.got) != len(want) {
+		t.Fatalf("the poll sent %d requests, want %d", len(rec.got), len(want))
+	}
+	for _, req := range rec.got {
+		q, ok := want[req.Verb]
+		if !ok {
+			t.Fatalf("the poll sent an unexpected verb %q", req.Verb)
+		}
+		if q == nil {
+			if _, sent := req.Args["query"]; sent {
+				t.Fatalf("%s was sent a query it does not take: %#v", req.Verb, req.Args)
+			}
+			continue
+		}
+		if req.Args["query"] != q {
+			t.Fatalf("%s was polled with query %#v, want %q", req.Verb, req.Args["query"], q)
 		}
 	}
 }

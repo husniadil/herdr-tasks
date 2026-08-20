@@ -50,7 +50,7 @@ type program struct {
 	base  protocol.Request
 }
 
-func (p *program) Init() tea.Cmd { return tea.Batch(p.load(), tick()) }
+func (p *program) Init() tea.Cmd { return tea.Batch(p.load(p.model.Filters()), tick()) }
 
 func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var in Msg
@@ -68,7 +68,7 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case DataMsg, ErrMsg, DoneMsg:
 		in = msg.(Msg)
 	case tickMsg:
-		return p, tea.Batch(p.load(), tick())
+		return p, tea.Batch(p.load(p.model.Filters()), tick())
 	default:
 		return p, nil
 	}
@@ -82,11 +82,11 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	// A read verb IS the refresh; run() would throw its body away.
 	if strings.HasSuffix(call.Verb, ".list") {
-		return p, p.load()
+		return p, p.load(p.model.Filters())
 	}
 	// A mutation is only real to the operator once the board shows it, so the
 	// write is followed by the read rather than waiting for the next tick.
-	return p, tea.Sequence(p.run(*call), p.load())
+	return p, tea.Sequence(p.run(*call), p.load(p.model.Filters()))
 }
 
 func (p *program) View() string { return Render(p.model, time.Now().UnixMilli()) }
@@ -104,8 +104,10 @@ func (p *program) run(c Call) tea.Cmd {
 	}
 }
 
-// load reads the three lists the two views show, in one command.
-func (p *program) load() tea.Cmd {
+// load reads the three lists the two views show, in one command. The filters
+// are passed in rather than read off p.model inside the command: this runs on
+// another goroutine, and the model belongs to the update loop.
+func (p *program) load(filters map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		var data DataMsg
 		var out struct {
@@ -116,6 +118,9 @@ func (p *program) load() tea.Cmd {
 		for _, verb := range []string{"task.list", "note.list", "parked.list"} {
 			req := p.base
 			req.Verb, req.Args = verb, map[string]any{}
+			if q := filters[verb]; q != "" {
+				req.Args["query"] = q
+			}
 			raw, err := p.send.Call(req)
 			if err != nil {
 				return errMsg(err)

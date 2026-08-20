@@ -73,6 +73,9 @@ type Prompt struct {
 	// text fills in.
 	call  Call
 	field string
+	// filter says the answer is a live search rather than a one-off argument:
+	// it is kept on the model so the poll goes on applying it.
+	filter bool
 }
 
 // Model is the whole state of the TUI. Data comes from the daemon through
@@ -95,6 +98,13 @@ type Model struct {
 	Pane      Pane
 	NoteRow   int
 	ParkedRow int
+
+	// BoardFilter and NotesFilter are the live search over each view, sent to
+	// the daemon as the `query` both list verbs take. They are kept apart
+	// because the two views are different rows: a filter typed on one that
+	// silently narrowed the other would hide work with nothing to say why.
+	BoardFilter string
+	NotesFilter string
 
 	// Detail says the detail panel is open on the selection.
 	Detail bool
@@ -203,18 +213,28 @@ func key(m Model, k string) (Model, *Call) {
 	case "r", "R":
 		// A refresh is a re-read, not a mutation: the board is a live view of
 		// the daemon's answer, never a cache the operator edits.
-		if m.View == ViewBoard {
-			return m, &Call{Verb: "task.list", Args: map[string]any{}}
+		return m, m.listCall()
+	case "/":
+		m.Prompt = &Prompt{
+			Label:  "Find in " + string(m.View),
+			Value:  m.filter(),
+			call:   Call{Verb: listVerb(m.View), Args: map[string]any{}},
+			field:  "query",
+			filter: true,
 		}
-		return m, &Call{Verb: "note.list", Args: map[string]any{}}
+		return m, nil
 	case "esc":
 		// Herdr gives a popup no close key of its own, so esc is what an
 		// operator presses first. It unwinds one layer at a time — a detail
-		// here, a prompt in promptKey — and only leaves when nothing is open,
-		// so it can never discard something half-typed.
+		// here, a prompt in promptKey, a filter below — and only leaves when
+		// nothing is open, so it can never discard something half-typed.
 		if m.Detail {
 			m.Detail = false
 			return m, nil
+		}
+		if m.filter() != "" {
+			m = m.setFilter("")
+			return m, m.listCall()
 		}
 		m.Quit = true
 		return m, nil
@@ -321,6 +341,26 @@ func notesKey(m Model, k string) (Model, *Call) {
 		return parkedKey(m, k)
 	}
 	switch k {
+	case "a":
+		// Filing an idea is the one write here that needs no selection: it is
+		// how the board gets its next row.
+		m.Prompt = &Prompt{
+			Label:    "What is the note?",
+			Required: true,
+			call:     Call{Verb: "note.add", Args: map[string]any{}},
+			field:    "body",
+		}
+		return m, nil
+	case "K":
+		// Keep is the third of the operator's decisions and the one the popup
+		// could not reach. It asks for no reason: it is "yes, not now", where
+		// a drop is a rejection and owes one.
+		n := m.SelectedNote()
+		if n == nil {
+			return m, nil
+		}
+		m.Status = fmt.Sprintf("keeping note #%d…", n.Seq)
+		return m, &Call{Verb: "note.keep", Args: map[string]any{"id": n.ID}}
 	case "v":
 		n := m.SelectedNote()
 		if n == nil {
@@ -399,6 +439,13 @@ func promptKey(m Model, k string) (Model, *Call) {
 		}
 		call.Args = args
 		m.Prompt, m.Err = nil, ""
+		if p.filter {
+			// An emptied filter answers with no `query` at all, so pressing
+			// enter on a cleared prompt is the other way to drop the search.
+			m = m.setFilter(strings.TrimSpace(p.Value))
+			m.Status = "filter: " + m.filter()
+			return m, &call
+		}
 		m.Status = call.Verb + "…"
 		return m, &call
 	case "backspace":
@@ -413,6 +460,46 @@ func promptKey(m Model, k string) (Model, *Call) {
 		p.Value += " "
 	}
 	return m, nil
+}
+
+// listVerb is the verb that re-reads a view.
+func listVerb(v View) string {
+	if v == ViewBoard {
+		return "task.list"
+	}
+	return "note.list"
+}
+
+// filter is the current view's search, and setFilter replaces it.
+func (m Model) filter() string {
+	if m.View == ViewBoard {
+		return m.BoardFilter
+	}
+	return m.NotesFilter
+}
+
+func (m Model) setFilter(q string) Model {
+	if m.View == ViewBoard {
+		m.BoardFilter = q
+	} else {
+		m.NotesFilter = q
+	}
+	return m
+}
+
+// Filters is the query each list verb is read with. The runtime passes it to
+// the daemon on every poll, so a filter holds until the operator clears it.
+func (m Model) Filters() map[string]string {
+	return map[string]string{"task.list": m.BoardFilter, "note.list": m.NotesFilter}
+}
+
+// listCall re-reads the current view under whatever filter is set.
+func (m Model) listCall() *Call {
+	args := map[string]any{}
+	if q := m.filter(); q != "" {
+		args["query"] = q
+	}
+	return &Call{Verb: listVerb(m.View), Args: args}
 }
 
 // Column returns the tasks in the i-th state column, in the order the daemon
