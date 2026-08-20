@@ -75,7 +75,7 @@ func SkipUnlessFull(t *testing.T) {
 // on a long test name is enough to cross it.
 func ShortDir(t *testing.T) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ht")
+	dir, err := os.MkdirTemp("", "htask")
 	if err != nil {
 		t.Fatalf("temp dir: %v", err)
 	}

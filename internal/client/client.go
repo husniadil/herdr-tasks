@@ -73,7 +73,7 @@ func warnOnSkew(w io.Writer, got string, build verbs.Build) {
 				daemon = "is too old to say which"
 			}
 			fmt.Fprintf(w,
-				"ht: this door speaks %s and the daemon %s; parts of a request it does not know are dropped — restart the daemon\n",
+				"htask: this door speaks %s and the daemon %s; parts of a request it does not know are dropped — restart the daemon\n",
 				mine, daemon)
 		})
 	case !verbs.ThisBuild().Same(build):
@@ -83,7 +83,7 @@ func warnOnSkew(w io.Writer, got string, build verbs.Build) {
 				daemon = "is too old to say which"
 			}
 			fmt.Fprintf(w,
-				"ht: this door is build %s and the daemon %s; it answers with different code — restart the daemon\n",
+				"htask: this door is build %s and the daemon %s; it answers with different code — restart the daemon\n",
 				verbs.ThisBuild().Short(), daemon)
 		})
 	}
@@ -159,10 +159,10 @@ func dialOrStart() (net.Conn, error) {
 		}
 	}
 	return nil, codes.Errorf(codes.Unavailable,
-		"the daemon did not come up within %s; try `ht daemon` in a terminal to see why", StartTimeout)
+		"the daemon did not come up within %s; try `htask daemon` in a terminal to see why", StartTimeout)
 }
 
-// start launches `ht daemon` detached from this process, so the daemon
+// start launches `htask daemon` detached from this process, so the daemon
 // survives the pane that opened it being closed (§2.4).
 func start() error {
 	self, err := os.Executable()

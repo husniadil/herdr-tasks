@@ -30,7 +30,7 @@ var g globals
 
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
-		Use:   "ht",
+		Use:   "htask",
 		Short: "A task backlog and notes board for agents running on Herdr",
 		Long: "herdr-tasks: tasks move todo → doing → review → done with claims, leases,\n" +
 			"evidence and review; notes are pre-decision ideas a human promotes or drops.\n" +
@@ -249,7 +249,7 @@ func newVersionCmd() *cobra.Command {
 				fmt.Println(string(out))
 				return nil
 			}
-			fmt.Printf("ht %s (herdr-tasks), shared plugin contract %s\n", daemon.Version, daemon.ContractVersion)
+			fmt.Printf("htask %s (herdr-tasks), shared plugin contract %s\n", daemon.Version, daemon.ContractVersion)
 			return nil
 		},
 	}

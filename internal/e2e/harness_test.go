@@ -1,6 +1,6 @@
 //go:build e2e
 
-// Package e2e is layer 3 of §12.1: the shipped `ht` binary against a REAL
+// Package e2e is layer 3 of §12.1: the shipped `htask` binary against a REAL
 // headless `herdr server`, in a throwaway named session on private socket
 // paths. §12.3 is the hard rule here — nothing in this package may reach the
 // operator's live Herdr session, config dir, or state dir, so the server runs
@@ -39,7 +39,7 @@ type world struct {
 func startWorld(t *testing.T) *world {
 	t.Helper()
 	herdr := herdrBinary(t)
-	ht := htBinary(t)
+	htask := htBinary(t)
 
 	// A Unix socket path has a hard length limit in the kernel, and macOS's
 	// TMPDIR is long enough on its own to cross it.
@@ -50,7 +50,7 @@ func startWorld(t *testing.T) *world {
 	t.Cleanup(func() { os.RemoveAll(root) })
 
 	w := &world{
-		t: t, root: root, herdrPath: herdr, htPath: copyBinary(t, ht, filepath.Join(root, "ht")),
+		t: t, root: root, herdrPath: herdr, htPath: copyBinary(t, htask, filepath.Join(root, "htask")),
 		socket:  filepath.Join(root, "h.sock"),
 		session: fmt.Sprintf("ht-e2e-%d", os.Getpid()),
 	}
@@ -124,7 +124,7 @@ func (w *world) stop() {
 
 // stopDaemons signals every daemon started from THIS world's binary. The
 // binary is a per-world copy for exactly this reason: a pattern matching the
-// repository's own bin/ht would also kill the daemon a developer is running.
+// repository's own bin/htask would also kill the daemon a developer is running.
 func (w *world) stopDaemons() {
 	_ = exec.Command("pkill", "-TERM", "-f", w.htPath+" daemon").Run()
 	deadline := time.Now().Add(5 * time.Second)
@@ -193,7 +193,7 @@ func htBinary(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("cwd: %v", err)
 	}
-	bin := filepath.Join(wd, "..", "..", "bin", "ht")
+	bin := filepath.Join(wd, "..", "..", "bin", "htask")
 	if _, err := os.Stat(bin); err != nil {
 		t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: no built binary at %s; run `make build` first.", bin)
 	}
@@ -236,12 +236,13 @@ func (w *world) tryHerdr(args ...string) (map[string]any, error) {
 	return env.Result, nil
 }
 
-// ht runs the shipped binary outside any pane: the `human` principal (§3.2).
-func (w *world) ht(args ...string) map[string]any {
+// htask runs the shipped binary outside any pane: the `human` principal
+// (§3.2).
+func (w *world) htask(args ...string) map[string]any {
 	w.t.Helper()
 	out, err := w.tryHT(args...)
 	if err != nil {
-		w.t.Fatalf("ht %s: %v", strings.Join(args, " "), err)
+		w.t.Fatalf("htask %s: %v", strings.Join(args, " "), err)
 	}
 	return out
 }
@@ -254,7 +255,7 @@ func (w *world) tryHT(args ...string) (map[string]any, error) {
 	out, runErr := cmd.Output()
 	var doc map[string]any
 	if err := json.Unmarshal(out, &doc); err != nil {
-		return nil, fmt.Errorf("ht printed no JSON document (§6.2): %q (%v)", out, runErr)
+		return nil, fmt.Errorf("htask printed no JSON document (§6.2): %q (%v)", out, runErr)
 	}
 	if e, ok := doc["error"].(map[string]any); ok {
 		return doc, fmt.Errorf("%v: %v", e["code"], e["message"])
@@ -276,7 +277,7 @@ func (w *world) htStatus(args ...string) (map[string]any, int) {
 	}
 	var doc map[string]any
 	if err := json.Unmarshal(out, &doc); err != nil {
-		w.t.Fatalf("ht printed no JSON document (§6.2): %q (%v)", out, runErr)
+		w.t.Fatalf("htask printed no JSON document (§6.2): %q (%v)", out, runErr)
 	}
 	return doc, status
 }
@@ -347,7 +348,7 @@ func (w *world) mustInPane(pane string, args ...string) map[string]any {
 	w.t.Helper()
 	doc, err := w.htInPane(pane, args...)
 	if err != nil {
-		w.t.Fatalf("ht %v in %s: %v", args, pane, err)
+		w.t.Fatalf("htask %v in %s: %v", args, pane, err)
 	}
 	return doc
 }
@@ -355,7 +356,7 @@ func (w *world) mustInPane(pane string, args ...string) map[string]any {
 // task reads one task back as a map, from outside any pane.
 func (w *world) task(ref string) map[string]any {
 	w.t.Helper()
-	doc := w.ht("task", "get", ref)
+	doc := w.htask("task", "get", ref)
 	t, _ := doc["task"].(map[string]any)
 	if t == nil {
 		w.t.Fatalf("task get %s returned %v", ref, doc)
@@ -404,8 +405,8 @@ func repoRoot(t *testing.T) string {
 func (w *world) linkPlugin() {
 	w.t.Helper()
 	root := repoRoot(w.t)
-	if _, err := os.Stat(filepath.Join(root, "bin", "ht")); err != nil {
-		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: the manifest's reactions run ./bin/ht, which is not built: %v", err)
+	if _, err := os.Stat(filepath.Join(root, "bin", "htask")); err != nil {
+		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: the manifest's reactions run ./bin/htask, which is not built: %v", err)
 	}
 	if _, err := w.tryHerdr("plugin", "link", root); err != nil {
 		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: this herdr cannot link a local plugin: %v", err)

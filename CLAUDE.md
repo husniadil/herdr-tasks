@@ -1,7 +1,7 @@
 # herdr-tasks
 
 A task backlog and notes board for agents running on Herdr, shipped as a Herdr
-plugin: one Go binary (`ht`) that is the daemon, the CLI, and a stdio MCP
+plugin: one Go binary (`htask`) that is the daemon, the CLI, and a stdio MCP
 server. Tasks move todo → doing → review → done with claims, leases, evidence,
 and review; notes are pre-decision ideas a human promotes or drops.
 
@@ -17,14 +17,14 @@ and review; notes are pre-decision ideas a human promotes or drops.
   `herdr` on private socket paths. Out of the gate on purpose, because CI has
   no Herdr; run it before a release tag, and when anything touching
   `internal/herdrclient` or the pane lifecycle changes.
-- `make build` / `make install` — `./cmd/ht`.
+- `make build` / `make install` — `./cmd/htask`.
 
 A green `make test` is not a green gate. Nothing is committed on it alone.
 
 ## The contract comes first
 
 This plugin conforms to a **shared plugin contract, v0** and declares that
-in its README and `ht doctor` output. The contract fixes the error codes and
+in its README and `htask doctor` output. The contract fixes the error codes and
 exit statuses, the `--json` envelope, identity and principals, project scoping,
 storage rules, MCP naming, events, the policy gate, and the testing layers.
 
@@ -92,7 +92,7 @@ the contract until it is amended upstream.
 ## Layering
 
 ```
-doors:      CLI (cmd/ht) · MCP (internal/mcpdoor) · TUI (internal/tui)
+doors:      CLI (cmd/htask) · MCP (internal/mcpdoor) · TUI (internal/tui)
                           │
 daemon:     internal/daemon — socket server, sweeps, the policy gate
                           │

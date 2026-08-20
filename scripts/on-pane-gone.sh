@@ -10,8 +10,8 @@
 set -eu
 cd "$(dirname "$0")/.."
 
-if [ ! -x bin/ht ]; then
-  echo "tasks: bin/ht is missing; the [[build]] step did not run" >&2
+if [ ! -x bin/htask ]; then
+  echo "tasks: bin/htask is missing; the [[build]] step did not run" >&2
   exit 1
 fi
 
@@ -25,4 +25,4 @@ if [ -z "${HERDR_PANE_ID:-}" ]; then
   exit 0
 fi
 
-exec ./bin/ht sweep --pane "$HERDR_PANE_ID"
+exec ./bin/htask sweep --pane "$HERDR_PANE_ID"

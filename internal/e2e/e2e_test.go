@@ -25,7 +25,7 @@ func TestPrincipalIsDerivedInsideAManagedPane(t *testing.T) {
 	}
 
 	// The same binary, the same daemon, outside the pane: `human` (§3.6).
-	outside := w.ht("task", "create", "written from a terminal")
+	outside := w.htask("task", "create", "written from a terminal")
 	t2, _ := outside["task"].(map[string]any)
 	if got := t2["created_by"]; got != "human" {
 		t.Fatalf("created_by outside a pane = %v, want human", got)
@@ -40,7 +40,7 @@ func TestAgentGetSnapshotIsTakenFromRealHerdrAtClaim(t *testing.T) {
 	pane := w.pane("snapshot")
 	w.beAgent(pane, "codex", "reviewer")
 
-	created := w.ht("task", "create", "claim me")
+	created := w.htask("task", "create", "claim me")
 	task, _ := created["task"].(map[string]any)
 	id, _ := task["id"].(string)
 
@@ -75,7 +75,7 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 	pane := w.pane("lifecycle")
 	w.beAgent(pane, "claude", "builder")
 
-	created := w.ht("task", "create", "wire the door", "--validation", "make test: ok")
+	created := w.htask("task", "create", "wire the door", "--validation", "make test: ok")
 	id, _ := created["task"].(map[string]any)["id"].(string)
 
 	w.mustInPane(pane, "task", "claim", id)
@@ -101,7 +101,7 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 		t.Fatalf("self-review was refused with %v, want FORBIDDEN (§6.3)", err)
 	}
 
-	w.ht("task", "approve", id)
+	w.htask("task", "approve", id)
 	done := w.task(id)
 	if done["status"] != "done" {
 		t.Fatalf("after approve the task is %v, want done", done["status"])
@@ -111,7 +111,7 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 	}
 
 	// §5.5: the trail says all of it happened, in order.
-	events := w.ht("events", "--entity", "task")
+	events := w.htask("events", "--entity", "task")
 	blob, kinds := "", []string{"created", "claimed", "submitted", "approved"}
 	for _, e := range events["events"].([]any) {
 		blob += e.(map[string]any)["kind"].(string) + " "
@@ -127,7 +127,7 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 // lifecycle events, and a plugin with leases sweeps them when a pane dies —
 // recording the sweep in the entity's events.
 //
-// This is the MANUAL pass, `ht sweep --pane`, which is what the operator runs
+// This is the MANUAL pass, `htask sweep --pane`, which is what the operator runs
 // and what the manifest's own reaction runs for them. It is worth keeping
 // separately from the automatic one below: the reaction script exits early
 // when Herdr gives it no pane id, and then this is the only way the work comes
@@ -138,7 +138,7 @@ func TestLeaseIsReleasedAfterTheClaimingPaneDies(t *testing.T) {
 	pane := w.pane("lease")
 	w.beAgent(pane, "claude", "holder")
 
-	created := w.ht("task", "create", "held by a pane that dies")
+	created := w.htask("task", "create", "held by a pane that dies")
 	id, _ := created["task"].(map[string]any)["id"].(string)
 	w.mustInPane(pane, "task", "claim", id)
 
@@ -149,7 +149,7 @@ func TestLeaseIsReleasedAfterTheClaimingPaneDies(t *testing.T) {
 		}
 	}
 
-	swept := w.ht("sweep", "--pane", pane)
+	swept := w.htask("sweep", "--pane", pane)
 	released, _ := swept["released"].([]any)
 	if len(released) != 1 || released[0] != id {
 		t.Fatalf("the sweep released %v, want just %s", released, id)
@@ -163,7 +163,7 @@ func TestLeaseIsReleasedAfterTheClaimingPaneDies(t *testing.T) {
 	}
 
 	var kinds []string
-	for _, e := range w.ht("events", "--entity", "task")["events"].([]any) {
+	for _, e := range w.htask("events", "--entity", "task")["events"].([]any) {
 		kinds = append(kinds, e.(map[string]any)["kind"].(string))
 	}
 	found := false
@@ -182,7 +182,7 @@ func TestLeaseIsReleasedAfterTheClaimingPaneDies(t *testing.T) {
 // makes must both be listed.
 func TestDoctorSeesTheRealHerdrAndItsSchema(t *testing.T) {
 	w := startWorld(t)
-	doc := w.ht("doctor")
+	doc := w.htask("doctor")
 	body, _ := doc["doctor"].(map[string]any)
 	if body == nil {
 		body = doc
@@ -196,12 +196,12 @@ func TestDoctorSeesTheRealHerdrAndItsSchema(t *testing.T) {
 }
 
 // §12.3: a suite that leaves processes behind has not stayed out of the
-// operator's way. Every `ht` call autostarts a detached daemon (§2.2) that
+// operator's way. Every `htask` call autostarts a detached daemon (§2.2) that
 // nothing else stops, so the world must stop them itself — and prove it did,
 // because the failure mode is invisible until the machine has a dozen of them.
 func TestNoDaemonThisSuiteStartedSurvivesIt(t *testing.T) {
 	w := startWorld(t)
-	w.ht("task", "create", "a task, which starts a daemon")
+	w.htask("task", "create", "a task, which starts a daemon")
 	started := w.daemonPIDs()
 	if len(started) == 0 {
 		t.Fatal("the CLI did not autostart a daemon; this test would prove nothing")
@@ -239,7 +239,7 @@ func TestFreeTextBoundsAreEnforcedThroughTheRealStack(t *testing.T) {
 
 	// The bound must not have made ordinary work harder: everything the rest
 	// of this suite creates is well inside it.
-	created := w.ht("task", "create", "an ordinary title",
+	created := w.htask("task", "create", "an ordinary title",
 		"--validation", "make test-full exits 0")
 	if created["task"] == nil {
 		t.Fatalf("a normal create was refused: %v", created)
@@ -254,7 +254,7 @@ func TestFreeTextBoundsAreEnforcedThroughTheRealStack(t *testing.T) {
 
 // §8.4 / §11.5: the manifest promises that a pane going away gives its work
 // back by itself, and until now nothing checked. This closes a pane through
-// Herdr and waits for the claim to come back WITHOUT running `ht sweep --pane`
+// Herdr and waits for the claim to come back WITHOUT running `htask sweep --pane`
 // — if it comes back, the reaction Herdr registered from the manifest is what
 // brought it.
 func TestClosingAPaneReleasesItsLeasesWithoutBeingAsked(t *testing.T) {
@@ -263,7 +263,7 @@ func TestClosingAPaneReleasesItsLeasesWithoutBeingAsked(t *testing.T) {
 	pane := w.pane("automatic")
 	w.beAgent(pane, "claude", "holder")
 
-	created := w.ht("task", "create", "held by a pane that is about to close")
+	created := w.htask("task", "create", "held by a pane that is about to close")
 	id, _ := created["task"].(map[string]any)["id"].(string)
 	w.mustInPane(pane, "task", "claim", id)
 	if held := w.task(id); held["claimed_by"] != "agent:"+pane {
@@ -287,7 +287,7 @@ func TestClosingAPaneReleasesItsLeasesWithoutBeingAsked(t *testing.T) {
 	}
 
 	var kinds []string
-	for _, e := range w.ht("events", "--entity", "task")["events"].([]any) {
+	for _, e := range w.htask("events", "--entity", "task")["events"].([]any) {
 		kinds = append(kinds, e.(map[string]any)["kind"].(string))
 	}
 	found := false

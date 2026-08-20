@@ -36,7 +36,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	testenv.SkipUnlessFull(t)
 	dir := testenv.ShortDir(t)
-	bin := filepath.Join(dir, "ht")
+	bin := filepath.Join(dir, "htask")
 	build := exec.Command("go", "build", "-o", bin, ".")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
@@ -259,7 +259,7 @@ func TestTaskGoalPrintsAPasteReadyCondition(t *testing.T) {
 	if len(stdout) >= 4000 {
 		t.Fatalf("goal is %d characters", len(stdout))
 	}
-	for _, want := range []string{"Teach the sweep to speak", "Done when:", "ht task submit 1", "ht task release 1 --note", "ht task touch 1"} {
+	for _, want := range []string{"Teach the sweep to speak", "Done when:", "htask task submit 1", "htask task release 1 --note", "htask task touch 1"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("goal is missing %q:\n%s", want, stdout)
 		}
@@ -298,7 +298,7 @@ func TestNoteBoardIsAgentProposesOperatorDecides(t *testing.T) {
 	// `task goal` whose "Done when" has nothing to check.
 	doc := w.json(w.env(), "note", "promote", "1",
 		"--validation", "make test-full exits 0",
-		"--validation", "ht note promote --help lists --validation")
+		"--validation", "htask note promote --help lists --validation")
 	task, _ := doc["task"].(map[string]any)
 	if task == nil {
 		t.Fatalf("promote = %+v", doc)
@@ -565,7 +565,7 @@ func TestPaneGoneWithNoPaneIDTouchesNobody(t *testing.T) {
 }
 
 // pluginRoot lays out the shipped script over the world's binary the way the
-// plugin ships: <root>/scripts/on-pane-gone.sh next to <root>/bin/ht.
+// plugin ships: <root>/scripts/on-pane-gone.sh next to <root>/bin/htask.
 func pluginRoot(t *testing.T, w *world) string {
 	t.Helper()
 	root := t.TempDir()
@@ -575,7 +575,7 @@ func pluginRoot(t *testing.T, w *world) string {
 	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	if err := os.Symlink(w.bin, filepath.Join(root, "bin", "ht")); err != nil {
+	if err := os.Symlink(w.bin, filepath.Join(root, "bin", "htask")); err != nil {
 		t.Fatalf("symlink: %v", err)
 	}
 	body, err := os.ReadFile(filepath.Join("..", "..", "scripts", "on-pane-gone.sh"))
@@ -750,7 +750,7 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 }
 
 // §2.3: the daemon lock is named where an operator debugging a wedged daemon
-// will look — beside the socket, in both surfaces of `ht doctor`.
+// will look — beside the socket, in both surfaces of `htask doctor`.
 func TestDoctorNamesTheDaemonLock(t *testing.T) {
 	w := newWorld(t)
 	doc := w.json(w.env(), "doctor")
@@ -868,7 +868,7 @@ func TestDoorSideJSONFailuresPrintOneEnvelope(t *testing.T) {
 		}
 		// One document, one stream: the envelope IS the report, so the prose
 		// line must not also appear as if two things went wrong.
-		if strings.Contains(stderr, "ht: ") {
+		if strings.Contains(stderr, "htask: ") {
 			t.Errorf("%s: --json printed the envelope AND a prose line: %q", name, stderr)
 		}
 	}
@@ -885,7 +885,7 @@ func TestWithoutJSONADoorFailureStillSpeaksProse(t *testing.T) {
 	if strings.TrimSpace(stdout) != "" {
 		t.Fatalf("prose mode wrote to stdout: %q", stdout)
 	}
-	if !strings.Contains(stderr, "ht: ") {
+	if !strings.Contains(stderr, "htask: ") {
 		t.Fatalf("prose mode said nothing on stderr: %q", stderr)
 	}
 	if strings.Contains(stderr, `{"error"`) {
@@ -942,7 +942,7 @@ func TestAStreamThatCannotStartAnswersWithAnEnvelope(t *testing.T) {
 	if got := oneEnvelope(t, stdout); got != codes.Unavailable {
 		t.Errorf("code %q, want UNAVAILABLE", got)
 	}
-	if strings.Contains(stderr, "ht: ") {
+	if strings.Contains(stderr, "htask: ") {
 		t.Errorf("--json printed the envelope AND a prose line: %q", stderr)
 	}
 }
@@ -1012,7 +1012,7 @@ func TestAStreamThatFailsPartWayEndsWithTheEnvelope(t *testing.T) {
 	if got := oneEnvelope(t, lines[2]); got != codes.Unavailable {
 		t.Fatalf("the last document's code is %q, want UNAVAILABLE", got)
 	}
-	if strings.Contains(stderr, "ht: ") {
+	if strings.Contains(stderr, "htask: ") {
 		t.Fatalf("--json printed the envelope AND a prose line: %q", stderr)
 	}
 }
@@ -1063,7 +1063,7 @@ func TestABrokenPluginContextWarnsWithoutSpoilingTheDocument(t *testing.T) {
 	}
 }
 
-// follower runs `ht events --follow --json` against the world's daemon and
+// follower runs `htask events --follow --json` against the world's daemon and
 // returns what it wrote and how it ended. The stream is read as it arrives, so
 // the test can act between documents.
 type follower struct {

@@ -6,7 +6,7 @@ Tasks move **todo → doing → review → done** behind a claim with a renewabl
 lease, carry evidence, and are reviewed by someone who is not the harness that
 wrote them. Notes are pre-decision ideas: agents propose, the operator decides.
 
-One statically linked Go binary, `ht`, is the daemon, the CLI and the MCP
+One statically linked Go binary, `htask`, is the daemon, the CLI and the MCP
 server. No browser, no web server, no PTYs, no second multiplexer.
 
 ## Install
@@ -15,7 +15,7 @@ server. No browser, no web server, no PTYs, no second multiplexer.
 herdr plugin install husniadil/herdr-tasks
 ```
 
-The manifest's `[[build]]` step compiles `bin/ht` on install, and `[[startup]]`
+The manifest's `[[build]]` step compiles `bin/htask` on install, and `[[startup]]`
 starts the daemon. Herdr has no shutdown hook, so the **Stop the tasks daemon**
 workspace action is the way to turn it off.
 
@@ -35,17 +35,17 @@ a copy is a second version of the truth from the next commit onwards.
 ## Using it
 
 ```sh
-ht task list --ready                       # unblocked, unclaimed work
-ht task claim 12                           # one winner
-ht task touch 12                           # renew the lease, every turn
-ht task submit 12 --report "…" --evidence "make test-full: ok"
-ht task approve 12                         # not if your harness wrote it
-ht note add "the sweep releases a lease without logging why"
-ht task goal 12                            # a paste-ready /goal condition
-ht doctor
+htask task list --ready                       # unblocked, unclaimed work
+htask task claim 12                           # one winner
+htask task touch 12                           # renew the lease, every turn
+htask task submit 12 --report "…" --evidence "make test-full: ok"
+htask task approve 12                         # not if your harness wrote it
+htask note add "the sweep releases a lease without logging why"
+htask task goal 12                            # a paste-ready /goal condition
+htask doctor
 ```
 
-`ht --help` lists every verb. Add `--json` to any of them for exactly one
+`htask --help` lists every verb. Add `--json` to any of them for exactly one
 machine-readable document on stdout; without it the output is prose and is not
 meant to be parsed. The skill in `skills/tasks/` teaches the CLI to agents.
 
@@ -103,7 +103,7 @@ is also clickable — the footer draws each verb where the mouse can reach it.
 ## The shared plugin contract
 
 This plugin conforms to the **shared plugin contract, v0** (0.1.0-draft). The
-version is printed by `ht version` and `ht doctor`. Where implementation found
+version is printed by `htask version` and `htask doctor`. Where implementation found
 the contract underspecified, the gap is recorded in
 [`docs/contract-notes.md`](docs/contract-notes.md) rather than silently worked
 around.
@@ -114,7 +114,7 @@ Deviations worth naming up front:
   also an MCP tool. Both doors are generated from one registry, and a parity
   test fails on any drift between them. See the contract note.
 - **§8.4** — no manifest `[[events]]` reaction. Leases are freed by the §11.5
-  timer, by the reconciliation sweep at daemon start, and by `ht sweep`.
+  timer, by the reconciliation sweep at daemon start, and by `htask sweep`.
 
 ## Trust boundary
 
@@ -204,7 +204,7 @@ clamps at render time regardless, and says what it dropped.
 ## Your data
 
 SQLite at `${TASKS_STATE_DIR:-${XDG_STATE_HOME:-~/.local/state}/tasks}/tasks.db`,
-WAL, written only by the daemon. `ht dump --json` prints the whole store —
+WAL, written only by the daemon. `htask dump --json` prints the whole store —
 tasks, notes, the append-only event trail, dependencies, the parked queue — so
 nothing here needs this plugin to be readable.
 

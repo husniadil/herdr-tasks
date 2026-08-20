@@ -15,7 +15,7 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
 
-// View names the two views `ht tui [<view>]` opens (§2.1).
+// View names the two views `htask tui [<view>]` opens (§2.1).
 type View string
 
 const (
@@ -26,7 +26,7 @@ const (
 	ViewNotes View = "notes"
 )
 
-// ParseView reads the optional `ht tui <view>` argument.
+// ParseView reads the optional `htask tui <view>` argument.
 func ParseView(s string) (View, error) {
 	switch s {
 	case "", string(ViewBoard):
@@ -38,7 +38,7 @@ func ParseView(s string) (View, error) {
 }
 
 // Columns are the board's state columns, in lifecycle order. Cancelled and
-// archived tasks are not on the board; `ht task list --status cancelled` is
+// archived tasks are not on the board; `htask task list --status cancelled` is
 // where they are read.
 var Columns = []tasks.Status{tasks.StatusTodo, tasks.StatusDoing, tasks.StatusReview, tasks.StatusDone}
 
@@ -146,7 +146,7 @@ type Model struct {
 	homed bool
 }
 
-// New is the model a fresh `ht tui` starts in.
+// New is the model a fresh `htask tui` starts in.
 func New(view View, project string) Model {
 	return Model{View: view, Project: project, Width: 80, Height: 24}
 }

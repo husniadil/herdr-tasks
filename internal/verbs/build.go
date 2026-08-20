@@ -25,7 +25,7 @@ import (
 //   - Revision is the commit, with a `+dirty` marker for a working-tree
 //     build. It survives the door and the daemon being different FILES, which
 //     is an ordinary layout: `make install` is `go install`, while the
-//     manifest's daemon runs ./bin/ht.
+//     manifest's daemon runs ./bin/htask.
 type Build struct {
 	// Exe is the absolute path of the running binary.
 	Exe string `json:"exe,omitempty"`

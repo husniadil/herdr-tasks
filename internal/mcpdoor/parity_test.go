@@ -84,8 +84,11 @@ func TestCLIAndMCPSurfacesDoNotDrift(t *testing.T) {
 			t.Errorf("MCP tool %q is declared twice", tl.MCP)
 		}
 		seen[tl.MCP] = true
-		if !strings.HasPrefix(tl.MCP, ServerName+"_") {
-			t.Errorf("tool %q is not named %s_<verb> (§7.1)", tl.MCP, ServerName)
+		// §7.1 binds the TOOL prefix, which is the plugin's short name — not
+		// the registration name, which carries the plugin id. The two were one
+		// constant and this assertion is the reason they had to come apart.
+		if !strings.HasPrefix(tl.MCP, ToolPrefix+"_") {
+			t.Errorf("tool %q is not named %s_<verb> (§7.1)", tl.MCP, ToolPrefix)
 		}
 		// Same arguments: the tool schema is built from the same Args the CLI
 		// builds its flags from, so this compares the rendered surfaces.
@@ -314,7 +317,7 @@ func TestNoteQueryReachesBothDoors(t *testing.T) {
 		t.Fatal("no note.list verb")
 	}
 	if !v.Accepts("query") {
-		t.Fatal("note.list takes no query argument, so `ht note list --query` does not exist")
+		t.Fatal("note.list takes no query argument, so `htask note list --query` does not exist")
 	}
 	schema, err := json.Marshal(tool(v).InputSchema)
 	if err != nil {
@@ -712,4 +715,54 @@ func canonProject(t *testing.T, dir string) string {
 		t.Fatalf("resolve %s: %v", dir, err)
 	}
 	return p
+}
+
+// §7.1 with §13.1: the server registers under the plugin's identity and its
+// tools keep the short name. They were one constant, so setting the server
+// name would have renamed all fifteen tools — which are semver-bound.
+func TestTheServerNameAndTheToolPrefixAreDifferentThings(t *testing.T) {
+	if ServerName != "herdr-tasks" {
+		t.Errorf("ServerName = %q, want the plugin id", ServerName)
+	}
+	if ToolPrefix != "tasks" {
+		t.Errorf("ToolPrefix = %q, want the short name (§13.2)", ToolPrefix)
+	}
+	if ServerName == ToolPrefix {
+		t.Fatal("the registration name and the tool prefix are the same constant again")
+	}
+	// The pinned fifteen are untouched by the registration name.
+	for _, v := range verbs.MCPTools() {
+		if !strings.HasPrefix(v.MCP, ToolPrefix+"_") {
+			t.Errorf("tool %q lost its §7.1 prefix", v.MCP)
+		}
+		if strings.HasPrefix(v.MCP, ServerName+"_") {
+			t.Errorf("tool %q was renamed after the server", v.MCP)
+		}
+	}
+	if n := len(verbs.MCPTools()); n != len(pinnedTools) {
+		t.Fatalf("%d tools, want the pinned %d", n, len(pinnedTools))
+	}
+}
+
+// And the SERVED server really reports it, not just the constant.
+func TestTheServedServerRegistersUnderThePluginIdentity(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	_, call := inProcessDaemon(t)
+	sess := mcpSession(t, call)
+	got := sess.InitializeResult().ServerInfo
+	if got.Name != ServerName {
+		t.Errorf("the server registered as %q, want %q", got.Name, ServerName)
+	}
+	if got.Title != Title {
+		t.Errorf("the server's title is %q, want %q", got.Title, Title)
+	}
+	tools, err := sess.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	for _, tl := range tools.Tools {
+		if !strings.HasPrefix(tl.Name, ToolPrefix+"_") {
+			t.Errorf("served tool %q is not %s_<verb>", tl.Name, ToolPrefix)
+		}
+	}
 }

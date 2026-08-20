@@ -76,7 +76,7 @@ func Resolve(o Options) (string, error) {
 			// is not what the operator needs, and the parse error already says
 			// where it went wrong.
 			fmt.Fprintf(o.Warn,
-				"ht: %s is set but could not be read (%v); this board is scoped to %s, taken from the working directory instead\n",
+				"htask: %s is set but could not be read (%v); this board is scoped to %s, taken from the working directory instead\n",
 				EnvContext, unreadable, proj)
 		})
 	}

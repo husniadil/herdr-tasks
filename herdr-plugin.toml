@@ -10,7 +10,7 @@ platforms = ["macos", "linux"]
 # build cache makes the second install fast.
 [[build]]
 id = "binary"
-command = ["go", "build", "-o", "./bin/ht", "./cmd/ht"]
+command = ["go", "build", "-o", "./bin/htask", "./cmd/htask"]
 
 # Starts the daemon and exits, which is what Herdr expects of a startup
 # command. The daemon detaches, so it survives the pane that opened it.
@@ -50,12 +50,12 @@ command = ["./scripts/open-pane.sh", "notes"]
 
 # The same pass the daemon runs on its timer, on demand. It frees leases that
 # have LAPSED; a pane that died a moment ago keeps its claim until its lease
-# runs out. To free that one now, run `ht sweep --pane <pane id>`.
+# runs out. To free that one now, run `htask sweep --pane <pane id>`.
 [[actions]]
 id = "sweep"
 title = "Release lapsed leases now"
 contexts = ["workspace"]
-command = ["./bin/ht", "sweep"]
+command = ["./bin/htask", "sweep"]
 
 # A pane that dies should give its work back at once, not when the lease runs
 # out. Both events, because they are different deaths: `pane.exited` is the
@@ -84,7 +84,7 @@ title = "Tasks board"
 placement = "popup"
 width = "90%"
 height = "80%"
-command = ["./bin/ht", "tui", "board"]
+command = ["./bin/htask", "tui", "board"]
 
 [[panes]]
 id = "notes"
@@ -92,4 +92,4 @@ title = "Notes and parked actions"
 placement = "popup"
 width = "90%"
 height = "80%"
-command = ["./bin/ht", "tui", "notes"]
+command = ["./bin/htask", "tui", "notes"]

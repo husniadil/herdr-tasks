@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -201,4 +202,37 @@ func contains(list []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// §13.1 with §2.2, §5.1 and §10.1: the BINARY was renamed, and the short name
+// was not. §10.1 fixes the env prefix as the uppercase SHORT name, which
+// settles that the `<name>` in §2.2's socket path and §5.1's database path is
+// the short name too — not the binary's abbreviation. So a rename of the
+// binary moves nothing here, and this says so rather than leaving it to be
+// noticed later by an operator whose board went missing.
+func TestRenamingTheBinaryMovesNoStoredPath(t *testing.T) {
+	if Name != "tasks" {
+		t.Fatalf("short name = %q, want tasks (§13.2)", Name)
+	}
+	if EnvPrefix != "TASKS_" {
+		t.Fatalf("env prefix = %q, want TASKS_ (§10.1)", EnvPrefix)
+	}
+	dir := t.TempDir()
+	t.Setenv(EnvPrefix+"STATE_DIR", dir)
+	for what, got := range map[string]string{
+		"socket": SocketPath(),
+		"store":  DBPath(),
+		"lock":   LockPath(),
+	} {
+		if filepath.Dir(got) != dir {
+			t.Errorf("%s is at %q, outside the state dir", what, got)
+		}
+		base := filepath.Base(got)
+		if !strings.HasPrefix(base, "tasks.") {
+			t.Errorf("%s is named %q; the binary moved, this must not", what, base)
+		}
+		if strings.Contains(base, "htask") || strings.Contains(base, "herdr-tasks") {
+			t.Errorf("%s is named after the binary or the plugin id: %q", what, got)
+		}
+	}
 }

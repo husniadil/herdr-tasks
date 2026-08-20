@@ -6,7 +6,7 @@ CLAUDE.local.md
 # this machine.
 .claude/settings.local.json
 
-/ht
+/htask
 /bin/
 /dist/
 coverage.out

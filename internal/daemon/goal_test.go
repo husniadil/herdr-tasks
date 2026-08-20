@@ -16,7 +16,7 @@ func goalTask() *tasks.Task {
 		Status:      tasks.StatusTodo,
 		Validation: []tasks.Criterion{
 			{Text: "`make test-full` passes and its output is shown", Required: true},
-			{Text: "`ht events --json` shows a tasks.task.swept entry after a sweep", Required: true},
+			{Text: "`htask events --json` shows a tasks.task.swept entry after a sweep", Required: true},
 		},
 	}
 }
@@ -83,10 +83,10 @@ func TestGoalKeepsItsMandatoryPartsUnderPressure(t *testing.T) {
 	for _, want := range []string{
 		"Make the lease sweep write an event.", // the directive
 		"Done when:",
-		"ht task submit 7", // the submit obligation
+		"htask task submit 7", // the submit obligation
 		"its output is shown",
-		"ht task release 7 --note", // the stop clause
-		"ht task touch 7",
+		"htask task release 7 --note", // the stop clause
+		"htask task touch 7",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trimming dropped %q:\n%s", want, got)
@@ -110,7 +110,7 @@ func TestGoalSaysWhenItDroppedCriteria(t *testing.T) {
 	if !strings.Contains(got, "further criteria") {
 		t.Fatalf("a truncated criteria list must say so:\n%s", got)
 	}
-	if !strings.Contains(got, "ht task get 7") {
+	if !strings.Contains(got, "htask task get 7") {
 		t.Fatal("a truncated criteria list must point at the full one")
 	}
 }
@@ -150,7 +150,7 @@ func TestGoalCarriesTitleAndCriteria(t *testing.T) {
 // show its output.
 func TestGoalCarriesTheSubmitObligation(t *testing.T) {
 	got := BuildGoal(goalTask())
-	if !strings.Contains(got, "ht task submit 7") {
+	if !strings.Contains(got, "htask task submit 7") {
 		t.Fatalf("goal does not oblige a submit:\n%s", got)
 	}
 	if !strings.Contains(got, "--report") || !strings.Contains(got, "--evidence") {
@@ -165,17 +165,17 @@ func TestGoalCarriesTheSubmitObligation(t *testing.T) {
 // and sends out-of-scope findings to notes or a discovered-from task.
 func TestGoalCarriesTheReleaseStopClause(t *testing.T) {
 	got := BuildGoal(goalTask())
-	if !strings.Contains(got, "ht task release 7 --note") {
+	if !strings.Contains(got, "htask task release 7 --note") {
 		t.Fatalf("goal has no release stop clause:\n%s", got)
 	}
-	if !strings.Contains(got, "ht note add") || !strings.Contains(got, "--discovered-from 7") {
+	if !strings.Contains(got, "htask note add") || !strings.Contains(got, "--discovered-from 7") {
 		t.Fatal("the stop clause must send out-of-scope findings to a note or a discovered-from task")
 	}
 }
 
 // §16.3: the goal tells the agent to renew its lease each turn.
 func TestGoalTellsTheAgentToTouch(t *testing.T) {
-	if got := BuildGoal(goalTask()); !strings.Contains(got, "ht task touch 7") {
+	if got := BuildGoal(goalTask()); !strings.Contains(got, "htask task touch 7") {
 		t.Fatalf("goal does not teach touch:\n%s", got)
 	}
 }
@@ -187,5 +187,32 @@ func TestGoalCarriesRejectFeedback(t *testing.T) {
 	got := BuildGoal(task)
 	if !strings.Contains(got, "no test cited for the sweep path") {
 		t.Fatalf("goal drops the reject feedback:\n%s", got)
+	}
+}
+
+// §13.1: the goal text is handed to ANOTHER AGENT, and it tells that agent
+// which command to run. The binary is `htask`, because `ht` is tex4ht on a
+// machine with TeX Live and a hex editor in Homebrew — so an agent that
+// followed a goal naming `ht` would run someone else's program. This is the
+// one place the rename is not documentation: it is an instruction the daemon
+// emits at runtime.
+func TestTheGoalNamesTheBinaryThatExists(t *testing.T) {
+	got := BuildGoal(goalTask())
+	// A bare `htask ` anywhere in the goal is the failure. Backtick or not: the
+	// text is prose an agent reads, not a fenced block.
+	for _, bad := range []string{"`ht ", " ht ", "\nht "} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the goal names the old binary (%q):\n%s", bad, got)
+		}
+	}
+	// And it really does teach the verbs, or the check above passes on an
+	// empty goal.
+	for _, want := range []string{
+		"htask task touch 7", "htask task submit 7", "htask task release 7 --note",
+		"htask note add", "htask task create",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the goal does not teach %q:\n%s", want, got)
+		}
 	}
 }

@@ -101,7 +101,7 @@ different live pane. The script guards the absent case and releases nothing.
 
 Hooks fire for every subject, not only the plugin's own panes, so a reaction
 must be safe to run for a pane it knows nothing about and safe to run twice.
-Ours is both by construction rather than by filtering: `ht sweep --pane <id>`
+Ours is both by construction rather than by filtering: `htask sweep --pane <id>`
 releases the leases that one pane holds, which is nothing for a pane that
 holds none, and nothing again the second time.
 
@@ -154,7 +154,7 @@ Both halves are now proved against a real headless Herdr, and they are
 different halves.
 
 `TestLeaseIsReleasedAfterTheClaimingPaneDies` closes the pane and runs
-`ht sweep --pane <id>` itself — the MANUAL pass, which is what an operator
+`htask sweep --pane <id>` itself — the MANUAL pass, which is what an operator
 runs and what the manifest's reaction runs on their behalf. It is worth
 keeping on its own because `scripts/on-pane-gone.sh` exits early when Herdr
 gives it no pane id, and then this is the only way the work comes back.
@@ -199,7 +199,7 @@ not the pane the popup was opened from. Measured with `$EDITOR`: the value the
 popup saw was the one exported by the shell that started the herdr session. A
 herdr launched from a login shell therefore carries that shell's editor, and
 one started by a launcher or a service may carry none at all — which is why
-`ht tui` reads `VISUAL` then `EDITOR` and refuses, naming both, rather than
+`htask tui` reads `VISUAL` then `EDITOR` and refuses, naming both, rather than
 falling back to `vi`. An operator who cannot leave the editor a plugin chose
 for them is in the trap §11.6's close key exists to have closed.
 
@@ -299,3 +299,60 @@ format could only be checked against a decoder written from the spec. That
 decoder now lives in the id tests, and it is deliberately not derived from
 `encode` — one that was would agree with any encoding at all, including the
 wrong one.
+
+## §13.1 — `ht` was the failure case §13.1 already describes
+
+§13.1 lets the binary be "the short name or an agreed abbreviation that is
+unique on a developer machine and **not a common Unix command**". `ht` failed
+the second half of that on the machine this plugin is developed on, so the
+rename to `htask` is not an exception to the rule — it is the rule being
+applied for the first time.
+
+Measured rather than assumed:
+
+```
+/opt/homebrew/bin/ht -> ../Cellar/texlive/20260301/bin/ht
+# ht (2024-01-23-13:46), generated from tex4ht-mkht.tex
+```
+
+and Homebrew's own formula for that name is `hte`, a hex viewer, which brew
+records as `Conflicts with: texlive (because both install `ht` binaries)` —
+the name is contested between two unrelated projects before this plugin asks
+for it. An agent taught bare `ht` by the skill, running it from PATH, would
+have run TeX4ht. `htask` is free on PATH and in Homebrew.
+
+**Three names live here and only one of them moved.** They are easy to
+conflate and the contract keeps them apart:
+
+| what | value | fixed by |
+|---|---|---|
+| binary | `htask` | §13.1, an abbreviation chosen per plugin |
+| plugin id | `herdr-tasks` | §13.1, the repository name |
+| short name | `tasks` | §13.2 |
+
+§10.1 fixes the env prefix as the "uppercase short name", which settles that
+the `<name>` in §2.2's socket path and §5.1's database path is the SHORT name
+as well. So `<state_dir>/tasks.sock`, `<state_dir>/tasks.db` and `TASKS_*` do
+not move when the binary does, and a test asserts it rather than leaving it to
+be discovered by an operator whose board went missing.
+
+**Upstream amendment to propose:** §13.2 says binary abbreviations are "listed
+in the glossary (§14)". The glossary entry for this plugin should read `htask`.
+
+## §7.1 — the tool prefix is not the server's registration name
+
+§7.1 fixes tool names as `<name>_<verb>` and says nothing about the name an
+MCP server registers itself under. This plugin held both in one constant, so
+they could not differ — and when the registration name was changed to carry
+the plugin identity (`herdr-tasks`), the parity test that cites §7.1 failed,
+because it was checking tool names against the server name.
+
+They are separate now: `ServerName` is `herdr-tasks`, `ToolPrefix` is `tasks`,
+and the §7.1 assertion checks the prefix. The fifteen pinned tool names are
+unchanged and stay `tasks_*`, which is what §7.1 requires and what §7.1's
+"semver-bound once released" protects.
+
+Recorded because nothing in the contract was violated in either direction:
+this is a place where the contract is silent and the implementation had
+assumed an equality it never stated. A plugin whose short name and plugin id
+happen to match would never have noticed.

@@ -47,15 +47,18 @@ func docFiles(t *testing.T) map[string]string {
 	return out
 }
 
-// commandLines pulls every `ht …` invocation out of a document's fenced code
-// blocks, joining the backslash continuations a long example is wrapped with.
+// commandLines pulls every `htask …` invocation out of a document's fenced
+// code blocks, joining the backslash continuations a long example is wrapped
+// with. The literal below is the binary's name, so it moved when the binary
+// did — and if it had not, the coverage floor in the caller would have caught
+// a run that suddenly found nothing.
 func commandLines(doc string) []string {
 	var out []string
 	for _, block := range fence.FindAllStringSubmatch(doc, -1) {
 		joined := strings.ReplaceAll(block[1], "\\\n", " ")
 		for _, line := range strings.Split(joined, "\n") {
 			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "ht ") || line == "ht" {
+			if strings.HasPrefix(line, "htask ") || line == "htask" {
 				out = append(out, line)
 			}
 		}
@@ -78,6 +81,9 @@ func TestDocsCiteTheRealSurface(t *testing.T) {
 			}
 		}
 	}
+	// Logged, not just floored: after a rename this number is the difference
+	// between "the docs were checked" and "the extractor stopped matching".
+	t.Logf("%d command lines checked across %d documents", seen, len(docs))
 	if seen < 20 {
 		t.Fatalf("only %d command lines found in the docs; the extractor is reading nothing", seen)
 	}
@@ -89,7 +95,7 @@ func TestDocsCiteTheRealSurface(t *testing.T) {
 func splitCommands(fields []string) [][]string {
 	var out [][]string
 	for _, f := range fields {
-		if f == "ht" {
+		if f == "htask" {
 			out = append(out, []string{})
 			continue
 		}
@@ -122,7 +128,7 @@ func checkCommand(t *testing.T, name, line string, cmd []string) {
 	v, ok := verbFor(words)
 	if !ok {
 		if len(words) == 0 && len(flags) > 0 {
-			return // `ht --help`
+			return // `htask --help`
 		}
 		t.Errorf("%s: %q names no verb this CLI has", name, line)
 		return

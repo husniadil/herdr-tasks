@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// commandLine matches one manifest argv: `command = ["./bin/ht", "sweep"]`.
+// commandLine matches one manifest argv: `command = ["./bin/htask", "sweep"]`.
 var commandLine = regexp.MustCompile(`(?m)^command\s*=\s*\[\s*"([^"]*)"`)
 
 // Herdr resolves a plugin command's argv0 against the plugin root when it is
@@ -51,7 +51,7 @@ func TestManifestCommandsExist(t *testing.T) {
 		if !strings.Contains(argv0, "/") {
 			continue
 		}
-		// bin/ht is built by the manifest's own [[build]] step, so its absence
+		// bin/htask is built by the manifest's own [[build]] step, so its absence
 		// in a fresh checkout is not a broken manifest.
 		if strings.HasSuffix(argv0, "/ht") {
 			continue
@@ -184,4 +184,36 @@ func TestManifestKeybindingsFileIsCopyReady(t *testing.T) {
 			t.Errorf("no [[keys.command]] block invokes %q", id)
 		}
 	}
+}
+
+// §13.1: the manifest id is the REPOSITORY name and does not follow the
+// binary. Three names live in this plugin and only one of them moved — the
+// binary is htask, the plugin id is herdr-tasks, the short name behind the
+// socket, the store and TASKS_* is tasks.
+func TestTheManifestIdentityDidNotFollowTheBinary(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read the manifest: %v", err)
+	}
+	manifest := string(body)
+	if !strings.Contains(manifest, `id = "herdr-tasks"`) {
+		t.Errorf("the manifest id is not herdr-tasks:\n%s", firstLines(manifest, 12))
+	}
+	if strings.Contains(manifest, `id = "htask"`) {
+		t.Error("the manifest id followed the binary")
+	}
+	// And every command it runs names the binary that exists.
+	for _, argv := range commandLine.FindAllStringSubmatch(manifest, -1) {
+		if strings.Contains(argv[0], `"./bin/ht"`) {
+			t.Errorf("a manifest command still runs the old binary: %s", argv[0])
+		}
+	}
+}
+
+func firstLines(s string, n int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	return strings.Join(lines, "\n")
 }

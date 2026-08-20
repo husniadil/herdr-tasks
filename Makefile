@@ -1,9 +1,14 @@
 .PHONY: build test test-full e2e install clean
 
-BIN := bin/ht
+BIN := bin/htask
 
 build:
-	go build -o $(BIN) ./cmd/ht
+	@# A stale bin/ht from before the rename is worse than a missing binary: it
+	@# is a frozen pre-rename build, and anything still pointed at it by
+	@# absolute path — an MCP entry, a script — keeps being served yesterday's
+	@# verb surface, with the skew warning going to a stderr nobody reads.
+	@rm -f bin/ht
+	go build -o $(BIN) ./cmd/htask
 
 # Two gates, one suite.
 #
@@ -54,7 +59,7 @@ e2e: build
 	go test -tags e2e -count=1 -v ./internal/e2e/...
 
 install:
-	go install ./cmd/ht
+	go install ./cmd/htask
 
 clean:
 	rm -rf bin dist coverage.out

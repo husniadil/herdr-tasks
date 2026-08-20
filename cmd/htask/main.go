@@ -1,4 +1,4 @@
-// Command ht is herdr-tasks: the daemon, the CLI, and the MCP server in one
+// Command htask is herdr-tasks: the daemon, the CLI, and the MCP server in one
 // binary (§2.1). It conforms to the shared plugin contract, v0.
 package main
 
@@ -39,7 +39,7 @@ func main() {
 	if g.jsonOut {
 		printErrorEnvelope(err, code)
 	} else {
-		fmt.Fprintln(os.Stderr, "ht: "+err.Error())
+		fmt.Fprintln(os.Stderr, "htask: "+err.Error())
 	}
 	os.Exit(codes.Exit(code))
 }

@@ -9,7 +9,7 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/tui"
 )
 
-// newTUICmd is `ht tui [<view>]` (§2.1): the human door, opened as a Herdr
+// newTUICmd is `htask tui [<view>]` (§2.1): the human door, opened as a Herdr
 // pane (§11.6) or from a terminal. It is the one subcommand that reads a TTY
 // (§2.5).
 func newTUICmd() *cobra.Command {
@@ -34,7 +34,7 @@ func newTUICmd() *cobra.Command {
 				return err
 			}
 			if !isTTY() {
-				return codes.New(codes.Unsupported, "ht tui needs a terminal; use `ht task list` from a script")
+				return codes.New(codes.Unsupported, "htask tui needs a terminal; use `htask task list` from a script")
 			}
 			return tui.Run(view, base)
 		},

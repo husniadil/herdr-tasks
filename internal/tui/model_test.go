@@ -1749,7 +1749,7 @@ func TestTheDetailPanelNamesACancelledBlocker(t *testing.T) {
 // refuses is a different thing entirely — it holds work the operator did — and
 // that one must survive.
 func TestAFailedWriteLeavesNoTempFileBehind(t *testing.T) {
-	f, err := os.CreateTemp(t.TempDir(), "ht-note-*.md")
+	f, err := os.CreateTemp(t.TempDir(), "htask-note-*.md")
 	if err != nil {
 		t.Fatalf("temp: %v", err)
 	}

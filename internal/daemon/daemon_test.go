@@ -1108,7 +1108,7 @@ func TestOnlyThatPaneOrTheOperatorSweepsAPane(t *testing.T) {
 	}
 
 	// The pane itself may — this is the path the pane.exited hook takes, which
-	// runs `ht sweep --pane $HERDR_PANE_ID` from the pane that went away.
+	// runs `htask sweep --pane $HERDR_PANE_ID` from the pane that went away.
 	mustCall(t, d, protocol.Request{Verb: "sweep", PaneID: "wF:p1", Args: map[string]any{"pane": "wF:p1"}})
 
 	// And so may the operator.

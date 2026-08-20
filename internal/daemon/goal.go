@@ -29,27 +29,27 @@ const (
 // BuildGoal renders a task as a paste-ready `/goal` condition (§16.2):
 // the directive from the title, context from the description and the latest
 // feedback, "Done when" from the criteria plus the obligation to run
-// `ht task submit` and show its output, and a stop clause that releases the
+// `htask task submit` and show its output, and a stop clause that releases the
 // claim with a note and files out-of-scope findings rather than doing them.
 //
 // When it does not all fit, the order of sacrifice is fixed. Context gives way
 // first — description, release note and reviewer feedback are what a claimer
-// can recover with `ht task get`. Criteria give way next, and say how many
+// can recover with `htask task get`. Criteria give way next, and say how many
 // went and where to read them. The directive, the submit obligation and the
 // stop clause never give way: a condition missing those is not a shorter
 // version of this task, it is a different and worse one.
 func BuildGoal(t *tasks.Task) string {
 	ref := fmt.Sprintf("%d", t.Seq)
 
-	touch := "\nRenew the claim with `ht task touch " + ref +
+	touch := "\nRenew the claim with `htask task touch " + ref +
 		"` at the start of every turn; a lapsed lease is swept and the task returns to the queue.\n"
 	doneHeader := "\nDone when:\n"
-	submit := "- `ht task submit " + ref +
+	submit := "- `htask task submit " + ref +
 		" --report \"<what you did and how you verified it>\" --evidence \"<a command you ran and what it printed>\"`" +
 		" has been run, and its output is shown in this conversation.\n"
-	stop := "\nStop instead of pushing on if you are blocked, out of scope, or out of turns: run `ht task release " +
+	stop := "\nStop instead of pushing on if you are blocked, out of scope, or out of turns: run `htask task release " +
 		ref + " --note \"<what is left>\"` and say why. File anything you found that is not this task as " +
-		"`ht note add \"<the finding>\"`, or as `ht task create \"<the work>\" --discovered-from " + ref +
+		"`htask note add \"<the finding>\"`, or as `htask task create \"<the work>\" --discovered-from " + ref +
 		"` — do not do it under this task.\n"
 
 	fixed := len(touch) + len(doneHeader) + len(submit) + len(stop)
@@ -134,7 +134,7 @@ func fitCriteria(list []tasks.Criterion, budget int, ref string) (lines, notice 
 // criteriaNotice is the line a truncated "Done when" block carries, and the
 // reservation the budget makes for it.
 func criteriaNotice(n int, ref string) string {
-	return fmt.Sprintf("\n%d further criteria did not fit here; run `ht task get %s` for the full list.\n", n, ref)
+	return fmt.Sprintf("\n%d further criteria did not fit here; run `htask task get %s` for the full list.\n", n, ref)
 }
 
 // fitContext renders the parts a claimer could recover for themselves. They

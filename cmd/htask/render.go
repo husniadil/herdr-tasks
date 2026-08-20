@@ -218,7 +218,7 @@ func printEvent(e store.Event) {
 }
 
 func printDoctor(r daemon.DoctorReport) {
-	fmt.Printf("ht %s (%s), shared plugin contract %s\n", r.Version, r.Plugin, r.Contract)
+	fmt.Printf("htask %s (%s), shared plugin contract %s\n", r.Version, r.Plugin, r.Contract)
 	fmt.Printf("state dir     %s\n", r.StateDir)
 	fmt.Printf("config        %s (%s)\n", r.ConfigFile, present(r.ConfigPresent))
 	fmt.Printf("socket        %s (%s)\n", r.SocketPath, live(r.SocketLive))
@@ -308,7 +308,7 @@ func emptyLine(what, project string, elsewhere int) string {
 		line = fmt.Sprintf("No %s match.", what)
 	}
 	if elsewhere > 0 {
-		line += fmt.Sprintf(" %d in other projects: ht %s list --all-projects",
+		line += fmt.Sprintf(" %d in other projects: htask %s list --all-projects",
 			elsewhere, strings.TrimSuffix(what, "s"))
 	}
 	return line

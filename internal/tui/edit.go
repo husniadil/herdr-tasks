@@ -37,7 +37,7 @@ func editorCommand(env func(string) string, path string) ([]string, error) {
 // startEdit writes the body where the editor can reach it. The file keeps a
 // .md suffix because that is what makes an editor treat prose as prose.
 func startEdit(e Edit) (string, error) {
-	f, err := os.CreateTemp("", fmt.Sprintf("ht-note-%d-*.md", e.Seq))
+	f, err := os.CreateTemp("", fmt.Sprintf("htask-note-%d-*.md", e.Seq))
 	if err != nil {
 		return "", codes.Errorf(codes.Unexpected, "cannot write the note out to edit: %v", err)
 	}

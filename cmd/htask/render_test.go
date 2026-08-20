@@ -203,13 +203,13 @@ func TestEveryCLIGlobalIsAccountedForOnTheMCPDoor(t *testing.T) {
 // verbNameOf rebuilds a registry verb name from a cobra command's path.
 func verbNameOf(c *cobra.Command) string {
 	parts := []string{}
-	for cur := c; cur != nil && cur.Name() != "ht"; cur = cur.Parent() {
+	for cur := c; cur != nil && cur.Name() != "htask"; cur = cur.Parent() {
 		parts = append([]string{cur.Name()}, parts...)
 	}
 	return strings.Join(parts, ".")
 }
 
-// §6.1: the prose half. `ht task get` on a task blocked by something that was
+// §6.1: the prose half. `htask task get` on a task blocked by something that was
 // cancelled says which one — the operator reading prose needs the same fact
 // the JSON carries.
 func TestProseNamesACancelledBlocker(t *testing.T) {

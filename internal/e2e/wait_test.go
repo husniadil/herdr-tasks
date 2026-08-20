@@ -40,7 +40,7 @@ func timedOut(pane string, args []string, after time.Duration, partial string) e
 	if partial == "" {
 		partial = "(nothing)"
 	}
-	return fmt.Errorf("timed out after %s waiting for `ht %s` to finish in pane %s; it had written %q",
+	return fmt.Errorf("timed out after %s waiting for `htask %s` to finish in pane %s; it had written %q",
 		after, strings.Join(args, " "), pane, partial)
 }
 

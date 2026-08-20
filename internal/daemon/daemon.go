@@ -29,7 +29,7 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
-// Version is the plugin version `ht version` and doctor print (§13.3).
+// Version is the plugin version `htask version` and doctor print (§13.3).
 const Version = "0.1.0"
 
 // ContractVersion is the shared plugin contract this binary satisfies (§13.4).

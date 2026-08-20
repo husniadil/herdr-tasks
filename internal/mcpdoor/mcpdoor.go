@@ -22,11 +22,23 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
-// ServerName is the MCP server name; tools are ServerName_<verb> (§7.1).
-const ServerName = "tasks"
+// ServerName is how this server registers itself. It carries the plugin's
+// identity — the manifest id — because that is what an operator wiring it into
+// a client sees and names.
+//
+// It is NOT the tool prefix. §7.1 fixes tool names as <short name>_<verb> and
+// says nothing about the registration name; this constant used to be both, so
+// a server named for the plugin and tools named for the short name could not
+// coexist. They can now, and ToolPrefix is the one §7.1 binds.
+const ServerName = "herdr-tasks"
+
+// ToolPrefix is the §7.1 tool-name prefix: the plugin's SHORT name (§13.2),
+// which is also config.Name, the socket and the store. The fifteen tool names
+// are semver-bound (§7.1) and do not move when the registration name does.
+const ToolPrefix = "tasks"
 
 // Title is the display name.
-const Title = "Tasks"
+const Title = "Herdr Tasks"
 
 // Instructions is §7.2's required paragraph: what the plugin is, that
 // pane/agent/workspace mean what Herdr says they mean, and where to start.
@@ -38,8 +50,8 @@ const Instructions = "herdr-tasks is the task backlog and notes board for agents
 	"derived from the pane you run in — you never declare who you are. The usual entry points are " +
 	"tasks_list to find ready work, tasks_claim to take it, tasks_touch at the start of every turn to " +
 	"renew the lease, and tasks_submit with a report and evidence when it is done. tasks_goal prints a " +
-	"paste-ready /goal condition for a task. The CLI (`ht`) carries every verb, including the ones " +
-	"missing here; `ht --help` lists them."
+	"paste-ready /goal condition for a task. The CLI (`htask`) carries every verb, including the ones " +
+	"missing here; `htask --help` lists them."
 
 // Caller is what the door needs to reach the daemon. The default calls the
 // real socket; a test swaps in something that answers in-process.
