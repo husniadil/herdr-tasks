@@ -306,8 +306,17 @@ func (m Model) reselected(before Model) Model {
 
 // selection is what the detail panel is open on. Comparing it is how the model
 // notices the operator has moved to something else.
-func (m Model) selection() [4]int {
-	return [4]int{int(m.Col), m.Row[m.Col], int(m.Pane), m.paneRow()}
+//
+// The VIEW is part of it. Both halves of the tuple are read whichever view is
+// up, so a board cursor on its first card and a notes cursor on its first note
+// compared equal — and a tab switch, which is a different list and therefore
+// different text in the panel, kept the scroll position of the text before it.
+func (m Model) selection() [5]int {
+	view := 0
+	if m.View == ViewNotes {
+		view = 1
+	}
+	return [5]int{view, m.Col, m.Row[m.Col], int(m.Pane), m.paneRow()}
 }
 
 func (m Model) paneRow() int {

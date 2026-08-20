@@ -2081,3 +2081,62 @@ func TestTheWheelMovesOnlyTheRegionUnderThePointer(t *testing.T) {
 			still.DetailOffset, still.BoardOffset)
 	}
 }
+
+// §11.6: the detail panel's scroll position belongs to the text that was in
+// it. A tab switch is a different view of a different list, so it is a
+// different text — and with the same cursor on both sides of the switch the
+// selection looked unchanged, so a board scrolled thirty lines down opened the
+// first note mid-body.
+func TestTheDetailScrollDoesNotSurviveATabSwitch(t *testing.T) {
+	body := make([]string, 200)
+	for i := range body {
+		body[i] = fmt.Sprintf("note line %d", i+1)
+	}
+	note := &tasks.Note{ID: "N1", Seq: 1, Status: "inbox", Body: strings.Join(body, "\n")}
+
+	m := board(t, longTask(1, 200))
+	m, _ = Update(m, DataMsg{Tasks: m.Tasks, Notes: []*tasks.Note{note}})
+	m.Width, m.Height = 80, 14
+
+	// The board's cursor and the notes cursor are both on the first row, which
+	// is what made the two selections look like one.
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	f := frameOf(m, 0)
+	y := 1 + len(f.body) + len(f.prompt) + 1
+	for i := 0; i < 10; i++ {
+		m, _ = Update(m, WheelMsg{X: 2, Y: y})
+	}
+	if m.DetailOffset == 0 {
+		t.Fatal("the wheel did not scroll the task's detail; this test needs a scrolled one")
+	}
+
+	m, _ = Update(m, KeyMsg{Key: "esc"})
+	m, _ = Update(m, KeyMsg{Key: "tab"})
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	if m.View != ViewNotes || !m.Detail {
+		t.Fatalf("the test did not reach an open detail on the notes view: view %q, detail %v", m.View, m.Detail)
+	}
+	if m.DetailOffset != 0 {
+		t.Errorf("the note's detail opened at offset %d, carried over from the board", m.DetailOffset)
+	}
+	f = frameOf(m, 0)
+	if len(f.detail) < 2 {
+		t.Fatal("the note's detail panel drew no text")
+	}
+	if want := wrapTo(Detail(m, 0), m.Width)[0]; f.detail[1] != want {
+		t.Errorf("the note's detail opens on %q, want its first line %q", f.detail[1], want)
+	}
+
+	// And back the other way: the note's scroll is not the task's either.
+	for i := 0; i < 10; i++ {
+		m, _ = Update(m, WheelMsg{X: 2, Y: 1 + len(f.body) + 1})
+	}
+	if m.DetailOffset == 0 {
+		t.Fatal("the wheel did not scroll the note's detail")
+	}
+	m, _ = Update(m, KeyMsg{Key: "tab"})
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	if m.DetailOffset != 0 {
+		t.Errorf("the task's detail reopened at offset %d, carried over from the notes view", m.DetailOffset)
+	}
+}
