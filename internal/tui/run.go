@@ -2,6 +2,8 @@ package tui
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -65,6 +67,8 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return p, nil
 		}
 		in = MouseMsg{X: m.X, Y: m.Y}
+	case editedMsg:
+		return p, p.afterEditor(v)
 	case DataMsg, ErrMsg, DoneMsg:
 		in = msg.(Msg)
 	case tickMsg:
@@ -76,6 +80,12 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	p.model = next
 	if p.model.Quit {
 		return p, tea.Quit
+	}
+	// An asked-for editor is taken once: the model records the request, the
+	// runtime is what runs a process (§12.1).
+	if e := p.model.Edit; e != nil {
+		p.model.Edit = nil
+		return p, p.edit(*e)
 	}
 	if call == nil {
 		return p, nil
@@ -102,6 +112,52 @@ func (p *program) run(c Call) tea.Cmd {
 		}
 		return DoneMsg{Status: c.Verb + " done"}
 	}
+}
+
+// editedMsg is one editor session that has finished, for better or worse.
+type editedMsg struct {
+	edit Edit
+	path string
+	err  error
+}
+
+// edit hands the note's body to $EDITOR. tea.ExecProcess is what makes this
+// possible at all: it pauses the Program and gives the editor the terminal,
+// which is exactly what its own documentation is for. Measured in a throwaway
+// Herdr session: the popup suspends into the editor and comes back usable.
+func (p *program) edit(e Edit) tea.Cmd {
+	path, err := startEdit(e)
+	if err != nil {
+		return func() tea.Msg { return errMsg(err) }
+	}
+	argv, err := editorCommand(os.Getenv, path)
+	if err != nil {
+		os.Remove(path)
+		return func() tea.Msg { return errMsg(err) }
+	}
+	return tea.ExecProcess(exec.Command(argv[0], argv[1:]...), func(runErr error) tea.Msg {
+		return editedMsg{edit: e, path: path, err: runErr}
+	})
+}
+
+// afterEditor decides what came back. Nothing is sent for a body that did not
+// change, and the scratch file only goes once the daemon has the text.
+func (p *program) afterEditor(v editedMsg) tea.Cmd {
+	call, err := finishEdit(v.edit, v.path, v.err)
+	if err != nil {
+		return func() tea.Msg { return afterUpdate(v.path, err) }
+	}
+	if call == nil {
+		os.Remove(v.path)
+		return func() tea.Msg { return DoneMsg{Status: "note unchanged"} }
+	}
+	send := func() tea.Msg {
+		req := p.base
+		req.Verb, req.Args = call.Verb, call.Args
+		_, err := p.send.Call(req)
+		return afterUpdate(v.path, err)
+	}
+	return tea.Sequence(send, p.load(p.model.Filters()))
 }
 
 // load reads the three lists the two views show, in one command. The filters

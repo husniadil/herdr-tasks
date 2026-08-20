@@ -2,9 +2,12 @@ package tui
 
 import (
 	"encoding/json"
+	"errors"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
@@ -1034,5 +1037,171 @@ func TestPromptWindowFollowsTheCursor(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// §11.6: the popup can decide a note and now it can fix one. The model asks
+// for an editor and stops there — running a process is the runtime's job, and
+// Update stays pure, which is the only reason any of this is testable without
+// a terminal.
+func TestEditKeyAsksForAnEditorOnlyWhileTheNoteStillMoves(t *testing.T) {
+	live := &tasks.Note{ID: "N1", Seq: 13, Status: tasks.NoteInbox, Body: "the header disappears"}
+	m := notesModel(t, []*tasks.Note{live}, nil)
+	m2, call := Update(m, KeyMsg{Key: "e"})
+	if call != nil {
+		t.Fatalf("e sent a daemon call by itself: %#v", call)
+	}
+	if m2.Edit == nil {
+		t.Fatal("e asked for nothing")
+	}
+	if m2.Edit.NoteID != "N1" || m2.Edit.Body != live.Body || m2.Edit.Seq != 13 {
+		t.Fatalf("the edit intent is %+v", m2.Edit)
+	}
+
+	// Every state the daemon still accepts an edit in.
+	for _, st := range []tasks.NoteStatus{tasks.NoteInbox, tasks.NoteDiscussing, tasks.NoteNeedsInput, tasks.NoteProposed} {
+		n := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: st, Body: "b"}}, nil)
+		if got, _ := Update(n, KeyMsg{Key: "e"}); got.Edit == nil {
+			t.Errorf("a note in %s could not be edited", st)
+		}
+	}
+	// And the three it does not: a decided note's wording is what was decided
+	// on, so the popup says so rather than opening an editor on a refusal.
+	for _, st := range []tasks.NoteStatus{tasks.NoteKept, tasks.NoteTask, tasks.NoteDropped} {
+		n := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: st, Body: "b"}}, nil)
+		got, call := Update(n, KeyMsg{Key: "e"})
+		if got.Edit != nil || call != nil {
+			t.Errorf("a %s note opened an editor", st)
+		}
+		if !strings.Contains(got.Status, string(st)) {
+			t.Errorf("a %s note said %q, which does not say why", st, got.Status)
+		}
+	}
+	// Nothing selected, nothing to edit.
+	if got, call := Update(notesModel(t, nil, nil), KeyMsg{Key: "e"}); got.Edit != nil || call != nil {
+		t.Fatalf("e with no note selected asked for %+v", got.Edit)
+	}
+	// The board's 'e' is not this: it belongs to the notes view only.
+	if got, _ := Update(board(t, task(1, tasks.StatusTodo, "a")), KeyMsg{Key: "e"}); got.Edit != nil {
+		t.Fatal("e on the board asked for an editor")
+	}
+}
+
+// Which editor, and what to do when there is none. Falling back to vi is the
+// tempting answer and the wrong one: a popup that drops an operator into a
+// modal editor they do not know is the trap task 4 exists to have closed.
+func TestEditorCommandPrefersVisualAndRefusesWhenThereIsNone(t *testing.T) {
+	env := func(pairs map[string]string) func(string) string {
+		return func(k string) string { return pairs[k] }
+	}
+	for name, tc := range map[string]struct {
+		vars map[string]string
+		want string
+	}{
+		"VISUAL wins":     {map[string]string{"VISUAL": "code -w", "EDITOR": "nano"}, "code -w"},
+		"EDITOR alone":    {map[string]string{"EDITOR": "nano"}, "nano"},
+		"VISUAL alone":    {map[string]string{"VISUAL": "vim"}, "vim"},
+		"blanks are none": {map[string]string{"VISUAL": "  ", "EDITOR": ""}, ""},
+		"neither":         {map[string]string{}, ""},
+	} {
+		argv, err := editorCommand(env(tc.vars), "/tmp/x.md")
+		if tc.want == "" {
+			if err == nil {
+				t.Errorf("%s: built %v instead of refusing", name, argv)
+				continue
+			}
+			if argv != nil {
+				t.Errorf("%s: refused AND built %v", name, argv)
+			}
+			for _, v := range []string{"VISUAL", "EDITOR"} {
+				if !strings.Contains(err.Error(), v) {
+					t.Errorf("%s: the refusal does not name %s: %v", name, v, err)
+				}
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", name, err)
+			continue
+		}
+		joined := strings.Join(argv, " ")
+		if !strings.Contains(joined, tc.want) {
+			t.Errorf("%s: argv %v does not run %q", name, argv, tc.want)
+		}
+		if !strings.Contains(joined, "/tmp/x.md") {
+			t.Errorf("%s: argv %v does not name the file", name, argv)
+		}
+	}
+}
+
+// The whole trip, with the editor faked: what the operator typed has to come
+// back, an untouched body must not be written for nothing, and the scratch
+// file is only thrown away once the daemon has the text.
+func TestEditRoundTripKeepsWhatTheOperatorWrote(t *testing.T) {
+	e := Edit{NoteID: "N1", Seq: 13, Body: "the header disappears"}
+
+	// The body reaches the editor as a file.
+	path, err := startEdit(e)
+	if err != nil {
+		t.Fatalf("startEdit: %v", err)
+	}
+	if b, err := os.ReadFile(path); err != nil || string(b) != e.Body+"\n" {
+		t.Fatalf("the editor was given %q (%v)", string(b), err)
+	}
+
+	// Unchanged: nothing to send.
+	call, err := finishEdit(e, path, nil)
+	if err != nil || call != nil {
+		t.Fatalf("an untouched body sent %#v (%v)", call, err)
+	}
+
+	// Changed: note.update with the new body, and the trailing newline an
+	// editor adds is not a change the operator made.
+	if err := os.WriteFile(path, []byte("the header stays put\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	call, err = finishEdit(e, path, nil)
+	if err != nil {
+		t.Fatalf("finishEdit: %v", err)
+	}
+	if call == nil || call.Verb != "note.update" || call.Args["id"] != "N1" || call.Args["body"] != "the header stays put" {
+		t.Fatalf("the edit sent %#v", call)
+	}
+
+	// An editor that failed sends nothing and says so.
+	if call, err := finishEdit(e, path, errors.New("exit status 1")); call != nil || err == nil {
+		t.Fatalf("a failed editor sent %#v (%v)", call, err)
+	}
+	// An emptied body is not an edit: §5.9 refuses it daemon-side, and losing
+	// a note to a stray ctrl+A is not what the key is for.
+	if err := os.WriteFile(path, []byte("   \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if call, err := finishEdit(e, path, nil); call != nil || err == nil {
+		t.Fatalf("an emptied body sent %#v (%v)", call, err)
+	}
+
+	// The scratch file survives a failed write and its path is in the message,
+	// because what it holds is something the operator just wrote.
+	if err := os.WriteFile(path, []byte("kept\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	msg := afterUpdate(path, &codes.Error{Code: codes.Conflict, Message: "note moved"})
+	em, ok := msg.(ErrMsg)
+	if !ok {
+		t.Fatalf("a failed update produced %T", msg)
+	}
+	if !strings.Contains(em.Message, path) {
+		t.Fatalf("the failure does not say where the text is: %q", em.Message)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("the operator's text was deleted after a failed update: %v", err)
+	}
+	// And it goes once the daemon has it.
+	if msg := afterUpdate(path, nil); func() bool { _, ok := msg.(DoneMsg); return !ok }() {
+		t.Fatalf("a successful update produced %T", msg)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the scratch file outlived the edit: %v", err)
 	}
 }

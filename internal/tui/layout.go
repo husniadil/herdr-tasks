@@ -133,7 +133,7 @@ func (m Model) verbs() []Verb {
 		return []Verb{{"tab", "board"}}
 	}
 	if m.SelectedNote() != nil {
-		return []Verb{{"v", "verdict"}, {"p", "promote"}, {"K", "keep"}, {"d", "drop"}, addVerb, findVerb, {"tab", "board"}}
+		return []Verb{{"v", "verdict"}, {"p", "promote"}, {"K", "keep"}, {"d", "drop"}, {"e", "edit"}, addVerb, findVerb, {"tab", "board"}}
 	}
 	// With nothing selected there is still an idea to file and a board to
 	// search: neither needs a row under the cursor.

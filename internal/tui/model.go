@@ -126,6 +126,11 @@ type Model struct {
 	BoardElsewhere int
 	NotesElsewhere int
 
+	// Edit is a note whose body the operator asked to open in $EDITOR. The
+	// model asks; the runtime runs the process (§12.1: Update stays pure, so
+	// the tests never start a terminal — or an editor).
+	Edit *Edit
+
 	// Detail says the detail panel is open on the selection.
 	Detail bool
 	Prompt *Prompt
@@ -143,6 +148,15 @@ type Model struct {
 // New is the model a fresh `ht tui` starts in.
 func New(view View, project string) Model {
 	return Model{View: view, Project: project, Width: 80, Height: 24}
+}
+
+// Edit is one note handed to an editor: which note, and what its body was
+// when the operator asked. The body travels with it because what comes back
+// is compared against it — an editor closed without a change writes nothing.
+type Edit struct {
+	NoteID string
+	Seq    int64
+	Body   string
 }
 
 // Msg is anything that moves the model.
@@ -380,6 +394,21 @@ func notesKey(m Model, k string) (Model, *Call) {
 			call:     Call{Verb: "note.add", Args: map[string]any{}},
 			field:    "body",
 		})
+		return m, nil
+	case "e":
+		// A decided note's wording is what was decided on, so the daemon
+		// refuses it (§5.6) — and opening an editor on a refusal wastes the
+		// operator's typing. The popup says so instead.
+		n := m.SelectedNote()
+		if n == nil {
+			return m, nil
+		}
+		if n.Status.Terminal() {
+			m.Status = fmt.Sprintf("note #%d is %s: a decided note's wording is what was decided on", n.Seq, n.Status)
+			return m, nil
+		}
+		m.Edit = &Edit{NoteID: n.ID, Seq: n.Seq, Body: n.Body}
+		m.Status = fmt.Sprintf("editing note #%d…", n.Seq)
 		return m, nil
 	case "K":
 		// Keep is the third of the operator's decisions and the one the popup
