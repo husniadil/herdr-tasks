@@ -22,7 +22,8 @@ case "$1 $2" in
       wF:p2)   harness=codex; name=reviewer ;;
       *)       harness=claude; name=builder ;;
     esac
-    printf '{"pane_id":"%s","name":"%s","agent":"%s","agent_status":"working","agent_session":"sess-%s"}\n' \
+    # The envelope real herdr prints, with agent_session as an object.
+    printf '{"id":"cli:agent:get","result":{"type":"agent_info","agent":{"pane_id":"%s","name":"%s","agent":"%s","agent_status":"working","agent_session":{"kind":"id","value":"sess-%s"}}}}\n' \
       "$pane" "$name" "$harness" "$pane"
     ;;
   "api schema")

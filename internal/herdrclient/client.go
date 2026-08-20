@@ -48,10 +48,41 @@ type Agent struct {
 	Session string `json:"agent_session"`
 }
 
+// agentEnvelope is what `herdr agent get <pane>` actually prints: the CLI's
+// envelope around an agent_info result. The flat form is read too, so a Herdr
+// that ever prints the object bare still works — §11.2 is feature detection,
+// not shape pinning.
+type agentEnvelope struct {
+	Result struct {
+		Agent rawAgent `json:"agent"`
+	} `json:"result"`
+}
+
+// rawAgent is one agent as Herdr describes it. agent_session is an object
+// there (`{"kind":"id","value":"..."}`) and a reference string here (§3.4), so
+// it is decoded loosely and flattened to its value.
+type rawAgent struct {
+	PaneID  string `json:"pane_id"`
+	Name    string `json:"name"`
+	Harness string `json:"agent"`
+	Status  string `json:"agent_status"`
+	Session struct {
+		Value string `json:"value"`
+	} `json:"agent_session"`
+}
+
+func (r rawAgent) toAgent() Agent {
+	return Agent{PaneID: r.PaneID, Name: r.Name, Harness: r.Harness, Status: r.Status, Session: r.Session.Value}
+}
+
 // AgentGet snapshots a pane's agent. A pane Herdr cannot answer for is not an
 // error: it yields harness "unknown", which §3.4 requires over a guess.
+//
+// The call carries no --json: `agent get` already prints JSON and rejects the
+// flag, and a usage error here would quietly become harness "unknown" for
+// every claim (see docs/contract-notes.md).
 func (c *Client) AgentGet(pane string) (Agent, error) {
-	out, err := c.run(2*time.Second, "agent", "get", pane, "--json")
+	out, err := c.run(2*time.Second, "agent", "get", pane)
 	if err != nil {
 		var ce *codes.Error
 		if ok := asCoded(err, &ce); ok && ce.Code == codes.Unavailable {
@@ -59,8 +90,18 @@ func (c *Client) AgentGet(pane string) (Agent, error) {
 		}
 		return Agent{PaneID: pane, Harness: "unknown"}, nil
 	}
-	var a Agent
-	if err := json.Unmarshal(out, &a); err != nil || a.Harness == "" {
+	var env agentEnvelope
+	a := Agent{}
+	if err := json.Unmarshal(out, &env); err == nil {
+		a = env.Result.Agent.toAgent()
+	}
+	if a.Harness == "" {
+		var flat rawAgent
+		if err := json.Unmarshal(out, &flat); err == nil {
+			a = flat.toAgent()
+		}
+	}
+	if a.Harness == "" {
 		return Agent{PaneID: pane, Harness: "unknown"}, nil
 	}
 	a.PaneID = pane
