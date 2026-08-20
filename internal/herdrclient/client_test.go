@@ -10,6 +10,7 @@ import (
 // §3.4: the three facts of an agent principal come from Herdr, through
 // HERDR_BIN_PATH — never from argv or a process name.
 func TestAgentGetSnapshotsHerdrFacts(t *testing.T) {
+	testenv.SkipUnlessFull(t)
 	c := New(testenv.FakeHerdr(t))
 	got, err := c.AgentGet("wF:p1")
 	if err != nil {
@@ -22,6 +23,7 @@ func TestAgentGetSnapshotsHerdrFacts(t *testing.T) {
 
 // §3.4: harness is "unknown" when Herdr has no answer, never a guess.
 func TestAgentGetUnknownPaneIsUnknownHarness(t *testing.T) {
+	testenv.SkipUnlessFull(t)
 	c := New(testenv.FakeHerdr(t))
 	got, err := c.AgentGet("wF:gone")
 	if err != nil {
@@ -35,6 +37,7 @@ func TestAgentGetUnknownPaneIsUnknownHarness(t *testing.T) {
 // §11.2: feature-detect by reading the schema once; never pin a protocol
 // number.
 func TestSchemaListsCapabilities(t *testing.T) {
+	testenv.SkipUnlessFull(t)
 	c := New(testenv.FakeHerdr(t))
 	sc, err := c.Schema()
 	if err != nil {
@@ -50,6 +53,7 @@ func TestSchemaListsCapabilities(t *testing.T) {
 
 // §11.1 / §6.3: no herdr binary is UNAVAILABLE, named.
 func TestMissingBinaryIsUnavailable(t *testing.T) {
+	testenv.SkipUnlessFull(t)
 	c := New(testenv.MissingHerdr(t))
 	_, err := c.Schema()
 	ce, ok := err.(*codes.Error)
@@ -61,6 +65,7 @@ func TestMissingBinaryIsUnavailable(t *testing.T) {
 // §11.2: a verb needing a capability Herdr lacks is UNSUPPORTED, with the
 // capability named — not a refusal to start.
 func TestRequireNamesTheMissingCapability(t *testing.T) {
+	testenv.SkipUnlessFull(t)
 	c := New(testenv.FakeHerdr(t))
 	if err := c.Require("agent.get"); err != nil {
 		t.Fatalf("Require: %v", err)

@@ -49,3 +49,26 @@ func MissingHerdr(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(t.TempDir(), "herdr-that-is-not-there")
 }
+
+// SkipUnlessFull skips a layer-2 test in the fast loop. `make test` runs
+// -short and deliberately leaves out every case that starts the daemon, walks
+// the socket, or drives the fake herdr; `make test-full` runs all of it.
+func SkipUnlessFull(t *testing.T) {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("layer 2 (§12.1): runs in make test-full")
+	}
+}
+
+// ShortDir is a temp dir with a short path. A Unix socket path has a hard
+// length limit in the kernel, and t.TempDir()'s name is the test's own, which
+// on a long test name is enough to cross it.
+func ShortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ht")
+	if err != nil {
+		t.Fatalf("temp dir: %v", err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
+}
