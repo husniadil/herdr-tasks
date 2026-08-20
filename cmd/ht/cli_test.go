@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/testenv"
@@ -301,5 +302,62 @@ func TestVersion(t *testing.T) {
 	doc := w.json(w.env(), "version")
 	if doc["version"] == "" || doc["contract"] == "" {
 		t.Fatalf("version = %+v", doc)
+	}
+}
+
+// §8.2: --follow is the subscription primitive other plugins and humans use.
+// It streams what is already there, then keeps going as new events land.
+func TestEventsFollowStreams(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "first")
+
+	cmd := exec.Command(w.bin, "events", "--follow", "--json")
+	cmd.Dir, cmd.Env = w.project, w.env()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer func() {
+		cmd.Process.Signal(os.Interrupt)
+		cmd.Wait()
+	}()
+
+	lines := make(chan string, 8)
+	go func() {
+		dec := json.NewDecoder(stdout)
+		for {
+			var ev struct {
+				Name string `json:"name"`
+			}
+			if err := dec.Decode(&ev); err != nil {
+				close(lines)
+				return
+			}
+			lines <- ev.Name
+		}
+	}()
+
+	want := []string{"tasks.task.created", "tasks.task.created"}
+	// The second one has to arrive after the stream is already open, which is
+	// what makes this a subscription rather than a read.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		w.json(w.env(), "task", "create", "second")
+	}()
+	for i, expect := range want {
+		select {
+		case got, ok := <-lines:
+			if !ok {
+				t.Fatalf("the stream closed after %d events", i)
+			}
+			if got != expect {
+				t.Fatalf("event %d = %q, want %q", i, got, expect)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatalf("event %d never arrived", i)
+		}
 	}
 }
