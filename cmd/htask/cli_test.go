@@ -833,13 +833,13 @@ func TestAKilledDaemonDoesNotWedgeTheNextOne(t *testing.T) {
 	}
 }
 
-// §12.1 on the harness itself: startFollower used to spawn a background CLI
-// that autostarted the daemon, and the next foreground command started its own
-// 3s clock racing it to the bind (§2.2). Under load the foreground one lost and
-// the gate failed with the production "did not come up within 3s" message — a
-// true message about a false problem. The harness now brings the daemon up and
-// waits for it, so the race cannot happen; this holds that contract, because a
-// wait no test would miss is a wait the next refactor deletes.
+// §12.1 on the harness itself: a follower is a background CLI process, and any
+// CLI process that finds no live socket autostarts the daemon on its own 3s
+// clock (§2.2). Two of those racing for one bind is a gate that fails under
+// load with the production "did not come up within 3s" message — a true
+// message about a false problem. So the harness brings the daemon up and waits
+// for it before a follower spawns, and this test holds that contract: a wait
+// no test would miss is a wait the next refactor deletes.
 func TestStartFollowerLeavesADaemonListening(t *testing.T) {
 	w := newWorld(t)
 	startFollower(t, w)

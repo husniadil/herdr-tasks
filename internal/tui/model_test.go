@@ -1795,7 +1795,8 @@ func TestAFailedDaemonCallKeepsTheEditedFile(t *testing.T) {
 }
 
 // longTask is a task whose detail panel is far taller than any screen: the
-// case where the panel used to eat the board down to its heading row.
+// case a bounded panel has to survive, and the one where an unbounded panel
+// eats the board down to its heading row.
 func longTask(seq int64, lines int) *tasks.Task {
 	tk := task(seq, tasks.StatusTodo, "a task")
 	body := make([]string, lines)
@@ -1807,9 +1808,9 @@ func longTask(seq int64, lines int) *tasks.Task {
 }
 
 // §11.6: the detail panel is a bounded bottom panel, never a cover. It is
-// served before the body, so a description longer than the screen used to
-// take every row the body had and leave its heading alone on the board — the
-// operator could not see a single card behind what they had opened.
+// served before the body, so without a bound a description longer than the
+// screen takes every row the body has and leaves its heading alone on the
+// board — the operator cannot see a single card behind what they opened.
 func TestTheDetailPanelIsBoundedToHalfTheBody(t *testing.T) {
 	deep := []*tasks.Task{longTask(1, 400)}
 	for i := 2; i <= 40; i++ {
