@@ -1,0 +1,46 @@
+.PHONY: build test test-full install clean
+
+BIN := bin/ht
+
+build:
+	go build -o $(BIN) ./cmd/ht
+
+# Two gates, one suite.
+#
+#   make test       the loop, in seconds — the state machine, the store against
+#                   a temp SQLite file, payload shapes, the error vocabulary.
+#   make test-full  the gate before a commit — the above plus every case that
+#                   starts the daemon, walks the socket, or drives the fake
+#                   herdr, with -race and a cross-compile check of the other
+#                   supported platform.
+#
+# This is a split, NOT a reduction: test-full still runs all of it. The reason
+# to split is that the two answer different questions, and a check that costs
+# a minute gets run less often than one that costs seconds.
+#
+# gofmt is checked rather than applied: a formatting fix belongs in the commit
+# that caused it, not silently in whoever runs the gate next.
+test:
+	@unformatted=$$(gofmt -l .); \
+	  [ -z "$$unformatted" ] || { echo "gofmt needed: $$unformatted"; exit 1; }
+	go vet ./...
+	go test -short ./...
+
+test-full:
+	@unformatted=$$(gofmt -l .); \
+	  [ -z "$$unformatted" ] || { echo "gofmt needed: $$unformatted"; exit 1; }
+	go vet ./...
+	@# The OTHER supported platform, checked by compiling for it. Everything
+	@# here is developed on one OS, and the parts that reach for a socket or a
+	@# signal are exactly the parts that differ between them. vet rather than
+	@# test: it type-checks tests too, so it catches the class without needing
+	@# that OS to run on.
+	GOOS=linux GOARCH=amd64 go vet ./...
+	GOOS=darwin GOARCH=arm64 go vet ./...
+	go test -race ./...
+
+install:
+	go install ./cmd/ht
+
+clean:
+	rm -rf bin dist coverage.out

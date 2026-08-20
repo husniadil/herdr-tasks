@@ -1,0 +1,12 @@
+# Private working notes. Names the origin repos and local paths freely, which
+# the checked-in docs must never do — so this must never be committed.
+CLAUDE.local.md
+
+# Local tool permissions, which record absolute paths to other repositories on
+# this machine.
+.claude/settings.local.json
+
+/ht
+/bin/
+/dist/
+coverage.out
