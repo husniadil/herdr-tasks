@@ -197,3 +197,44 @@ well, and this suite also overrides `HOME` and the XDG dirs, because Herdr puts
 a named session's state under `<config>/herdr/sessions/<name>/` regardless of
 `HERDR_CONFIG_PATH`. Recorded because "private socket" reads like enough and
 is not.
+
+## §4.1 — "the git common dir's parent" is not the repository in three shapes
+
+§4.1 defines `project` as the canonical absolute path of the git common dir's
+parent, and gives the reason: "so every worktree of a repository shares one
+project". Measured against real repositories built in a temp dir, the rule
+serves that reason in two shapes and defeats it in three others.
+
+Where `git rev-parse --path-format=absolute --git-common-dir` points, and what
+its parent would be:
+
+| shape | common dir | parent |
+|---|---|---|
+| ordinary clone | `<repo>/.git` | `<repo>` — correct |
+| linked worktree | `<main>/.git` | `<main>` — correct, and the point of the rule |
+| submodule | `<super>/.git/modules/<name>` | `<super>/.git/modules` |
+| `--separate-git-dir` | wherever the git dir was put | the git dir's parent |
+| bare repository | `<repo>.git` | the directory above it |
+
+The submodule row is the sharp one: the key is a path inside git's own
+internals, **every** submodule of one superproject collapses onto it, and it is
+not reachable from either the submodule or the superproject. That is the exact
+opposite of what the rule exists to do. `--separate-git-dir` collapses the same
+way whenever git dirs are kept in one place, which is the usual reason to use
+the flag.
+
+This plugin therefore takes the parent **only when the common dir's basename is
+`.git`**, and otherwise asks `git rev-parse --show-toplevel` for the working
+tree. A bare repository answers neither and falls through to §4.1's own
+not-a-repository fallback, the directory's canonical path. The two correct rows
+above are unchanged, so worktrees still share one project.
+
+Cost, recorded because it is a data-visibility change and not only a bug fix:
+anyone who used this plugin inside a submodule or a `--separate-git-dir` clone
+before this keeps rows under the old key and cannot see them from the new one.
+The old key was a colliding git-internals path, so this is fixing a key that
+was never usable rather than breaking one that worked.
+
+Suggested amendment upstream: define `project` as the working tree of the
+repository containing the directory — `--show-toplevel` — with the common dir
+consulted only to make linked worktrees resolve to the main working tree.

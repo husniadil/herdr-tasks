@@ -84,28 +84,63 @@ func canonical(dir string) (string, error) {
 	return abs, nil
 }
 
-// gitCommonRoot runs the one git invocation §4.1 specifies. A directory that
-// is not a repository, or a host with no git, simply is not a repository here
-// — that is the documented fallback, not a failure.
+// gitCommonRoot answers §4.1: the repository a directory belongs to. A
+// directory that is not a repository, or a host with no git, simply is not a
+// repository here — that is the documented fallback, not a failure.
+//
+// §4.1 says "the git common dir's parent", and that is right for the case it
+// was written for: an ordinary clone and every linked worktree of it report
+// <repo>/.git, whose parent is the repository, which is why worktrees share
+// one project. It is wrong everywhere else, and the divergence is recorded in
+// docs/contract-notes.md:
+//
+//   - in a submodule the common dir is <super>/.git/modules/<name>, so the
+//     parent is <super>/.git/modules — a path inside git's internals that
+//     EVERY submodule of that superproject shares, and that neither the
+//     superproject nor the submodule can reach from where it stands.
+//   - with --separate-git-dir the common dir is wherever the operator put it,
+//     so the parent has nothing to do with the working tree; if git dirs are
+//     kept together, which is the usual reason to use the flag, every such
+//     clone collapses into one project.
+//
+// So the parent is taken only when the common dir IS a .git, and otherwise the
+// working tree is asked for directly. A bare repository has no working tree and
+// falls through to the not-a-repository answer.
 func gitCommonRoot(dir string) (string, bool) {
+	common, ok := gitPath(dir, "--git-common-dir")
+	if !ok {
+		return "", false
+	}
+	if filepath.Base(common) == ".git" {
+		return resolveLinks(filepath.Dir(common)), true
+	}
+	top, ok := gitPath(dir, "--show-toplevel")
+	if !ok {
+		return "", false
+	}
+	return resolveLinks(top), true
+}
+
+// gitPath asks git for one path, absolute, or reports that it could not.
+func gitPath(dir, what string) (string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--path-format=absolute", "--git-common-dir")
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--path-format=absolute", what)
 	cmd.Dir = dir
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
 		return "", false
 	}
-	common := strings.TrimSpace(out.String())
-	if common == "" {
-		return "", false
+	path := strings.TrimSpace(out.String())
+	return path, path != ""
+}
+
+func resolveLinks(path string) string {
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		return resolved
 	}
-	root := filepath.Dir(common)
-	if resolved, err := filepath.EvalSymlinks(root); err == nil {
-		root = resolved
-	}
-	return root, true
+	return path
 }
 
 // DisplayName is the basename a human reads. It is never a key (§4.1).

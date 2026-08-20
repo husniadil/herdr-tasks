@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -158,5 +159,150 @@ func mustRun(t *testing.T, dir string, name string, args ...string) {
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("%s %v: %v\n%s", name, args, err, out)
+	}
+}
+
+// gitWorld builds the repository shapes §4.1 has to answer for, with real git
+// rather than a mock — the failure this covers is git's own output, so a mock
+// would only restate the bug. The operator's git config is never read: global
+// is a file this test wrote and system is turned off (§12.3).
+func gitWorld(t *testing.T) string {
+	t.Helper()
+	if testing.Short() {
+		t.Skip("needs git")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("no git on PATH: %v", err)
+	}
+	root := t.TempDir()
+	cfg := filepath.Join(root, "gitconfig")
+	if err := os.WriteFile(cfg, []byte(
+		"[user]\n\tname = t\n\temail = t@example.test\n[protocol \"file\"]\n\tallow = always\n"), 0o600); err != nil {
+		t.Fatalf("write git config: %v", err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", cfg)
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+	for _, name := range []string{"lib", "tools"} {
+		dir := filepath.Join(root, name)
+		mustRun(t, root, "git", "init", "-q", name)
+		mustRun(t, dir, "git", "commit", "-q", "--allow-empty", "-m", name)
+	}
+	super := filepath.Join(root, "super")
+	mustRun(t, root, "git", "init", "-q", "super")
+	mustRun(t, super, "git", "commit", "-q", "--allow-empty", "-m", "super")
+	mustRun(t, super, "git", "submodule", "add", "-q", filepath.Join(root, "lib"), "sub-a")
+	mustRun(t, super, "git", "submodule", "add", "-q", filepath.Join(root, "tools"), "sub-b")
+	mustRun(t, super, "git", "commit", "-q", "-m", "submodules")
+	mustRun(t, super, "git", "worktree", "add", "-q", "-b", "side", filepath.Join(root, "wt"))
+	if err := os.MkdirAll(filepath.Join(root, "gitdirs"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	mustRun(t, root, "git", "init", "-q", "--separate-git-dir="+filepath.Join(root, "gitdirs", "sgd"), "sgd")
+	mustRun(t, root, "git", "init", "-q", "--bare", "bare.git")
+	return root
+}
+
+func resolved(t *testing.T, dir string) string {
+	t.Helper()
+	got, err := Resolve(Options{Cwd: dir})
+	if err != nil {
+		t.Fatalf("Resolve(%s): %v", dir, err)
+	}
+	return got
+}
+
+func canonicalOf(t *testing.T, dir string) string {
+	t.Helper()
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		t.Fatalf("abs: %v", err)
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	return abs
+}
+
+// §4.1: a submodule is a repository, and its project is its own working tree.
+// git reports a submodule's common dir as <super>/.git/modules/<name>, so
+// taking that dir's parent made every submodule of one superproject share the
+// key <super>/.git/modules — a path inside git's internals, and one neither
+// the superproject nor the submodule can reach from where it stands.
+func TestASubmoduleIsItsOwnProject(t *testing.T) {
+	root := gitWorld(t)
+	a := filepath.Join(root, "super", "sub-a")
+	b := filepath.Join(root, "super", "sub-b")
+
+	if got, want := resolved(t, a), canonicalOf(t, a); got != want {
+		t.Errorf("submodule resolves to %q, want its own working tree %q", got, want)
+	}
+	if got, want := resolved(t, b), canonicalOf(t, b); got != want {
+		t.Errorf("submodule resolves to %q, want its own working tree %q", got, want)
+	}
+	if resolved(t, a) == resolved(t, b) {
+		t.Errorf("two different submodules share the project %q", resolved(t, a))
+	}
+	if got := resolved(t, a); strings.Contains(got, string(filepath.Separator)+".git") {
+		t.Errorf("the project is a path inside git's internals: %q", got)
+	}
+	// The superproject is still its own project, not the submodule's.
+	if super, sub := resolved(t, filepath.Join(root, "super")), resolved(t, a); super == sub {
+		t.Errorf("the superproject and its submodule share the project %q", super)
+	}
+}
+
+// §4.1: the reason --git-common-dir is used at all — every worktree of one
+// repository is one project. This must not change.
+func TestALinkedWorktreeStillSharesTheSuperprojectsProject(t *testing.T) {
+	root := gitWorld(t)
+	main := resolved(t, filepath.Join(root, "super"))
+	if got := resolved(t, filepath.Join(root, "wt")); got != main {
+		t.Errorf("the linked worktree resolves to %q, want the superproject %q", got, main)
+	}
+}
+
+// §4.1: --separate-git-dir puts the git dir anywhere, so its parent has
+// nothing to do with the working tree — and if git dirs are kept together,
+// which is the usual reason to use the flag, every such clone collapses into
+// one project.
+func TestASeparateGitDirResolvesToTheWorkingTree(t *testing.T) {
+	root := gitWorld(t)
+	sgd := filepath.Join(root, "sgd")
+	if got, want := resolved(t, sgd), canonicalOf(t, sgd); got != want {
+		t.Errorf("the clone resolves to %q, want its working tree %q", got, want)
+	}
+}
+
+// §4.1: a bare repository has no working tree at all. It must not fail and
+// must not become a git-internals path; it is simply not a repository here,
+// which is the documented fallback.
+func TestABareRepoFallsBackToTheDirectoryItself(t *testing.T) {
+	root := gitWorld(t)
+	bare := filepath.Join(root, "bare.git")
+	got := resolved(t, bare)
+	if got != canonicalOf(t, bare) {
+		t.Errorf("the bare repo resolves to %q, want the directory itself %q", got, canonicalOf(t, bare))
+	}
+}
+
+// §4.1: whatever the shape, the answer is absolute and symlink-resolved.
+func TestEveryShapeIsCanonical(t *testing.T) {
+	root := gitWorld(t)
+	for _, dir := range []string{
+		filepath.Join(root, "super"),
+		filepath.Join(root, "super", "sub-a"),
+		filepath.Join(root, "wt"),
+		filepath.Join(root, "sgd"),
+		filepath.Join(root, "bare.git"),
+	} {
+		got := resolved(t, dir)
+		if !filepath.IsAbs(got) {
+			t.Errorf("%s resolves to a relative path %q", dir, got)
+		}
+		if real, err := filepath.EvalSymlinks(got); err == nil && real != got {
+			t.Errorf("%s resolves to %q, which is not symlink-resolved (%q)", dir, got, real)
+		}
 	}
 }
