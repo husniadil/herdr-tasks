@@ -342,11 +342,16 @@ func (d *Daemon) noteTransition(req protocol.Request, fn func(*tasks.Note) (task
 
 func hNoteDiscuss(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	question := argString(req.Args, "question")
+	res, err := d.noteTransition(req, func(n *tasks.Note) (tasks.Event, error) {
+		return tasks.NoteDiscuss(n, by, d.Now())
+	})
+	if err != nil || question == "" {
+		return res, err
+	}
+	// Two state changes, so two events (§5.5). The guard is dropped for the
+	// second one: the row moved because the first one moved it.
+	req.BaseUpdatedAt = 0
 	return d.noteTransition(req, func(n *tasks.Note) (tasks.Event, error) {
-		ev, err := tasks.NoteDiscuss(n, by, d.Now())
-		if err != nil || question == "" {
-			return ev, err
-		}
 		return tasks.NoteAskInput(n, by, question, d.Now())
 	})
 }
@@ -473,8 +478,14 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	if err := decodeArgs(p.Payload, &rerun.Args); err != nil {
 		return nil, err
 	}
+	// The subject is carried back in the form the door would have derived it:
+	// a pane for an agent, an explicit --as for the principals §3.2 allows to
+	// declare themselves. Reconstructing only the agent case would silently
+	// re-run a cron's verb as the operator, who is recusal-exempt.
 	if pane, ok := strings.CutPrefix(p.Subject, "agent:"); ok {
 		rerun.PaneID = pane
+	} else if p.Subject != string(tasks.PrincipalHuman) {
+		rerun.As = p.Subject
 	}
 	actor, err := d.actor(rerun)
 	if err != nil {

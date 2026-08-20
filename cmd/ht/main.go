@@ -20,7 +20,11 @@ func main() {
 		if f, ok := err.(interface{ Code() string }); ok {
 			code = f.Code()
 		}
-		fmt.Fprintln(os.Stderr, "ht: "+err.Error())
+		// An error whose message is empty has already printed the §6.2
+		// envelope on stdout; it travels only to carry the exit status.
+		if msg := err.Error(); msg != "" {
+			fmt.Fprintln(os.Stderr, "ht: "+msg)
+		}
 		os.Exit(codes.Exit(code))
 	}
 }

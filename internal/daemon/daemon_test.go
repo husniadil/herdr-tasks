@@ -358,3 +358,70 @@ func TestListenClearsAStaleSocket(t *testing.T) {
 	}
 	ln.Close()
 }
+
+// §9.3: resolving re-runs the verb under the ORIGINAL subject. A cron subject
+// that came back as `human` would be a promotion: human is exempt from §6.6
+// recusal and is the only principal that may decide a note.
+func TestParkedResolveKeepsANonAgentSubject(t *testing.T) {
+	d := newDaemon(t, nil)
+	id, err := d.Store.Park(store.Parked{Project: proj, Subject: "cron:nightly",
+		Verb: "tasks.create", Payload: `{"title":"from cron"}`}, d.Now())
+	if err != nil {
+		t.Fatalf("Park: %v", err)
+	}
+	mustCall(t, d, protocol.Request{Verb: "parked.resolve", Args: map[string]any{"id": id}})
+	list, err := d.Store.ListTasks(store.TaskFilter{Project: proj})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("tasks = %d", len(list))
+	}
+	if list[0].CreatedBy != "cron:nightly" {
+		t.Fatalf("created_by = %q, want cron:nightly — the resolver's principal leaked in", list[0].CreatedBy)
+	}
+}
+
+// §5.5: `note discuss --question` is two state changes, so the trail carries
+// two events. A mutation with no event is a hole in the audit trail.
+func TestNoteDiscussWithQuestionWritesBothEvents(t *testing.T) {
+	d := newDaemon(t, nil)
+	mustCall(t, d, protocol.Request{Verb: "note.add", PaneID: "wF:p1", Args: map[string]any{"body": "an idea"}})
+	mustCall(t, d, protocol.Request{Verb: "note.discuss", PaneID: "wF:p1",
+		Args: map[string]any{"id": "1", "question": "ours or Herdr's?"}})
+	raw := mustCall(t, d, protocol.Request{Verb: "events", Args: map[string]any{"entity": "note"}})
+	var res EventsResult
+	json.Unmarshal(raw, &res)
+	got := []string{}
+	for _, e := range res.Events {
+		got = append(got, e.Kind)
+	}
+	sort.Strings(got)
+	if strings.Join(got, ",") != "added,discussing,needs_input" {
+		t.Fatalf("events = %v, want added, discussing and needs_input", got)
+	}
+}
+
+// §11.5: a swept lease says it was swept. Repeating a previous claimer's
+// release note would tell the next claimer that work nobody did is done.
+func TestSweepDoesNotRepeatAnOldReleaseNote(t *testing.T) {
+	d := newDaemon(t, &config.Config{LeaseSeconds: 1, SweepSeconds: 60})
+	task := createTask(t, d, "handed around")
+	id := task.Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+	mustCall(t, d, protocol.Request{Verb: "task.release", PaneID: "wF:p1",
+		Args: map[string]any{"id": id, "note": "step one done, step two is left"}})
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p2", Args: map[string]any{"id": id}})
+	base := d.Now()
+	d.Now = func() int64 { return base + 10_000 }
+	if swept := d.Sweep(); len(swept) != 1 {
+		t.Fatalf("swept = %v", swept)
+	}
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": id}})
+	if strings.Contains(string(raw), "step two is left") {
+		t.Fatalf("the sweep repeated the previous claimer's note: %s", raw)
+	}
+	if !strings.Contains(string(raw), "lease expired") {
+		t.Fatalf("the sweep did not say what it did: %s", raw)
+	}
+}

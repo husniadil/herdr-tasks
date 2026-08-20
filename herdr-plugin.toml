@@ -32,11 +32,11 @@ title = "Restart the tasks daemon"
 contexts = ["workspace"]
 command = ["scripts/restart.sh"]
 
-# Releases every lease held by panes that are gone. The daemon already sweeps
-# lapsed leases on a timer; this is the button for "that pane died, give its
-# work back now".
+# The same pass the daemon runs on its timer, on demand. It frees leases that
+# have LAPSED; a pane that died a moment ago keeps its claim until its lease
+# runs out. To free that one now, run `ht sweep --pane <pane id>`.
 [[actions]]
 id = "sweep"
-title = "Release leases from dead panes"
+title = "Release lapsed leases now"
 contexts = ["workspace"]
 command = ["bin/ht", "sweep"]

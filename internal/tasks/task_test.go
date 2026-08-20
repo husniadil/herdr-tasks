@@ -410,3 +410,27 @@ func submitted(t *testing.T) *Task {
 }
 
 func mustErr(_ Event, err error) error { return err }
+
+// §6.6, the hole the harness check alone leaves: a pane whose harness Herdr
+// could not resolve at submit time must still not approve its own work once
+// Herdr is answering again.
+func TestRecusalCatchesSelfReviewAcrossAnUnknownHarness(t *testing.T) {
+	task := newTask()
+	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: ""}
+	mustClaim(t, task, blind)
+	if _, err := Submit(task, blind, "done", nil, t0+10); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if task.SubmittedByHarness != "unknown" {
+		t.Fatalf("precondition: submitted_by_harness = %q", task.SubmittedByHarness)
+	}
+	// Same pane, same principal, but Herdr now names the harness.
+	seeing := agent("wF:p1", "claude")
+	if got := codeOf(t, mustErr(Approve(task, seeing, t0+20))); got != codes.Forbidden {
+		t.Fatalf("code = %q, want FORBIDDEN — this is the submitter approving itself", got)
+	}
+	// A genuinely different principal on a different harness is still fine.
+	if _, err := Approve(task, agent("wF:p2", "codex"), t0+21); err != nil {
+		t.Fatalf("third-party approve: %v", err)
+	}
+}

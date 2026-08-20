@@ -3,6 +3,7 @@ package store
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -452,5 +453,24 @@ func finish(t *testing.T, s *Store, task *tasks.Task) {
 		if _, err := s.TaskTransition(task.Project, task.ID, 0, step); err != nil {
 			t.Fatalf("step %d: %v", i, err)
 		}
+	}
+}
+
+// A % or _ that a human typed is a character, not a wildcard.
+func TestQueryTreatsWildcardsAsLiterals(t *testing.T) {
+	s := open(t)
+	create(t, s, "cut latency by 50% on the hot path")
+	create(t, s, "50 tasks imported")
+	got, err := s.ListTasks(TaskFilter{Project: proj, Query: "50%"})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(got) != 1 || !strings.Contains(got[0].Title, "50%") {
+		t.Fatalf("query \"50%%\" matched %d tasks, want only the one with a literal 50%%", len(got))
+	}
+	// A bare "%" is the character, so it matches the one title that has one —
+	// not every task, which is what an unescaped wildcard would do.
+	if all, _ := s.ListTasks(TaskFilter{Project: proj, Query: "%"}); len(all) != 1 {
+		t.Fatalf("query \"%%\" matched %d tasks, want the 1 with a literal %%", len(all))
 	}
 }

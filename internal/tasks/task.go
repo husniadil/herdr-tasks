@@ -324,6 +324,14 @@ func CheckRecusal(t *Task, by Actor) error {
 	if by.IsHuman() {
 		return nil
 	}
+	// Harness first, principal second. A harness Herdr could not resolve is
+	// recorded as "unknown" (§3.4), and two unknowns are not equal to a
+	// different known harness — so the harness check alone would let a pane
+	// that submitted during a Herdr blip approve its own work once Herdr was
+	// answering again. The principal check closes that without weakening §6.6.
+	if by.Principal != "" && (by.Principal == t.SubmittedBy || by.Principal == t.ClaimedBy) {
+		return codes.New(codes.Forbidden, "a principal may not review its own submission")
+	}
 	producer := t.SubmittedByHarness
 	if producer == "" {
 		producer = t.ClaimedByHarness

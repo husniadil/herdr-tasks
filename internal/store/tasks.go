@@ -134,8 +134,10 @@ func (s *Store) ListTasks(f TaskFilter) ([]*tasks.Task, error) {
 		where, args = append(where, "claimed_by = ?"), append(args, string(f.Mine))
 	}
 	if f.Query != "" {
-		where = append(where, "(title LIKE ? OR description LIKE ?)")
-		args = append(args, "%"+f.Query+"%", "%"+f.Query+"%")
+		// A caller typing "50%" means the characters, not "anything after 50".
+		q := "%" + likeEscape(f.Query) + "%"
+		where = append(where, `(title LIKE ? ESCAPE '\' OR description LIKE ? ESCAPE '\')`)
+		args = append(args, q, q)
 	}
 	if !f.Archived {
 		where = append(where, "archived_at IS NULL")
@@ -225,11 +227,9 @@ func (s *Store) SweepLeases(now int64) ([]string, error) {
 	swept := make([]string, 0, len(stale))
 	for _, r := range stale {
 		_, err := s.TaskTransition(r.project, r.id, 0, func(t *tasks.Task) (tasks.Event, error) {
-			note := t.ReleaseNote
-			if note == "" {
-				note = "lease expired"
-			}
-			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, note, now, tasks.KindSwept)
+			// Not t.ReleaseNote: that belongs to whoever released this task
+			// last, which is not the claimer being swept now.
+			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, "lease expired", now, tasks.KindSwept)
 		})
 		if err != nil {
 			// Another writer got there first; the sweep is best-effort by
@@ -263,11 +263,7 @@ func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
 	out := make([]string, 0, len(held))
 	for _, r := range held {
 		if _, err := s.TaskTransition(r.project, r.id, 0, func(t *tasks.Task) (tasks.Event, error) {
-			note := t.ReleaseNote
-			if note == "" {
-				note = "pane exited"
-			}
-			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, note, now, tasks.KindSwept)
+			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, "pane exited", now, tasks.KindSwept)
 		}); err == nil {
 			out = append(out, r.id)
 		}
@@ -521,6 +517,12 @@ func sameSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// likeEscape makes LIKE's two wildcards literal, under the ESCAPE clause the
+// query above declares.
+func likeEscape(s string) string {
+	return strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(s)
 }
 
 func nullIfEmpty(s string) any {
