@@ -361,3 +361,36 @@ func TestEventsFollowStreams(t *testing.T) {
 		}
 	}
 }
+
+// §4.2: the door resolves the project from HERDR_PLUGIN_CONTEXT_JSON before
+// it falls back to its own working directory. Every verb shares this one
+// resolution, and a plugin pane is where it matters: Herdr runs a pane command
+// with the PLUGIN ROOT as its working directory, so a door that trusted cwd
+// would file and read everything under the plugin's own directory instead of
+// the project the operator is looking at.
+func TestVerbsScopeToTheHerdrContextNotTheWorkingDirectory(t *testing.T) {
+	w := newWorld(t)
+	looking := t.TempDir()
+	inPane := w.env(`HERDR_PLUGIN_CONTEXT_JSON={"workspace_id":"wM","workspace_cwd":"/nope",` +
+		`"focused_pane_cwd":"` + looking + `"}`)
+
+	// Run from the plugin root — w.run's directory — with that context.
+	w.json(inPane, "task", "create", "filed from a plugin pane")
+
+	// It landed in the project Herdr said was focused, not the working
+	// directory the command happened to start in.
+	there := w.json(w.env(), "task", "list", "--project", looking)
+	if there["count"] != float64(1) {
+		t.Fatalf("the focused project holds %v tasks, want 1", there["count"])
+	}
+	here := w.json(w.env(), "task", "list")
+	if here["count"] != float64(0) {
+		t.Fatalf("the working directory's project holds %v tasks, want 0", here["count"])
+	}
+
+	// And the pane door reads the same scope back without being told.
+	back := w.json(inPane, "task", "list")
+	if back["count"] != float64(1) {
+		t.Fatalf("reading from the pane found %v tasks, want 1", back["count"])
+	}
+}

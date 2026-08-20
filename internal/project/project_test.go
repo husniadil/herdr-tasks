@@ -82,28 +82,62 @@ func TestExplicitProjectWins(t *testing.T) {
 }
 
 // §4.2: then HERDR_PLUGIN_CONTEXT_JSON's focused pane cwd, when the caller is
-// a Herdr plugin command.
+// a Herdr plugin command. The document is Herdr's PluginInvocationContext: one
+// flat object of snake_case keys, not a nested one. A popup pane gets no
+// HERDR_PANE_ID and runs with the plugin root as its working directory, so
+// this env var is the ONLY thing that tells the board which project it is
+// looking at.
 func TestHerdrPluginContextCwd(t *testing.T) {
 	pane := t.TempDir()
-	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane":{"cwd":`+quote(pane)+`},"workspace":{"cwd":"/nope"}}`)
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON",
+		`{"workspace_id":"wM","workspace_cwd":"/nope","tab_id":"wM:t1","focused_pane_id":"wM:p1","focused_pane_cwd":`+quote(pane)+`}`)
 	got, err := Resolve(Options{Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	want, _ := filepath.EvalSymlinks(pane)
 	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
+		t.Fatalf("got %q, want the focused pane's cwd %q", got, want)
 	}
 }
 
 func TestHerdrPluginContextFallsBackToWorkspaceCwd(t *testing.T) {
 	ws := t.TempDir()
-	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"workspace":{"cwd":`+quote(ws)+`}}`)
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"workspace_id":"wM","workspace_cwd":`+quote(ws)+`}`)
 	got, err := Resolve(Options{Cwd: t.TempDir()})
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
 	}
 	want, _ := filepath.EvalSymlinks(ws)
+	if got != want {
+		t.Fatalf("got %q, want the workspace cwd %q", got, want)
+	}
+}
+
+// §4.2: --project still wins over the context Herdr supplied.
+func TestExplicitProjectBeatsTheHerdrContext(t *testing.T) {
+	explicit := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"focused_pane_cwd":`+quote(t.TempDir())+`}`)
+	got, err := Resolve(Options{Explicit: explicit, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	want, _ := filepath.EvalSymlinks(explicit)
+	if got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}
+
+// A context with no cwd in it at all — Herdr omits absent fields — leaves the
+// working directory as the last resort rather than resolving to nothing.
+func TestHerdrContextWithoutACwdFallsBackToTheWorkingDirectory(t *testing.T) {
+	cwd := t.TempDir()
+	t.Setenv("HERDR_PLUGIN_CONTEXT_JSON", `{"workspace_id":"wM","invocation_source":"pane"}`)
+	got, err := Resolve(Options{Cwd: cwd})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	want, _ := filepath.EvalSymlinks(cwd)
 	if got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}

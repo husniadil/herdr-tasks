@@ -42,16 +42,14 @@ func Resolve(o Options) (string, error) {
 	return canonical(dir)
 }
 
-// herdrContext is the shape of HERDR_PLUGIN_CONTEXT_JSON this plugin reads.
-// Herdr owns the full shape; the plugin reads the two cwds §4.2 names and
-// ignores the rest.
+// herdrContext is the part of HERDR_PLUGIN_CONTEXT_JSON this plugin reads.
+// Herdr's document is ONE FLAT OBJECT of snake_case keys (its
+// PluginInvocationContext: workspace_cwd, focused_pane_cwd, tab_id, …), not a
+// nested one; Herdr owns the full shape and omits what it has no answer for,
+// so the plugin reads the two cwds §4.2 names and ignores the rest.
 type herdrContext struct {
-	FocusedPane struct {
-		Cwd string `json:"cwd"`
-	} `json:"focused_pane"`
-	Workspace struct {
-		Cwd string `json:"cwd"`
-	} `json:"workspace"`
+	FocusedPaneCwd string `json:"focused_pane_cwd"`
+	WorkspaceCwd   string `json:"workspace_cwd"`
 }
 
 func fromHerdrContext() string {
@@ -63,10 +61,10 @@ func fromHerdrContext() string {
 	if err := json.Unmarshal([]byte(raw), &c); err != nil {
 		return ""
 	}
-	if c.FocusedPane.Cwd != "" {
-		return c.FocusedPane.Cwd
+	if c.FocusedPaneCwd != "" {
+		return c.FocusedPaneCwd
 	}
-	return c.Workspace.Cwd
+	return c.WorkspaceCwd
 }
 
 // canonical turns a directory into the project key: the parent of the git
