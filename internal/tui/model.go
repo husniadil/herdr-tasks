@@ -208,7 +208,15 @@ func key(m Model, k string) (Model, *Call) {
 		}
 		return m, &Call{Verb: "note.list", Args: map[string]any{}}
 	case "esc":
-		m.Detail = false
+		// Herdr gives a popup no close key of its own, so esc is what an
+		// operator presses first. It unwinds one layer at a time — a detail
+		// here, a prompt in promptKey — and only leaves when nothing is open,
+		// so it can never discard something half-typed.
+		if m.Detail {
+			m.Detail = false
+			return m, nil
+		}
+		m.Quit = true
 		return m, nil
 	case "enter":
 		m.Detail = !m.Detail

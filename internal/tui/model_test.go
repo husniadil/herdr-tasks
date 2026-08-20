@@ -367,3 +367,72 @@ func TestARefreshDoesNotDragTheCursorOffAnEmptyColumn(t *testing.T) {
 		t.Fatalf("a refresh moved the cursor to column %d", m.Col)
 	}
 }
+
+// Herdr gives a popup no close key of its own, so esc is the key an operator
+// reaches for first. It unwinds one layer at a time: a prompt, then a detail,
+// then the board itself. Quitting straight out would throw away a half-typed
+// reject reason, which is the opposite of the fix.
+func TestEscUnwindsOneLayerAtATime(t *testing.T) {
+	// Layer 1: an open prompt is cancelled, and the board stays.
+	m := board(t, task(1, tasks.StatusReview, "a"))
+	m, _ = Update(m, KeyMsg{Key: "x"})
+	if m.Prompt == nil {
+		t.Fatal("the reject prompt did not open")
+	}
+	m, _ = Update(m, KeyMsg{Key: "esc"})
+	if m.Prompt != nil {
+		t.Fatal("esc did not cancel the prompt")
+	}
+	if m.Quit {
+		t.Fatal("esc closed the board while a prompt was open")
+	}
+
+	// Layer 2: an open detail is closed, and the board stays.
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	if !m.Detail {
+		t.Fatal("enter did not open the detail")
+	}
+	m, _ = Update(m, KeyMsg{Key: "esc"})
+	if m.Detail {
+		t.Fatal("esc did not close the detail")
+	}
+	if m.Quit {
+		t.Fatal("esc closed the board while a detail was open")
+	}
+
+	// Layer 3: with nothing open, esc leaves.
+	m, _ = Update(m, KeyMsg{Key: "esc"})
+	if !m.Quit {
+		t.Fatal("esc at the top level did not leave the board")
+	}
+}
+
+// The footer is the only place a popup can advertise its way out, and
+// footerClick turns a label back into its key, so this is the mouse way out
+// too. Every state must carry it — a new branch in Verbs() that forgets it
+// reintroduces the trap.
+func TestVerbsAlwaysAdvertiseAWayOut(t *testing.T) {
+	note := &tasks.Note{ID: "N1", Seq: 1, Status: "inbox", Body: "an idea"}
+	parked := store.Parked{ID: "P1", Verb: "tasks.create", Subject: "agent:wF:p1"}
+	parkedPane := func(m Model) Model { m.Pane = PaneParked; return m }
+
+	for name, m := range map[string]Model{
+		"board, review task selected": board(t, task(1, tasks.StatusReview, "a")),
+		"board, todo task selected":   board(t, task(1, tasks.StatusTodo, "a")),
+		"board, nothing at all":       board(t),
+		"notes, note selected":        notesModel(t, []*tasks.Note{note}, nil),
+		"notes, nothing selected":     notesModel(t, nil, nil),
+		"parked, row selected":        parkedPane(notesModel(t, nil, []store.Parked{parked})),
+		"parked, nothing selected":    parkedPane(notesModel(t, nil, nil)),
+	} {
+		found := false
+		for _, v := range m.Verbs() {
+			if v.Label == "close" {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatalf("%s: the footer offers no way out: %+v", name, m.Verbs())
+		}
+	}
+}

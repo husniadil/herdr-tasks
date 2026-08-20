@@ -111,6 +111,15 @@ type Verb struct {
 // only. Claim, touch, submit and release are an agent's, and the operator's
 // board does not offer them.
 func (m Model) Verbs() []Verb {
+	return append(m.verbs(), closeVerb)
+}
+
+// closeVerb is last in every footer. A popup has no close key of its own, so
+// if the footer does not say how to leave, nothing does — and since
+// footerClick maps a label back to its key, this is also the mouse way out.
+var closeVerb = Verb{"esc", "close"}
+
+func (m Model) verbs() []Verb {
 	if m.View == ViewBoard {
 		if t := m.SelectedTask(); t != nil && t.Status == "review" {
 			return []Verb{{"a", "approve"}, {"x", "reject"}, {"enter", "detail"}, {"tab", "notes"}}
