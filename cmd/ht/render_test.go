@@ -8,7 +8,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
+
 	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/mcpdoor"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
@@ -122,4 +126,83 @@ func TestWantsJSONReadsTheRawArgv(t *testing.T) {
 			t.Errorf("wantsJSON(%v) = %v, want %v", tc.argv, got, tc.want)
 		}
 	}
+}
+
+// §6.1: every flag the CLI adds beyond a verb's own arguments is accounted for
+// on the MCP door — mapped to a property, or excluded with a reason. The
+// flags live here, in the CLI, so this is the half of the drift check that
+// only this package can make: internal/mcpdoor cannot enumerate cobra's flags.
+//
+// base_updated_at was unreachable through MCP because nothing compared the two
+// surfaces at this level. An absence is not a decision until it is written
+// down.
+func TestEveryCLIGlobalIsAccountedForOnTheMCPDoor(t *testing.T) {
+	root := newRootCmd()
+	seen := map[string]bool{}
+	note := func(f *pflag.Flag) {
+		if f.Name == "help" {
+			return
+		}
+		seen[f.Name] = true
+	}
+	root.PersistentFlags().VisitAll(note)
+
+	byName := map[string]verbs.Verb{}
+	for _, v := range verbs.All {
+		byName[v.Name] = v
+	}
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			walk(sub)
+		}
+		v, ok := byName[verbNameOf(c)]
+		if !ok {
+			return
+		}
+		c.Flags().VisitAll(func(f *pflag.Flag) {
+			if f.Name == "help" {
+				return
+			}
+			for _, a := range v.Args {
+				if a.Name == f.Name {
+					return
+				}
+			}
+			seen[f.Name] = true
+		})
+	}
+	walk(root)
+
+	if len(seen) < 4 {
+		t.Fatalf("only %d global flags found; the walk is not reaching the command tree", len(seen))
+	}
+	for name := range seen {
+		g, ok := mcpdoor.Globals[name]
+		if !ok {
+			t.Errorf("--%s is a CLI global the MCP door says nothing about; map it or record why not", name)
+			continue
+		}
+		if g.Property == "" && g.Excluded == "" {
+			t.Errorf("--%s is excluded from the MCP door with no reason recorded", name)
+		}
+		if g.Property != "" && g.Excluded != "" {
+			t.Errorf("--%s is both mapped to %q and excluded", name, g.Property)
+		}
+	}
+	// And the table does not name flags that do not exist.
+	for name := range mcpdoor.Globals {
+		if !seen[name] {
+			t.Errorf("the MCP door's globals table names --%s, which the CLI does not offer", name)
+		}
+	}
+}
+
+// verbNameOf rebuilds a registry verb name from a cobra command's path.
+func verbNameOf(c *cobra.Command) string {
+	parts := []string{}
+	for cur := c; cur != nil && cur.Name() != "ht"; cur = cur.Parent() {
+		parts = append([]string{cur.Name()}, parts...)
+	}
+	return strings.Join(parts, ".")
 }

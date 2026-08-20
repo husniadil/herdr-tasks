@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -101,9 +102,18 @@ func TestCLIAndMCPSurfacesDoNotDrift(t *testing.T) {
 				t.Errorf("tool %q does not require %q, but the CLI does", tl.MCP, a.Name)
 			}
 		}
-		// Nothing extra beyond the CLI's args and the shared --project.
+		// Nothing extra beyond the CLI's args and the globals this verb's
+		// tool is supposed to carry — and nothing MISSING from those either,
+		// which is the half that could not see base_updated_at.
+		globals := map[string]bool{}
+		for _, name := range GlobalsFor(cli) {
+			globals[name] = true
+			if _, ok := got.Properties[name]; !ok {
+				t.Errorf("tool %q does not take %q, which the CLI offers this verb", tl.MCP, name)
+			}
+		}
 		for name := range got.Properties {
-			if name == "project" {
+			if globals[name] {
 				continue
 			}
 			if !hasArg(cli.Args, name) {
@@ -383,5 +393,308 @@ func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	}
 	if !strings.Contains(got, cliErr.Message) {
 		t.Fatalf("the doors refuse in different words (§6.1):\nmcp: %s\ncli: %s", got, cliErr.Message)
+	}
+}
+
+// mcpSession opens a real in-memory MCP client against the door.
+func mcpSession(t *testing.T, call Caller) *mcp.ClientSession {
+	t.Helper()
+	srv := New(call)
+	clientSide := mcp.NewClient(&mcp.Implementation{Name: "parity-test", Version: "0"}, nil)
+	ct, st := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	if _, err := srv.Connect(ctx, st, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	sess, err := clientSide.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	t.Cleanup(func() { sess.Close() })
+	return sess
+}
+
+func callTool(t *testing.T, sess *mcp.ClientSession, name string, args map[string]any) *mcp.CallToolResult {
+	t.Helper()
+	res, err := sess.CallTool(context.Background(), &mcp.CallToolParams{Name: name, Arguments: args})
+	if err != nil {
+		t.Fatalf("CallTool %s: %v", name, err)
+	}
+	return res
+}
+
+// §7.1 with §6.1: the schema the door publishes is a promise, and a door that
+// coerces instead of refusing breaks it silently. limit "nope" became 0 —
+// which the filters read as unlimited — and priority 2.9 became 2. The CLI
+// refuses both at parse with exit 2, so the two doors disagreed about what a
+// declared integer means.
+func TestTheMCPDoorRefusesArgumentsItsSchemaForbids(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	_, call := inProcessDaemon(t)
+	sess := mcpSession(t, call)
+
+	for name, tc := range map[string]struct {
+		tool string
+		args map[string]any
+		arg  string
+	}{
+		"a word where an integer is declared":     {"tasks_list", map[string]any{"limit": "nope", "project": "/tmp/p"}, "limit"},
+		"a fraction where an integer is declared": {"tasks_create", map[string]any{"title": "t", "priority": 2.9, "project": "/tmp/p"}, "priority"},
+		"a number where a string is declared":     {"tasks_get", map[string]any{"id": 12, "project": "/tmp/p"}, "id"},
+		"a string where a list is declared":       {"tasks_submit", map[string]any{"id": "1", "report": "r", "evidence": "one", "project": "/tmp/p"}, "evidence"},
+	} {
+		res := callTool(t, sess, tc.tool, tc.args)
+		if !res.IsError {
+			t.Errorf("%s: the door accepted it: %s", name, text(res))
+			continue
+		}
+		got := text(res)
+		if !strings.Contains(got, codes.Usage) {
+			t.Errorf("%s: refused with %s, want USAGE", name, got)
+		}
+		if !strings.Contains(got, tc.arg) {
+			t.Errorf("%s: the refusal does not name the argument: %s", name, got)
+		}
+	}
+}
+
+// §5.6 through the MCP door. Without base_updated_at an MCP agent's writes had
+// no lost-update protection at all, on every mutating verb — the guard existed
+// and was unreachable.
+func TestBaseUpdatedAtIsReachableThroughMCP(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	d, call := inProcessDaemon(t)
+	// A counted clock, not the wall clock: create and update landing in the
+	// same millisecond leaves updated_at where it was, and then the value the
+	// caller read is not stale after all — a test that passes or fails on how
+	// fast the machine is proves nothing either way.
+	tick := new(atomic.Int64)
+	tick.Store(1_700_000_000_000)
+	d.Now = func() int64 { return tick.Add(1) }
+	sess := mcpSession(t, call)
+	const project = "/tmp/p"
+
+	raw, err := call(protocol.Request{Verb: "task.create", Project: project,
+		Args: map[string]any{"title": "raced"}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var made struct {
+		Task struct {
+			ID        string `json:"id"`
+			UpdatedAt int64  `json:"updated_at"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal(raw, &made); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	stale := made.Task.UpdatedAt
+
+	// Move the row, so the value the caller read is no longer current.
+	if _, err := call(protocol.Request{Verb: "task.update", Project: project,
+		Args: map[string]any{"id": made.Task.ID, "title": "renamed"}}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	res := callTool(t, sess, "tasks_claim", map[string]any{
+		"id": made.Task.ID, "project": project, "base_updated_at": stale})
+	if !res.IsError {
+		t.Fatalf("the §5.6 guard did not fire through MCP: %s", text(res))
+	}
+	if !strings.Contains(text(res), codes.Conflict) {
+		t.Fatalf("refused with %s, want CONFLICT", text(res))
+	}
+	// The same call through the daemon says the same thing.
+	cli := d.Answer(protocol.Request{Verb: "task.claim", Project: project, BaseUpdatedAt: stale,
+		Args: map[string]any{"id": made.Task.ID}})
+	if cli.Error == nil || !strings.Contains(text(res), cli.Error.Message) {
+		t.Fatalf("the doors disagree:\nmcp: %s\ncli: %+v", text(res), cli.Error)
+	}
+	// And a CURRENT value still works.
+	fresh := d.Answer(protocol.Request{Verb: "task.get", Project: project,
+		Args: map[string]any{"id": made.Task.ID}})
+	var got struct {
+		Task struct {
+			UpdatedAt int64 `json:"updated_at"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal(fresh.Result, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	res = callTool(t, sess, "tasks_claim", map[string]any{
+		"id": made.Task.ID, "project": project, "base_updated_at": got.Task.UpdatedAt})
+	if res.IsError {
+		t.Fatalf("a current base_updated_at was refused: %s", text(res))
+	}
+}
+
+// §4.4 through the MCP door: the list tools can be asked for every project,
+// the way the CLI's flag asks.
+func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	_, call := inProcessDaemon(t)
+	sess := mcpSession(t, call)
+	for _, p := range []string{"/tmp/one", "/tmp/two"} {
+		if _, err := call(protocol.Request{Verb: "task.create", Project: p,
+			Args: map[string]any{"title": "in " + p}}); err != nil {
+			t.Fatalf("create: %v", err)
+		}
+	}
+
+	scoped := callTool(t, sess, "tasks_list", map[string]any{"project": "/tmp/one"})
+	if scoped.IsError {
+		t.Fatalf("scoped list: %s", text(scoped))
+	}
+	var one struct{ Count int }
+	if err := json.Unmarshal([]byte(text(scoped)), &one); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if one.Count != 1 {
+		t.Fatalf("scoped list found %d, want 1: %s", one.Count, text(scoped))
+	}
+
+	all := callTool(t, sess, "tasks_list", map[string]any{"project": "/tmp/one", "all_projects": true})
+	if all.IsError {
+		t.Fatalf("all-projects list: %s", text(all))
+	}
+	var every struct{ Count int }
+	if err := json.Unmarshal([]byte(text(all)), &every); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if every.Count != 2 {
+		t.Fatalf("all-projects list found %d, want 2: %s", every.Count, text(all))
+	}
+}
+
+// §6.1: a type the door DECLARES is a type the door ENFORCES. This walks
+// every published property of every tool and sends a value of the wrong kind,
+// requiring USAGE each time — so a property added later cannot be published
+// without being checked. Criterion-shaped rather than mechanism-shaped: it
+// says nothing about how the door validates, only that it does.
+func TestEveryDeclaredTypeIsEnforced(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	_, call := inProcessDaemon(t)
+	sess := mcpSession(t, call)
+
+	// A value that is wrong for each declared type, and right for none.
+	wrong := map[string]any{
+		"string":  float64(7),
+		"integer": "seven",
+		"boolean": "seven",
+		"array":   "seven",
+	}
+	checked := 0
+	for _, v := range verbs.MCPTools() {
+		schema, _ := json.Marshal(tool(v).InputSchema)
+		var got struct {
+			Properties map[string]struct {
+				Type string `json:"type"`
+			} `json:"properties"`
+		}
+		if err := json.Unmarshal(schema, &got); err != nil {
+			t.Fatalf("%s: unmarshal schema: %v", v.MCP, err)
+		}
+		for name, prop := range got.Properties {
+			bad, ok := wrong[prop.Type]
+			if !ok {
+				t.Fatalf("%s.%s declares the unknown type %q", v.MCP, name, prop.Type)
+			}
+			args := map[string]any{"project": "/tmp/p", name: bad}
+			// Fill the required arguments so the refusal is about the type
+			// and not about something missing.
+			for _, a := range v.Args {
+				if a.Required && a.Name != name {
+					args[a.Name] = "x"
+				}
+			}
+			res := callTool(t, sess, v.MCP, args)
+			if !res.IsError {
+				t.Errorf("%s.%s declares %q and accepted %v: %s", v.MCP, name, prop.Type, bad, text(res))
+				continue
+			}
+			if !strings.Contains(text(res), codes.Usage) {
+				t.Errorf("%s.%s declares %q and refused %v with %s, want USAGE",
+					v.MCP, name, prop.Type, bad, text(res))
+			}
+			checked++
+		}
+	}
+	if checked < 40 {
+		t.Fatalf("only %d properties were checked; the walk is not covering the surface", checked)
+	}
+}
+
+// §6.1 / §7.4: a mutating call made through each door with the same
+// base_updated_at returns the same document — the guard is not merely present
+// on both, it means the same thing on both.
+func TestBothDoorsGuardAMutationTheSameWay(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	d, call := inProcessDaemon(t)
+	tick := new(atomic.Int64)
+	tick.Store(1_700_000_000_000)
+	d.Now = func() int64 { return tick.Add(1) }
+	sess := mcpSession(t, call)
+	const project = "/tmp/p"
+
+	make := func(title string) (string, int64) {
+		t.Helper()
+		raw, err := call(protocol.Request{Verb: "task.create", Project: project,
+			Args: map[string]any{"title": title}})
+		if err != nil {
+			t.Fatalf("create: %v", err)
+		}
+		var res struct {
+			Task struct {
+				ID        string `json:"id"`
+				UpdatedAt int64  `json:"updated_at"`
+			} `json:"task"`
+		}
+		if err := json.Unmarshal(raw, &res); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		return res.Task.ID, res.Task.UpdatedAt
+	}
+
+	// Two identical tasks, so each door acts on its own and the documents can
+	// be compared field for field apart from the id and the timestamps.
+	viaCLI, cliBase := make("guarded")
+	viaMCP, mcpBase := make("guarded")
+
+	cliResp := d.Answer(protocol.Request{Verb: "task.update", Project: project, BaseUpdatedAt: cliBase,
+		Args: map[string]any{"id": viaCLI, "title": "renamed"}})
+	if cliResp.Error != nil {
+		t.Fatalf("the CLI door refused a current base_updated_at: %+v", cliResp.Error)
+	}
+	res := callTool(t, sess, "tasks_create", map[string]any{"title": "ignored", "project": project})
+	if res.IsError {
+		t.Fatalf("setup: %s", text(res))
+	}
+	mcpRes := callTool(t, sess, "tasks_claim", map[string]any{
+		"id": viaMCP, "project": project, "base_updated_at": mcpBase})
+	if mcpRes.IsError {
+		t.Fatalf("the MCP door refused a current base_updated_at: %s", text(mcpRes))
+	}
+
+	// And a stale one is refused identically on both.
+	cliStale := d.Answer(protocol.Request{Verb: "task.update", Project: project, BaseUpdatedAt: cliBase,
+		Args: map[string]any{"id": viaCLI, "title": "again"}})
+	mcpStale := callTool(t, sess, "tasks_claim", map[string]any{
+		"id": viaMCP, "project": project, "base_updated_at": mcpBase})
+	if cliStale.Error == nil || !mcpStale.IsError {
+		t.Fatalf("a stale guard was not refused on both doors: cli=%+v mcp=%s", cliStale.Error, text(mcpStale))
+	}
+	if !strings.Contains(text(mcpStale), codes.Conflict) || cliStale.Error.Code != codes.Conflict {
+		t.Fatalf("the doors disagree on the code: cli=%s mcp=%s", cliStale.Error.Code, text(mcpStale))
+	}
+	// The messages differ only in the numbers, which are each door's own row.
+	for _, want := range []string{"task moved", "updated_at is"} {
+		if !strings.Contains(cliStale.Error.Message, want) || !strings.Contains(text(mcpStale), want) {
+			t.Fatalf("the doors refuse in different words: cli=%q mcp=%s", cliStale.Error.Message, text(mcpStale))
+		}
 	}
 }

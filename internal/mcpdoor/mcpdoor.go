@@ -8,7 +8,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
+	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -82,10 +84,18 @@ func tool(v verbs.Verb) *mcp.Tool {
 			required = append(required, a.Name)
 		}
 	}
-	// Both doors resolve the project the same way, and MCP callers may name it
-	// explicitly for the same reason the CLI has --project (§4.2).
-	props["project"] = map[string]any{"type": "string",
+	// The globals, mirrored from the CLI's flags so that §6.1 parity is about
+	// the whole surface and not only the per-verb half. --as is deliberately
+	// absent: §3.2 says agent and human principals are derived, never
+	// declared, and an MCP caller has no pane to derive one from.
+	props[argProject] = map[string]any{"type": "string",
 		"description": "The project to act in; defaults to the directory this server runs in (§4.2)"}
+	props[argAllProjects] = map[string]any{"type": "boolean",
+		"description": "Act across every project rather than this one"}
+	if v.Mutates {
+		props[argBaseUpdatedAt] = map[string]any{"type": "integer",
+			"description": "Fail with CONFLICT if the row moved since this updated_at (§5.6)"}
+	}
 	schema := map[string]any{"type": "object", "properties": props}
 	if len(required) > 0 {
 		schema["required"] = required
@@ -117,8 +127,15 @@ func handlerFor(v verbs.Verb, call Caller) mcp.ToolHandler {
 				return errorResult(codes.New(codes.Usage, "unreadable arguments: "+err.Error())), nil
 			}
 		}
-		explicit, _ := args["project"].(string)
-		delete(args, "project")
+		if err := checkArgs(v, args); err != nil {
+			return errorResult(err), nil
+		}
+		explicit, _ := args[argProject].(string)
+		allProjects, _ := args[argAllProjects].(bool)
+		baseUpdatedAt, _ := args[argBaseUpdatedAt].(float64)
+		delete(args, argProject)
+		delete(args, argAllProjects)
+		delete(args, argBaseUpdatedAt)
 
 		cwd, _ := os.Getwd()
 		proj, err := project.Resolve(project.Options{Explicit: explicit, Cwd: cwd, Warn: os.Stderr})
@@ -126,12 +143,14 @@ func handlerFor(v verbs.Verb, call Caller) mcp.ToolHandler {
 			return errorResult(codes.Errorf(codes.Usage, "cannot resolve the project: %v", err)), nil
 		}
 		raw, err := call(protocol.Request{
-			Verb:        v.Name,
-			Project:     proj,
-			PaneID:      os.Getenv("HERDR_PANE_ID"),
-			TabID:       os.Getenv("HERDR_TAB_ID"),
-			WorkspaceID: os.Getenv("HERDR_WORKSPACE_ID"),
-			Args:        args,
+			Verb:          v.Name,
+			Project:       proj,
+			AllProjects:   allProjects,
+			BaseUpdatedAt: int64(baseUpdatedAt),
+			PaneID:        os.Getenv("HERDR_PANE_ID"),
+			TabID:         os.Getenv("HERDR_TAB_ID"),
+			WorkspaceID:   os.Getenv("HERDR_WORKSPACE_ID"),
+			Args:          args,
 		})
 		if err != nil {
 			return errorResult(err), nil
@@ -171,4 +190,172 @@ func errorResult(err error) *mcp.CallToolResult {
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: string(body)}},
 	}
+}
+
+// The names of the shared arguments every tool takes, mirroring the CLI's
+// global flags. They are constants because tool() declares them and checkArgs
+// enforces them, and a typo in one place would make the door publish a promise
+// it does not keep.
+const (
+	argProject       = "project"
+	argAllProjects   = "all_projects"
+	argBaseUpdatedAt = "base_updated_at"
+)
+
+// checkArgs holds the door to the schema it published. The go-sdk validates
+// arguments only for tools registered through its generic AddTool, which wants
+// a Go type per tool; this registry is a table, so the check lives here and
+// walks the SAME verbs.Arg list tool() renders the schema from. One source,
+// two readers — and a test drives every published property through both, so
+// they cannot come apart.
+//
+// Without it the door accepted what its own schema forbade and coerced it
+// silently: limit "nope" became 0, which the filters read as unlimited, and
+// priority 2.9 became 2. The CLI refuses both at parse.
+func checkArgs(v verbs.Verb, args map[string]any) error {
+	for _, name := range sortedNames(args) {
+		var want string
+		switch name {
+		case argProject:
+			want = verbs.String
+		case argAllProjects:
+			want = verbs.Bool
+		case argBaseUpdatedAt:
+			want = verbs.Int
+		default:
+			a, ok := argByName(v, name)
+			if !ok {
+				// An argument this verb does not declare: the daemon refuses
+				// it, and says something more useful than a type could.
+				continue
+			}
+			want = a.Type
+		}
+		if err := checkType(name, want, args[name]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func argByName(v verbs.Verb, name string) (verbs.Arg, bool) {
+	for _, a := range v.Args {
+		if a.Name == name {
+			return a, true
+		}
+	}
+	return verbs.Arg{}, false
+}
+
+// checkType compares one received value against its declared type. Numbers
+// arrive as float64 because that is what encoding/json makes of them, so an
+// integer is a float64 with nothing after the point.
+func checkType(name, want string, got any) error {
+	switch want {
+	case verbs.Int:
+		f, ok := got.(float64)
+		if !ok {
+			return codes.Errorf(codes.Usage, "%s must be an integer, not %s", name, jsonKind(got))
+		}
+		if f != math.Trunc(f) {
+			return codes.Errorf(codes.Usage, "%s must be an integer, not the fraction %v", name, f)
+		}
+	case verbs.Bool:
+		if _, ok := got.(bool); !ok {
+			return codes.Errorf(codes.Usage, "%s must be true or false, not %s", name, jsonKind(got))
+		}
+	case verbs.Strings:
+		list, ok := got.([]any)
+		if !ok {
+			return codes.Errorf(codes.Usage, "%s must be a list of strings, not %s", name, jsonKind(got))
+		}
+		for i, item := range list {
+			if _, ok := item.(string); !ok {
+				return codes.Errorf(codes.Usage, "%s[%d] must be a string, not %s", name, i, jsonKind(item))
+			}
+		}
+	default:
+		if _, ok := got.(string); !ok {
+			return codes.Errorf(codes.Usage, "%s must be a string, not %s", name, jsonKind(got))
+		}
+	}
+	return nil
+}
+
+// jsonKind names what arrived, in the caller's vocabulary rather than Go's.
+func jsonKind(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return "null"
+	case bool:
+		return "true or false"
+	case float64:
+		if x != math.Trunc(x) {
+			return "a fraction"
+		}
+		return "a number"
+	case string:
+		return "a string"
+	case []any:
+		return "a list"
+	default:
+		return "an object"
+	}
+}
+
+// sortedNames keeps the refusal stable: a call with two wrong arguments names
+// the same one every time.
+func sortedNames(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// Global describes what the MCP door does with one of the CLI's global flags.
+// It is exported because the flags themselves live in the CLI, in package
+// main, and the drift tests read this table from both sides: one asserts every
+// CLI global is accounted for here, the other asserts the tools carry exactly
+// what this table says they do. An absence is how base_updated_at came to be
+// unreachable through MCP with a parity test that could not see it.
+type Global struct {
+	// Property is the MCP argument this flag becomes, or "" when excluded.
+	Property string
+	// Only limits the flag to some verbs, mirroring the CLI. Nil means all.
+	Only func(verbs.Verb) bool
+	// Excluded is why the door does not offer it, and is required when
+	// Property is empty.
+	Excluded string
+}
+
+// Globals maps the CLI's flag names to their place on the MCP door.
+var Globals = map[string]Global{
+	"project":      {Property: argProject},
+	"all-projects": {Property: argAllProjects},
+	"base-updated-at": {
+		Property: argBaseUpdatedAt,
+		Only:     func(v verbs.Verb) bool { return v.Mutates },
+	},
+	"as": {Excluded: "§3.2: agent and human principals are derived, never declared, " +
+		"and an MCP caller has no pane to derive one from"},
+	"json": {Excluded: "§7.1: a tool call already answers with a structured document, " +
+		"so there is no prose mode to switch off"},
+	"follow": {Excluded: "§7.1: a tool call answers once; a stream is not a tool call"},
+}
+
+// GlobalsFor is the properties the globals add to one verb's tool.
+func GlobalsFor(v verbs.Verb) []string {
+	out := []string{}
+	for _, g := range Globals {
+		if g.Property == "" {
+			continue
+		}
+		if g.Only == nil || g.Only(v) {
+			out = append(out, g.Property)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
