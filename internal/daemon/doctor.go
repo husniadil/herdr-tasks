@@ -1,9 +1,12 @@
 package daemon
 
 import (
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/husniadil/herdr-tasks/internal/config"
@@ -104,6 +107,18 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 	r.HookConfigured = len(cfg.OnEvent) > 0
 	r.HookCommand = cfg.OnEvent
 
+	// A store an older build left behind at Herdr's injected path is named,
+	// never touched: the operator decides whether it is theirs to delete.
+	for _, dir := range config.OrphanStoreDirs() {
+		db := filepath.Join(dir, config.Name+".db")
+		if _, err := os.Stat(db); err != nil {
+			continue
+		}
+		r.Degraded = append(r.Degraded, "a second store sits at "+db+
+			", which is not the store in use ("+r.StateDir+"); "+orphanRows(db)+
+			". Nothing here writes to it — remove it yourself once you are satisfied it is empty")
+	}
+
 	if err := d.Store.DB().QueryRow("SELECT schema_version FROM meta").Scan(&r.SchemaVersion); err != nil {
 		r.Degraded = append(r.Degraded, "cannot read the schema version: "+err.Error())
 	}
@@ -129,4 +144,24 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 func (r DoctorReport) MarshalJSON() ([]byte, error) {
 	type alias DoctorReport
 	return json.Marshal(alias(r))
+}
+
+// orphanRows says what an abandoned store still holds, in the words doctor
+// puts on the line. It never fails: doctor never fails (§10.3), and a store we
+// cannot read is a thing to say, not an error to raise.
+func orphanRows(path string) string {
+	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro&_pragma=busy_timeout(1000)")
+	if err != nil {
+		return "it could not be opened, so what it holds is unknown"
+	}
+	defer db.Close()
+	var tasks, notes int
+	if err := db.QueryRow("SELECT (SELECT COUNT(*) FROM tasks), (SELECT COUNT(*) FROM notes)").
+		Scan(&tasks, &notes); err != nil {
+		return "it could not be read, so what it holds is unknown"
+	}
+	if tasks == 0 && notes == 0 {
+		return "it holds no tasks and no notes"
+	}
+	return fmt.Sprintf("it holds %d task(s) and %d note(s), so read it before removing it", tasks, notes)
 }
