@@ -98,7 +98,7 @@ tasks.note_promote
 
 ## Configuration
 
-TOML at `${HERDR_PLUGIN_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/tasks}/tasks.toml`,
+TOML at `${TASKS_CONFIG_DIR:-${XDG_CONFIG_HOME:-~/.config}/tasks}/tasks.toml`,
 re-read on SIGHUP. Every key is overridable with a `TASKS_` environment
 variable.
 
@@ -146,7 +146,7 @@ clamps at render time regardless, and says what it dropped.
 
 ## Your data
 
-SQLite at `${HERDR_PLUGIN_STATE_DIR:-${XDG_STATE_HOME:-~/.local/state}/tasks}/tasks.db`,
+SQLite at `${TASKS_STATE_DIR:-${XDG_STATE_HOME:-~/.local/state}/tasks}/tasks.db`,
 WAL, written only by the daemon. `ht dump --json` prints the whole store —
 tasks, notes, the append-only event trail, dependencies, the parked queue — so
 nothing here needs this plugin to be readable.
