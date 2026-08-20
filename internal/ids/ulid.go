@@ -83,20 +83,37 @@ func increment(b []byte) bool {
 	return false
 }
 
-// encode renders 128 bits as 26 base32 characters, five bits at a time from
-// the top. The first character carries only two significant bits, which is why
-// a ULID's leading digit never exceeds 7.
+// encode renders the 128 bits as 26 Crockford base32 characters, RIGHT-aligned:
+// 26 characters hold 130 bits, so the leading two are always zero and the first
+// character carries three significant bits — which is why a ULID's leading
+// digit never exceeds 7.
+//
+// This used to align them the other way, five bits at a time from the top, and
+// its comment said "two significant bits" while claiming a ceiling of 7, which
+// needs three. Internally that was harmless — a constant shift preserves
+// ordering — but it is not the format §5.4 names, and a decoder that did not
+// know about this implementation read the timestamp as a date two centuries
+// out. The divergence and the migration off it are in docs/contract-notes.md.
 func encode(raw [16]byte) string {
 	out := make([]byte, 26)
-	for i := 0; i < 26; i++ {
-		bit := i * 5
-		acc := uint16(raw[bit/8]) << 8
-		if bit/8+1 < 16 {
-			acc |= uint16(raw[bit/8+1])
-		}
-		out[i] = alphabet[(acc>>(11-uint(bit%8)))&0x1f]
+	for i := range out {
+		// Character 25 holds the lowest five bits, 24 the next five, and so on.
+		out[i] = alphabet[fiveBitsAt(raw, (25-i)*5)]
 	}
 	return string(out)
+}
+
+// fiveBitsAt reads five bits starting at `lo` counted from the LEAST
+// significant end of the 128-bit value. Bits past the top read as zero, which
+// is what makes the leading character three bits wide rather than five.
+func fiveBitsAt(raw [16]byte, lo int) byte {
+	// Big-endian: byte 15 holds the lowest eight bits.
+	at, shift := 15-lo/8, lo%8
+	v := uint16(raw[at]) >> shift
+	if shift > 3 && at > 0 {
+		v |= uint16(raw[at-1]) << (8 - shift)
+	}
+	return byte(v & 0x1f)
 }
 
 // Valid reports whether s has the shape of a stored id: 26 Crockford
@@ -121,4 +138,53 @@ func inAlphabet(c byte) bool {
 		}
 	}
 	return false
+}
+
+// Reencode converts an id minted by the old LEFT-aligned rendering into the
+// spec's right-aligned one. The two differ by a constant two-bit shift, so the
+// conversion is exact and total: read the 130 bits the old string spelled,
+// shift the padding off the wrong end, and render them again.
+//
+// It reports false for anything that is not a 26-character Crockford string,
+// and for an old string whose low two bits are set — which the old encoder
+// could never produce, since it left them as padding. That is the one check
+// available for "this has already been migrated", and it is why the migration
+// leans on the schema version for idempotence rather than on the ids.
+func Reencode(old string) (string, bool) {
+	if !Valid(old) {
+		return "", false
+	}
+	hi, lo := uint64(0), uint64(0)
+	for i := 0; i < len(old); i++ {
+		v := uint64(index(old[i]))
+		hi = hi<<5 | lo>>59
+		lo = lo<<5 | v
+	}
+	if lo&0x3 != 0 {
+		// The old encoder put the 128 bits at the TOP of the 130, so the
+		// bottom two were always zero. Anything else was not minted by it.
+		return "", false
+	}
+	// Drop the two padding bits off the bottom to get the real 128.
+	lo = lo>>2 | hi<<62
+	hi >>= 2
+	var raw [16]byte
+	for i := 7; i >= 0; i-- {
+		raw[i] = byte(hi)
+		hi >>= 8
+	}
+	for i := 15; i >= 8; i-- {
+		raw[i] = byte(lo)
+		lo >>= 8
+	}
+	return encode(raw), true
+}
+
+func index(c byte) int {
+	for i := 0; i < len(alphabet); i++ {
+		if alphabet[i] == c {
+			return i
+		}
+	}
+	return -1
 }

@@ -1,17 +1,26 @@
 package store
 
+import "database/sql"
+
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 2
+const SchemaVersion = 3
+
+// migration is one numbered step. Most are SQL; one has to be Go, because
+// re-encoding every stored id is not something SQL can do.
+type migration struct {
+	SQL string
+	Fn  func(*sql.Tx) error
+}
 
 // migrations are numbered and append-only (§5.2). Index i holds migration
 // i+1; each runs in its own transaction at daemon start. Never edit a shipped
 // entry — append a new one.
-var migrations = []string{
-	// 1 — tasks, notes, their append-only event tables, the per-project seq
-	// counter, and the parked queue of the policy gate.
-	`
+var migrations = []migration{{SQL:
+// 1 — tasks, notes, their append-only event tables, the per-project seq
+// counter, and the parked queue of the policy gate.
+`
 CREATE TABLE meta (
   schema_version INTEGER NOT NULL,
   created_at     INTEGER NOT NULL
@@ -125,10 +134,19 @@ CREATE TABLE parked (
   resolved_at INTEGER
 );
 CREATE INDEX parked_project_state ON parked (project, state);
-`,
+`},
 	// 2 — why a parked action the operator resolved did not happen. Before
 	// this the verb ran before the row was marked, so a failure left the row
 	// waiting and re-runnable; now the row is marked first and moved to
 	// `failed` with the reason when the verb refuses.
-	`ALTER TABLE parked ADD COLUMN error TEXT;`,
+	{SQL: `ALTER TABLE parked ADD COLUMN error TEXT;`},
+	// 3 — re-encode every stored id. §5.4 names ULIDs, and this store minted
+	// something that was not one: the 128 bits were rendered LEFT-aligned in
+	// the 26 characters, two bits out, so a decoder that did not know about
+	// this implementation read the timestamp as a date two centuries away.
+	// Ordering was never wrong — a constant shift preserves it — but a
+	// half-migrated store WOULD be, because for the same instant an old id
+	// sorts after a new one. So every id moves in one transaction, or none
+	// does.
+	{Fn: reencodeIDs},
 }

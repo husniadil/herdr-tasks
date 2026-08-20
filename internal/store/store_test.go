@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -946,5 +947,367 @@ func TestEveryNotFoundInThisPackageDistinguishesNoRows(t *testing.T) {
 	}
 	if checked < 3 {
 		t.Fatalf("only %d functions answer NOT_FOUND; the sweep is not finding them", checked)
+	}
+}
+
+// oldID mints an id the way this store used to: the 128 bits LEFT-aligned in
+// the 26 characters. It is the fixture migration 3 has to read, and nothing in
+// the shipped code can produce it any more — which is the point.
+func oldID(ms int64, tail byte) string {
+	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+	var raw [16]byte
+	for i := 0; i < 6; i++ {
+		raw[i] = byte(ms >> uint(40-8*i))
+	}
+	raw[15] = tail
+	out := make([]byte, 26)
+	for i := 0; i < 26; i++ {
+		bit := i * 5
+		acc := uint16(raw[bit/8]) << 8
+		if bit/8+1 < 16 {
+			acc |= uint16(raw[bit/8+1])
+		}
+		out[i] = alphabet[(acc>>(11-uint(bit%8)))&0x1f]
+	}
+	return string(out)
+}
+
+// v2Store builds a database at schema version 2 — the last one before the ids
+// were re-spelled — and fills it with a graph that touches every column an id
+// lives in: two tasks with a dependency between them, a note promoted to one
+// of them, a parked action, and events in both trails. It returns the path.
+func v2Store(t *testing.T) (path string, byLabel map[string]string) {
+	t.Helper()
+	path = filepath.Join(t.TempDir(), "tasks.db")
+	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer db.Close()
+	for i := 0; i < 2; i++ {
+		if _, err := db.Exec(migrations[i].SQL); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO meta (schema_version, created_at) VALUES (2, 1)"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+
+	at := int64(1_787_225_085_000)
+	byLabel = map[string]string{
+		"blocker":   oldID(at, 1),
+		"dependent": oldID(at+1, 2),
+		"note":      oldID(at+2, 3),
+		"parked":    oldID(at+3, 4),
+		"ev1":       oldID(at+4, 5),
+		"ev2":       oldID(at+5, 6),
+		"nev1":      oldID(at+6, 7),
+	}
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	for label, seq := range map[string]int{"blocker": 1, "dependent": 2} {
+		exec(`INSERT INTO tasks (id, seq, project, title, status, priority, created_by, created_at, updated_at)
+		      VALUES (?, ?, ?, ?, 'todo', 0, 'human', ?, ?)`,
+			byLabel[label], seq, proj, label, at, at)
+	}
+	// The per-project counters, so a task created after the migration does not
+	// collide with the seqs this fixture wrote by hand.
+	exec("INSERT INTO seqs (project, entity, next) VALUES (?, 'task', 3)", proj)
+	exec("INSERT INTO seqs (project, entity, next) VALUES (?, 'note', 2)", proj)
+	exec("INSERT INTO task_deps (task_id, depends_on_id) VALUES (?, ?)",
+		byLabel["dependent"], byLabel["blocker"])
+	exec(`INSERT INTO notes (id, seq, project, body, status, author, task_id, created_at, updated_at)
+	      VALUES (?, 1, ?, 'promoted already', 'task', 'human', ?, ?, ?)`,
+		byLabel["note"], proj, byLabel["blocker"], at, at)
+	exec(`INSERT INTO parked (id, project, subject, verb, target, payload, state, created_at)
+	      VALUES (?, ?, 'agent:wF:p1', 'tasks.approve', '#1', '{}', 'parked', ?)`,
+		byLabel["parked"], proj, at)
+	exec(`INSERT INTO tasks_events (id, entity_id, project, at, actor, kind, detail)
+	      VALUES (?, ?, ?, ?, 'human', 'created', '{}')`, byLabel["ev1"], byLabel["blocker"], proj, at)
+	exec(`INSERT INTO tasks_events (id, entity_id, project, at, actor, kind, detail)
+	      VALUES (?, ?, ?, ?, 'human', 'created', '{}')`, byLabel["ev2"], byLabel["dependent"], proj, at+1)
+	exec(`INSERT INTO notes_events (id, entity_id, project, at, actor, kind, detail)
+	      VALUES (?, ?, ?, ?, 'human', 'added', '{}')`, byLabel["nev1"], byLabel["note"], proj, at)
+	return path, byLabel
+}
+
+// shape reads every id-bearing row as a structure with the ids replaced by
+// stable labels, so a before and an after can be compared for everything
+// EXCEPT the ids — which is exactly what the migration is allowed to change.
+func shape(t *testing.T, db *sql.DB, label map[string]string) string {
+	t.Helper()
+	name := map[string]string{}
+	for k, v := range label {
+		name[v] = k
+	}
+	// Post-migration ids are not in the label map, so they are named by the
+	// row they belong to instead: what matters is that the RELATIONSHIPS are
+	// the same, not what the strings are.
+	rename := func(id string) string {
+		if n, ok := name[id]; ok {
+			return n
+		}
+		return "?" + id[:0] + "" // an id nobody knows: rendered as a blank
+	}
+	var b strings.Builder
+	for _, q := range []struct{ label, sql string }{
+		{"task", "SELECT seq, title, status FROM tasks ORDER BY seq"},
+		{"dep", "SELECT t.seq, d.seq FROM task_deps x JOIN tasks t ON t.id = x.task_id JOIN tasks d ON d.id = x.depends_on_id ORDER BY t.seq"},
+		{"note", "SELECT n.seq, n.body, t.seq FROM notes n JOIN tasks t ON t.id = n.task_id ORDER BY n.seq"},
+		{"parked", "SELECT verb, target, state FROM parked ORDER BY created_at"},
+		{"tev", "SELECT t.seq, e.kind, e.at FROM tasks_events e JOIN tasks t ON t.id = e.entity_id ORDER BY e.at"},
+		{"nev", "SELECT n.seq, e.kind, e.at FROM notes_events e JOIN notes n ON n.id = e.entity_id ORDER BY e.at"},
+	} {
+		rows, err := db.Query(q.sql)
+		if err != nil {
+			t.Fatalf("%s: %v", q.label, err)
+		}
+		cols, _ := rows.Columns()
+		for rows.Next() {
+			cells := make([]any, len(cols))
+			ptrs := make([]any, len(cols))
+			for i := range cells {
+				ptrs[i] = &cells[i]
+			}
+			if err := rows.Scan(ptrs...); err != nil {
+				rows.Close()
+				t.Fatalf("%s scan: %v", q.label, err)
+			}
+			fmt.Fprintf(&b, "%s %v\n", q.label, cells)
+		}
+		rows.Close()
+	}
+	_ = rename
+	return b.String()
+}
+
+// §5.4: every stored id moves, in one transaction, and the graph still holds
+// together afterwards.
+func TestMigrationReencodesEveryStoredID(t *testing.T) {
+	path, label := v2Store(t)
+
+	before, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	beforeShape := shape(t, before, label)
+	before.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (which migrates): %v", err)
+	}
+	defer s.Close()
+
+	var version int64
+	if err := s.db.QueryRow("SELECT schema_version FROM meta").Scan(&version); err != nil {
+		t.Fatalf("version: %v", err)
+	}
+	if version != SchemaVersion {
+		t.Fatalf("schema_version = %d, want %d", version, SchemaVersion)
+	}
+
+	// Every id changed, and none of the old ones is left anywhere.
+	for _, c := range idColumns {
+		rows, err := s.db.Query(fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL AND %s != ''",
+			c.column, c.table, c.column, c.column))
+		if err != nil {
+			t.Fatalf("%s.%s: %v", c.table, c.column, err)
+		}
+		for rows.Next() {
+			var got string
+			if err := rows.Scan(&got); err != nil {
+				rows.Close()
+				t.Fatalf("scan: %v", err)
+			}
+			for name, old := range label {
+				if got == old {
+					rows.Close()
+					t.Fatalf("%s.%s still holds the old id for %s: %s", c.table, c.column, name, got)
+				}
+			}
+		}
+		rows.Close()
+	}
+
+	// Nothing dangles. The migration asks this inside its own transaction and
+	// refuses to commit if it fails; this asks it again from outside, over a
+	// wider set — notes.task_id is a reference the migration's own check does
+	// not cover because it is nullable.
+	for _, ref := range []struct{ table, column, parent string }{
+		{"task_deps", "task_id", "tasks"},
+		{"task_deps", "depends_on_id", "tasks"},
+		{"tasks_events", "entity_id", "tasks"},
+		{"notes_events", "entity_id", "notes"},
+		{"notes", "task_id", "tasks"},
+	} {
+		var n int
+		q := fmt.Sprintf("SELECT COUNT(*) FROM %s r WHERE r.%s IS NOT NULL AND r.%s != '' AND NOT EXISTS (SELECT 1 FROM %s p WHERE p.id = r.%s)",
+			ref.table, ref.column, ref.column, ref.parent, ref.column)
+		if err := s.db.QueryRow(q).Scan(&n); err != nil {
+			t.Fatalf("%s.%s: %v", ref.table, ref.column, err)
+		}
+		if n > 0 {
+			t.Fatalf("%d rows of %s.%s point at no %s", n, ref.table, ref.column, ref.parent)
+		}
+	}
+
+	// §6.2 in spirit: the same rows with the same relationships, differing
+	// only in the id strings.
+	if got := shape(t, s.db, label); got != beforeShape {
+		t.Fatalf("the migration changed more than the ids:\nbefore:\n%safter:\n%s", beforeShape, got)
+	}
+
+	// §6.2 through the verb an operator would use: dump still renders the
+	// whole store, with the note still pointing at the task it was promoted
+	// into and the dependency still joining two tasks that exist.
+	d, err := s.Dump()
+	if err != nil {
+		t.Fatalf("Dump: %v", err)
+	}
+	if len(d.Tasks) != 2 || len(d.Notes) != 1 || len(d.Parked) != 1 {
+		t.Fatalf("dump lost rows: %d tasks, %d notes, %d parked", len(d.Tasks), len(d.Notes), len(d.Parked))
+	}
+	byID := map[string]*tasks.Task{}
+	for _, x := range d.Tasks {
+		byID[x.ID] = x
+	}
+	if origin := byID[d.Notes[0].TaskID]; origin == nil {
+		t.Fatalf("the promoted note points at %q, which is no task in the dump", d.Notes[0].TaskID)
+	}
+	deps := 0
+	for _, x := range d.Tasks {
+		for _, dep := range x.Deps {
+			if byID[dep] == nil {
+				t.Fatalf("task %d depends on %q, which is no task in the dump", x.Seq, dep)
+			}
+			deps++
+		}
+	}
+	if deps != 1 {
+		t.Fatalf("the dependency edge did not survive: %d edges", deps)
+	}
+
+	// And the ids are now readable as ULIDs: the trail's first event still
+	// carries the millisecond it was written at.
+	var first string
+	if err := s.db.QueryRow("SELECT id FROM tasks_events ORDER BY at ASC LIMIT 1").Scan(&first); err != nil {
+		t.Fatalf("read an event id: %v", err)
+	}
+	if ms := ulidMS(t, first); ms != 1_787_225_085_004 {
+		t.Fatalf("the migrated event id reads as %d, want the millisecond it was minted at", ms)
+	}
+}
+
+// ulidMS reads the timestamp out of a spec ULID, from the spec.
+func ulidMS(t *testing.T, id string) int64 {
+	t.Helper()
+	const alphabet = "0123456789ABCDEFGHJKMNPQRSTVWXYZ"
+	hi, lo := uint64(0), uint64(0)
+	for i := 0; i < len(id); i++ {
+		v := strings.IndexByte(alphabet, id[i])
+		if v < 0 {
+			t.Fatalf("%q is not a Crockford string", id)
+		}
+		hi = hi<<5 | lo>>59
+		lo = lo<<5 | uint64(v)
+	}
+	return int64(hi >> 16)
+}
+
+// §5.2: the migration runs once. Opening again is a no-op, not a second
+// re-encode — which would be the one thing that could still break the trail's
+// order, since it would move some ids and not others.
+func TestTheReencodeRunsOnce(t *testing.T) {
+	path, _ := v2Store(t)
+	first, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ids := map[string][]string{}
+	read := func(s *Store) map[string][]string {
+		out := map[string][]string{}
+		for _, c := range idColumns {
+			rows, err := s.db.Query(fmt.Sprintf("SELECT %s FROM %s WHERE %s IS NOT NULL AND %s != '' ORDER BY 1",
+				c.column, c.table, c.column, c.column))
+			if err != nil {
+				t.Fatalf("%s.%s: %v", c.table, c.column, err)
+			}
+			key := c.table + "." + c.column
+			for rows.Next() {
+				var v string
+				if err := rows.Scan(&v); err != nil {
+					rows.Close()
+					t.Fatalf("scan: %v", err)
+				}
+				out[key] = append(out[key], v)
+			}
+			rows.Close()
+		}
+		return out
+	}
+	ids = read(first)
+	first.Close()
+
+	second, err := Open(path)
+	if err != nil {
+		t.Fatalf("re-open: %v", err)
+	}
+	defer second.Close()
+	again := read(second)
+	if fmt.Sprint(again) != fmt.Sprint(ids) {
+		t.Fatalf("opening again moved the ids:\nfirst:  %v\nsecond: %v", ids, again)
+	}
+}
+
+// §8.2: the trail's order survives the boundary. Events written before the
+// migration and after it come back in the order they happened, and --since
+// with a pre-migration id returns exactly what followed it.
+func TestTheTrailKeepsItsOrderAcrossTheMigration(t *testing.T) {
+	path, _ := v2Store(t)
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	// Two events from BEFORE the migration are already there. Add one after,
+	// minted by the new encoder at a later millisecond.
+	later := create(t, s, "written after the migration")
+	_ = later
+
+	evs, err := s.Events(EventFilter{Project: proj, Entity: "task"})
+	if err != nil {
+		t.Fatalf("Events: %v", err)
+	}
+	if len(evs) < 3 {
+		t.Fatalf("expected the two migrated events and the new one, got %d", len(evs))
+	}
+	for i := 1; i < len(evs); i++ {
+		if evs[i-1].At > evs[i].At {
+			t.Fatalf("the trail came back out of order at %d: %d then %d", i, evs[i-1].At, evs[i].At)
+		}
+		if evs[i-1].ID >= evs[i].ID {
+			t.Fatalf("event ids do not sort in the order they happened: %q then %q", evs[i-1].ID, evs[i].ID)
+		}
+	}
+
+	// --since a PRE-migration id returns exactly what followed it.
+	since := evs[0].ID
+	after, err := s.Events(EventFilter{Project: proj, Entity: "task", SinceID: since})
+	if err != nil {
+		t.Fatalf("Events since: %v", err)
+	}
+	if len(after) != len(evs)-1 {
+		t.Fatalf("--since the first event returned %d, want %d", len(after), len(evs)-1)
+	}
+	for i, e := range after {
+		if e.ID != evs[i+1].ID {
+			t.Fatalf("--since returned %q at %d, want %q", e.ID, i, evs[i+1].ID)
+		}
 	}
 }

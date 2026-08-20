@@ -254,3 +254,48 @@ was never usable rather than breaking one that worked.
 Suggested amendment upstream: define `project` as the working tree of the
 repository containing the directory — `--show-toplevel` — with the common dir
 consulted only to make linked worktrees resolve to the main working tree.
+
+## §5.4 — the ids were not ULIDs, and now they are
+
+§5.4 says entity ids are ULIDs, which is the name of a FORMAT, not a shape.
+This store minted 26 Crockford base32 characters that were not one.
+
+A ULID is 128 bits rendered **right-aligned** in 26 five-bit characters. That
+is 130 bits, so the leading two are padding and the first character carries
+three significant bits — which is why a ULID's leading digit never exceeds 7.
+This encoder aligned them the other way, five bits at a time from the TOP, so
+every id was the correct value shifted left by two. Its own comment said the
+first character carried "two significant bits" while claiming that ceiling of
+7, which needs three; the comment and the code were each wrong in a different
+way, and neither caught the other.
+
+Measured on a real id from this board, `06G1XTMPG597T1S9F5HZG0BC94`:
+
+| read as | milliseconds | date |
+|---|---|---|
+| a spec ULID | 7148900342277 | year 2196 |
+| shifted right two | 1787225085569 | 2026-08-20 11:24:45 UTC |
+
+The second is when that note was filed. So any tool that decoded one of these
+as a ULID — which §5.4 invites it to — got a timestamp two centuries out.
+
+Internal ordering was never affected: a constant shift preserves it, and
+`ORDER BY id` over the trail (§5.5, §8.2) was always right. That is why nothing
+noticed.
+
+**Fixing it needed a migration, not just an encoder change.** For the same
+128 bits the old spelling is the new one times four, so a newly minted correct
+id sorts BEFORE every existing one. A store that minted the new format without
+re-spelling the old ids would return its trail in the wrong order across the
+boundary, and `--since <id>` would skip or repeat. Migration 3 therefore
+re-encodes every stored id — tasks, notes, parked, both events tables and both
+of `task_deps`' columns — in ONE transaction, with foreign keys deferred to
+the commit so a parent and its children move together, and a referential check
+inside the transaction that refuses to commit a graph that no longer holds.
+
+Recorded rather than merely fixed because the divergence was invisible from
+inside: every test this plugin had was written against its own encoder, so the
+format could only be checked against a decoder written from the spec. That
+decoder now lives in the id tests, and it is deliberately not derived from
+`encode` — one that was would agree with any encoding at all, including the
+wrong one.

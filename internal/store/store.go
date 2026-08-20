@@ -80,7 +80,12 @@ func (s *Store) migrate() error {
 		if err != nil {
 			return codes.Errorf(codes.Unavailable, "begin migration %d: %v", i+1, err)
 		}
-		if _, err := tx.Exec(migrations[i]); err != nil {
+		if step := migrations[i]; step.SQL != "" {
+			if _, err := tx.Exec(step.SQL); err != nil {
+				tx.Rollback()
+				return codes.Errorf(codes.Unavailable, "migration %d: %v", i+1, err)
+			}
+		} else if err := step.Fn(tx); err != nil {
 			tx.Rollback()
 			return codes.Errorf(codes.Unavailable, "migration %d: %v", i+1, err)
 		}

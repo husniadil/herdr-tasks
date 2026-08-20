@@ -99,3 +99,148 @@ func TestULIDIsUniqueUnderConcurrency(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// specDecode is a decoder written from the ULID spec, NOT from our encoder: a
+// ULID is the 128-bit value rendered right-aligned in 26 Crockford base32
+// characters, which is 130 bits, so the leading two bits are always zero and
+// the first character never exceeds 7. Its top 48 bits are the Unix
+// millisecond. Writing it here is the point — a decoder derived from encode()
+// would agree with any encoding at all, including the wrong one.
+func specDecode(t *testing.T, id string) (ms int64, ok bool) {
+	t.Helper()
+	if len(id) != 26 {
+		return 0, false
+	}
+	// The timestamp is the top 48 of 128 bits. Read the whole thing as a big
+	// integer over the 26 characters and shift the 80 random bits off.
+	hi, lo := uint64(0), uint64(0) // hi holds bits 127..64, lo holds 63..0
+	for _, c := range []byte(id) {
+		v := strings.IndexByte(alphabet, c)
+		if v < 0 {
+			return 0, false
+		}
+		hi = hi<<5 | lo>>59
+		lo = lo<<5 | uint64(v)
+	}
+	return int64(hi >> 16), true
+}
+
+// §5.4: the ids are ULIDs, which is the name of a format. A decoder that does
+// not know about this implementation must be able to read the time out of one.
+func TestIdsAreSpecULIDs(t *testing.T) {
+	// The factory is monotonic and its state is process-wide, so an id minted
+	// for a timestamp EARLIER than the last one keeps the last one's — the
+	// clock-step guarantee, not a decoding failure. Ask it where it is rather
+	// than assuming, so this holds however many times the package is run in
+	// one process.
+	base, ok := specDecode(t, New(1_900_000_000_000))
+	if !ok {
+		t.Fatal("a freshly minted id is not decodable")
+	}
+	for _, ms := range []int64{base + 1, base + 2, base + 1000} {
+		id := New(ms)
+		got, ok := specDecode(t, id)
+		if !ok {
+			t.Fatalf("%q is not decodable at all", id)
+		}
+		if got != ms {
+			t.Errorf("New(%d) = %q, which a spec decoder reads as %d", ms, id, got)
+		}
+	}
+
+	// And the shape the spec promises: the leading character carries three
+	// bits, so it never exceeds 7.
+	id := New(base + 2000)
+	if id[0] > '7' {
+		t.Errorf("the leading character of %q is %q, which is past the 3 bits a ULID has there", id, id[0])
+	}
+}
+
+// oldEncode is the rendering this store used to mint: the 128 bits LEFT-
+// aligned in the 26 characters, five bits at a time from the top. It lives in
+// the test because it is the fixture the migration has to read, and nothing in
+// the shipped code should be able to produce it again.
+func oldEncode(raw [16]byte) string {
+	out := make([]byte, 26)
+	for i := 0; i < 26; i++ {
+		bit := i * 5
+		acc := uint16(raw[bit/8]) << 8
+		if bit/8+1 < 16 {
+			acc |= uint16(raw[bit/8+1])
+		}
+		out[i] = alphabet[(acc>>(11-uint(bit%8)))&0x1f]
+	}
+	return string(out)
+}
+
+// §5.4: converting an old id is exact — same 128 bits, spelled the way the
+// format says. A real id from this board before the change decodes to the
+// moment it was filed.
+func TestReencodeKeepsTheBitsAndFixesTheSpelling(t *testing.T) {
+	// Minted by the old encoder at a known millisecond.
+	ms := int64(1_787_225_085_569)
+	var raw [16]byte
+	raw[0], raw[1] = byte(ms>>40), byte(ms>>32)
+	raw[2], raw[3] = byte(ms>>24), byte(ms>>16)
+	raw[4], raw[5] = byte(ms>>8), byte(ms)
+	raw[6], raw[15] = 0xAB, 0x5C
+	old := oldEncode(raw)
+
+	got, ok := Reencode(old)
+	if !ok {
+		t.Fatalf("Reencode refused %q", old)
+	}
+	if len(got) != 26 {
+		t.Fatalf("Reencode returned %d characters", len(got))
+	}
+	if decoded, ok := specDecode(t, got); !ok || decoded != ms {
+		t.Fatalf("the converted id reads as %d, want %d", decoded, ms)
+	}
+	// The old string read by a spec decoder is the nonsense this is fixing.
+	if decoded, _ := specDecode(t, old); decoded == ms {
+		t.Fatalf("the old spelling already decoded correctly, so the fixture is wrong")
+	}
+	// Converting is a pure re-spelling: the same bits, twice.
+	again, ok := Reencode(old)
+	if !ok || again != got {
+		t.Fatalf("Reencode is not deterministic: %q then %q", got, again)
+	}
+	// And ORDER is preserved, which is what makes a whole-store migration
+	// safe: two old ids convert to two new ids that compare the same way.
+	raw[15] = 0x5D
+	older, newer := old, oldEncode(raw)
+	a, _ := Reencode(older)
+	b, _ := Reencode(newer)
+	if (older < newer) != (a < b) {
+		t.Fatalf("re-encoding reordered %q<%q into %q<%q", older, newer, a, b)
+	}
+}
+
+// What Reencode refuses, and — more importantly — what it CANNOT refuse.
+//
+// The old encoder left the bottom two bits as padding, so a string with either
+// of them set was certainly not minted by it. That is the only signal
+// available, and it is a weak one: three quarters of correctly-encoded ids
+// have a bit set down there, but the other quarter do not, so Reencode cannot
+// tell an already-migrated id from an old one. Running the migration twice
+// would therefore corrupt most of a store — which is why idempotence rests on
+// the schema version (TestTheReencodeRunsOnce in the store) and not on the ids
+// themselves. Pinning that here so nobody later mistakes this check for one.
+func TestReencodeRefusesOnlyWhatItCan(t *testing.T) {
+	if _, ok := Reencode("not an id"); ok {
+		t.Fatal("Reencode accepted a non-id")
+	}
+	if _, ok := Reencode(strings.Repeat("Z", 26)); ok {
+		t.Fatal("Reencode accepted a string whose padding bits are set")
+	}
+	// And the honest half: some new ids look old to it.
+	looksOld := 0
+	for i := 0; i < 40; i++ {
+		if _, ok := Reencode(New(1_900_000_100_000 + int64(i))); ok {
+			looksOld++
+		}
+	}
+	if looksOld == 0 {
+		t.Fatal("no new id was accepted, so this check reads stronger than it is")
+	}
+}
