@@ -54,28 +54,60 @@ JSON Schema:
 simplifies this keeps working. No protocol number is pinned; the number is read
 and shown in `doctor` output only.
 
-## §8.4 / §11.5 — event names are spelled with underscores
+## §8.4 / §11.5 — event names are spelled both ways, and which one depends
 
 The contract writes Herdr's event names with dots (`pane.exited`,
 `pane.agent_status_changed`). Herdr's own `EventKind` enum spells them with
-underscores (`pane_exited`, `pane_agent_status_changed`). `Schema.Has` matches
-either spelling rather than picking a side, since §11.3 says use Herdr's names
-and §8.4 uses the other ones.
+underscores (`pane_exited`, `pane_agent_status_changed`). Both are right, in
+different places, and the rule is now known rather than guessed:
 
-## §8.4 — no manifest `[[events]]` reaction yet
+- a manifest `[[events]]` hook's `on` is validated against
+  `plugin_hook_event_names()`, which maps the hookable kinds through
+  `EventKind::dot_name()` — so the manifest takes **dots**, and an underscore
+  spelling is rejected when Herdr loads the plugin, not here;
+- the `EventKind` enum in `herdr api schema --json` uses **underscores**.
 
-§8.4 lets a plugin react to Herdr events through the manifest. What a plugin's
-`[[events]]` command receives — argv substitution, environment variables, or
-stdin — is not specified by the contract and is not documented anywhere this
-implementation could check, and `pane.exited` carries only a pane id, so a
-reaction that cannot read that id is not a reaction.
+`Schema.Has` goes on matching either spelling, which is right for a document
+whose own two halves disagree. The manifest does not get that latitude: it is
+validated against one list, and `herdr-plugin.toml` spells its hooks with dots.
 
-Rather than guess a substitution syntax, the manifest declares no `[[events]]`
-block. Leases are freed by the bounded timer §11.5 explicitly allows, by the
-reconciliation sweep at daemon start (§8.4's stated exception), and by the
-`sweep` action and `ht sweep --pane <id>` verb for "that pane died, give its
-work back now". When the manifest's event contract is written down, the
-reaction is a two-line addition.
+## §8.4 — what a manifest `[[events]]` command receives
+
+This entry used to say the payload was unspecified and undiscoverable, and
+that the manifest therefore declared no `[[events]]` block. That was wrong,
+and a note asserting a blocker that does not exist is how a capability stays
+unused. Read out of Herdr's own source
+(`src/app/api/plugins/runtime.rs`, `context.rs`, `manifest.rs`), a hook
+command receives its payload as **environment variables**:
+
+- `HERDR_PLUGIN_EVENT` — the event name,
+- `HERDR_PLUGIN_EVENT_JSON` — the whole event envelope,
+- `HERDR_PLUGIN_CONTEXT_JSON` — the invocation context,
+- `HERDR_PANE_ID` — for pane events, plus `HERDR_WORKSPACE_ID` and
+  `HERDR_TAB_ID` when the context has them.
+
+There is **no argv substitution**. A `command` argv containing
+`"$HERDR_PANE_ID"` receives that literal string, so a reaction that needs an
+id has to be a script that reads the environment. Ours is
+`scripts/on-pane-gone.sh`.
+
+Which pane `HERDR_PANE_ID` names, since "focused pane" and "the pane the event
+is about" are not obviously the same thing and a sweep aimed at the wrong one
+would take work off a live agent: for `pane.closed` the context is built
+directly from the closed pane's id; for `pane.exited` it resolves through the
+event's own pane, and yields **nothing** if the pane has already left Herdr's
+state. So the variable is either the event's pane or absent — never a
+different live pane. The script guards the absent case and releases nothing.
+
+Hooks fire for every subject, not only the plugin's own panes, so a reaction
+must be safe to run for a pane it knows nothing about and safe to run twice.
+Ours is both by construction rather than by filtering: `ht sweep --pane <id>`
+releases the leases that one pane holds, which is nothing for a pane that
+holds none, and nothing again the second time.
+
+Leases are still also freed by the bounded timer §11.5 allows and by the
+reconciliation sweep at daemon start. The hook makes the common case immediate
+instead of up to a lease-length late.
 
 ## §6.1 — parity between a small MCP surface and the full CLI
 
