@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -37,6 +39,10 @@ const ContractVersion = "v0 (0.1.0-draft)"
 type Daemon struct {
 	Store *store.Store
 	Herdr *herdrclient.Client
+	// StreamPolls counts how many times a follower's loop has re-read the
+	// trail. A stream nobody is reading must stop moving it, and counting is
+	// how a test can say so without waiting on a clock.
+	StreamPolls atomic.Int64
 	// Now is the clock in Unix milliseconds (§5.3), injectable for tests.
 	Now func() int64
 
@@ -187,7 +193,20 @@ func (d *Daemon) serveConn(ctx context.Context, conn net.Conn) {
 			enc.Encode(d.stamp(protocol.Response{Error: errorBody(err)}))
 			return
 		}
-		d.streamEvents(ctx, req, enc)
+		// A follower that went away was only noticed when an event happened to
+		// match its filter, because that is the only moment the stream wrote
+		// anything. On a quiet project it never happened, and the goroutine,
+		// the descriptor, the watcher registration and a 1 Hz read of the
+		// trail stayed for the daemon's whole life. The client sends one
+		// request and then only reads, so a read here returns exactly when it
+		// is gone — no ping, and nothing to mistake for an idle client.
+		gone, hangUp := context.WithCancel(ctx)
+		go func() {
+			defer hangUp()
+			io.Copy(io.Discard, conn)
+		}()
+		d.streamEvents(gone, req, enc)
+		hangUp()
 		return
 	}
 	enc.Encode(d.Answer(req))
@@ -476,6 +495,7 @@ func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *js
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {
+		d.StreamPolls.Add(1)
 		evs, err := d.Store.Events(f)
 		if err != nil {
 			enc.Encode(d.stamp(protocol.Response{Error: errorBody(err)}))

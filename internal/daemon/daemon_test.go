@@ -1309,3 +1309,101 @@ func TestAFollowAnswerCarriesTheBuildStamp(t *testing.T) {
 		t.Fatalf("the refusal is unstamped: %+v", bad)
 	}
 }
+
+// watchers is how many follow streams this daemon is holding open. It is the
+// exact signal for "the streaming goroutine returned": the loop registers on
+// entry and unregisters on the way out, so a count that drops is a goroutine
+// that finished, not a guess about one.
+func watcherCount(d *Daemon) int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return len(d.watchers)
+}
+
+func waitFor(t *testing.T, what string, within time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(within)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("%s did not happen within %s", what, within)
+}
+
+// §8.2: a follower that went away is let go. Disconnects were only noticed
+// when an event happened to match the filter — the only moment the stream
+// wrote anything — so on a QUIET project a dead follower kept a goroutine, a
+// descriptor, a watcher registration and a 1 Hz read of the trail for as long
+// as the daemon lived.
+func TestADeadFollowerIsLetGo(t *testing.T) {
+	d := newDaemon(t, nil)
+	path := socketOf(t, d)
+
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	// A project with nothing in it, so the stream never has anything to write
+	// and cannot notice the disconnect by failing to write it.
+	if err := json.NewEncoder(conn).Encode(protocol.Request{
+		Verb: "events", Project: "/tmp/quiet", Follow: true}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	waitFor(t, "the stream registering", 5*time.Second, func() bool { return watcherCount(d) == 1 })
+
+	conn.Close()
+
+	// Criterion 1 and 2: the goroutine returned, and its registration went
+	// with it, so notify() is not fanning out to a socket nobody holds.
+	waitFor(t, "the dead follower being let go", 5*time.Second, func() bool { return watcherCount(d) == 0 })
+
+	// Criterion 4: and it stopped reading the trail. Counted over several
+	// tick intervals rather than assumed from the count above.
+	polls := d.StreamPolls.Load()
+	time.Sleep(2500 * time.Millisecond)
+	if grew := d.StreamPolls.Load() - polls; grew != 0 {
+		t.Fatalf("the dead follower re-read the trail %d more times over 2.5s", grew)
+	}
+}
+
+// §8.2: and a LIVE follower that is merely quiet is NOT dropped. This is the
+// half the fix can most easily break: a probe that mistakes silence for a
+// disconnect would cut off every watcher on an idle board.
+func TestAnIdleFollowerIsKept(t *testing.T) {
+	d := newDaemon(t, nil)
+	path := socketOf(t, d)
+
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer conn.Close()
+	if err := json.NewEncoder(conn).Encode(protocol.Request{
+		Verb: "events", Project: proj, Follow: true}); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	waitFor(t, "the stream registering", 5*time.Second, func() bool { return watcherCount(d) == 1 })
+
+	// Several probe intervals of nothing at all.
+	before := d.StreamPolls.Load()
+	time.Sleep(3 * time.Second)
+	if watcherCount(d) != 1 {
+		t.Fatal("an idle follower was dropped")
+	}
+	if d.StreamPolls.Load() <= before {
+		t.Fatal("the live stream stopped watching")
+	}
+
+	// And it still gets the next event that matches.
+	createTask(t, d, "something happens at last")
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	var resp protocol.Response
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		t.Fatalf("the idle follower missed the event it was waiting for: %v", err)
+	}
+	if resp.Error != nil || len(resp.Result) == 0 {
+		t.Fatalf("the follower received %+v", resp)
+	}
+}
