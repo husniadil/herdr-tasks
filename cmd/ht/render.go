@@ -77,6 +77,12 @@ func renderHuman(v verbs.Verb, raw json.RawMessage) error {
 		}
 		for _, p := range res.Parked {
 			fmt.Printf("%s  %s by %s on %s\n", p.ID, p.Verb, p.Subject, p.Target)
+			// A row that is not waiting is one the operator already decided
+			// and whose verb then refused. Saying so is the difference between
+			// a queue and a list of things that may or may not have happened.
+			if p.State != "parked" {
+				fmt.Printf("            %s: %s\n", p.State, p.Error)
+			}
 		}
 		return nil
 	case "dump":

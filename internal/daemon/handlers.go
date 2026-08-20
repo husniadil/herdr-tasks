@@ -540,11 +540,22 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	if err != nil {
 		return nil, err
 	}
-	out, err := d.dispatch(verb.Name, rerun, actor)
-	if err != nil {
+	// Mark BEFORE dispatching. The UPDATE's `state = 'parked'` guard is the
+	// one-winner CAS, so putting it after the verb left a window in which two
+	// resolves both read `parked` and both ran the verb — the side effect
+	// really happened twice, and the loser was told CONFLICT for work that had
+	// already committed.
+	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", d.Now()); err != nil {
 		return nil, err
 	}
-	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", d.Now()); err != nil {
+	out, err := d.dispatch(verb.Name, rerun, actor)
+	if err != nil {
+		// The decision stands; the verb did not run. Say why, in the verb's
+		// own words — the caller needs to know their approve was refused, not
+		// that a queue row was busy.
+		if ferr := d.Store.FailParked(req.Project, p.ID, err.Error(), d.Now()); ferr != nil {
+			return nil, ferr
+		}
 		return nil, err
 	}
 	return ParkedResolveResult{ID: p.ID, State: "resolved", Result: out}, nil

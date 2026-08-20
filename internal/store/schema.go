@@ -3,7 +3,7 @@ package store
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // migrations are numbered and append-only (§5.2). Index i holds migration
 // i+1; each runs in its own transaction at daemon start. Never edit a shipped
@@ -126,4 +126,9 @@ CREATE TABLE parked (
 );
 CREATE INDEX parked_project_state ON parked (project, state);
 `,
+	// 2 — why a parked action the operator resolved did not happen. Before
+	// this the verb ran before the row was marked, so a failure left the row
+	// waiting and re-runnable; now the row is marked first and moved to
+	// `failed` with the reason when the verb refuses.
+	`ALTER TABLE parked ADD COLUMN error TEXT;`,
 }

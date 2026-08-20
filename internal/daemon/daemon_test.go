@@ -903,3 +903,141 @@ func TestConcurrentListensElectOneDaemon(t *testing.T) {
 		winners[0].Close()
 	}
 }
+
+// parkOne records a deferred action the way the gate does and returns its id.
+func parkOne(t *testing.T, d *Daemon, verb, payload string) string {
+	t.Helper()
+	id, err := d.Store.Park(store.Parked{
+		Project: proj, Subject: "agent:wF:p1", Verb: verb, Target: "-",
+		Payload: payload, Reason: "the gate said no",
+	}, d.Now())
+	if err != nil {
+		t.Fatalf("Park: %v", err)
+	}
+	return id
+}
+
+func parkedState(t *testing.T, d *Daemon, id string) string {
+	t.Helper()
+	var state string
+	if err := d.Store.DB().QueryRow("SELECT state FROM parked WHERE id = ?", id).Scan(&state); err != nil {
+		t.Fatalf("read parked state: %v", err)
+	}
+	return state
+}
+
+// §9.3: the durable record that a parked action was decided must be written
+// BEFORE the verb runs. Marking it after leaves a window in which two resolves
+// both read `parked`, both dispatch — the side effect really happens twice —
+// and the loser is told CONFLICT for work that already committed.
+func TestConcurrentResolvesDispatchExactlyOnce(t *testing.T) {
+	for round := 0; round < 20; round++ {
+		d := newDaemon(t, nil)
+		id := parkOne(t, d, "tasks.create", `{"title":"parked work"}`)
+
+		var wg sync.WaitGroup
+		resps := make(chan protocol.Response, 2)
+		start := make(chan struct{})
+		for i := 0; i < 2; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				resps <- d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj,
+					Args: map[string]any{"id": id}})
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(resps)
+
+		// Counted at the target: how many tasks exist, not what the answers said.
+		var made int
+		if err := d.Store.DB().QueryRow("SELECT COUNT(*) FROM tasks WHERE project = ?", proj).Scan(&made); err != nil {
+			t.Fatalf("count tasks: %v", err)
+		}
+		if made != 1 {
+			t.Fatalf("round %d: the parked verb ran %d times, want once", round, made)
+		}
+		ok, conflicts := 0, 0
+		for r := range resps {
+			switch {
+			case r.Error == nil:
+				ok++
+			case r.Error.Code == codes.Conflict:
+				conflicts++
+			default:
+				t.Fatalf("round %d: a resolve answered %s: %s", round, r.Error.Code, r.Error.Message)
+			}
+		}
+		if ok != 1 || conflicts != 1 {
+			t.Fatalf("round %d: %d resolved and %d conflicted, want one of each", round, ok, conflicts)
+		}
+	}
+}
+
+// §9.3: a dispatch that fails is still a decision. The row must not go back to
+// `parked` and must not be re-runnable — a verb that failed is a new decision
+// for the operator, with the error in front of them, not a silent retry.
+func TestAFailedDispatchIsResolvedNotReRunnable(t *testing.T) {
+	d := newDaemon(t, nil)
+	// approve on a task that is not in review: the verb refuses, deterministically.
+	task := createTask(t, d, "not in review")
+	id := parkOne(t, d, "tasks.approve", `{"id":"`+task.Task.ID+`"}`)
+
+	resp := d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Args: map[string]any{"id": id}})
+	if resp.Error == nil {
+		t.Fatalf("the resolve reported success for a verb that failed: %s", resp.Result)
+	}
+	if resp.Error.Code != codes.Conflict || !strings.Contains(resp.Error.Message, "review") {
+		t.Fatalf("the answer does not carry the dispatch's own failure: %s: %s", resp.Error.Code, resp.Error.Message)
+	}
+	if got := parkedState(t, d, id); got == "parked" {
+		t.Fatalf("a failed dispatch left the row re-runnable (state %q)", got)
+	}
+
+	second := d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Args: map[string]any{"id": id}})
+	if second.Error == nil || second.Error.Code != codes.Conflict {
+		t.Fatalf("a second resolve of a decided row answered %+v, want CONFLICT", second.Error)
+	}
+	if !strings.Contains(second.Error.Message, "not waiting") {
+		t.Fatalf("the second resolve re-dispatched instead of refusing: %s", second.Error.Message)
+	}
+}
+
+// §9.3: the operator has to be able to SEE an action that was decided and did
+// not happen, or it is a silent failure with extra steps.
+func TestAFailedParkedActionStaysVisible(t *testing.T) {
+	d := newDaemon(t, nil)
+	task := createTask(t, d, "not in review")
+	id := parkOne(t, d, "tasks.approve", `{"id":"`+task.Task.ID+`"}`)
+	d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Args: map[string]any{"id": id}})
+
+	raw := mustCall(t, d, protocol.Request{Verb: "parked.list", Project: proj})
+	var res ParkedListResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if res.Count != 1 {
+		t.Fatalf("parked list shows %d rows, want the failed one: %s", res.Count, raw)
+	}
+	if res.Parked[0].State == "parked" {
+		t.Fatalf("the failed row still says it is waiting: %+v", res.Parked[0])
+	}
+	if res.Parked[0].Error == "" {
+		t.Fatalf("the failed row does not say why: %+v", res.Parked[0])
+	}
+	// And a rejected row is gone from the queue, as before.
+	other := parkOne(t, d, "tasks.approve", `{"id":"`+task.Task.ID+`"}`)
+	mustCall(t, d, protocol.Request{Verb: "parked.resolve", Project: proj,
+		Args: map[string]any{"id": other, "reject": true}})
+	raw = mustCall(t, d, protocol.Request{Verb: "parked.list", Project: proj})
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, p := range res.Parked {
+		if p.ID == other {
+			t.Fatalf("a rejected action is still in the queue: %+v", p)
+		}
+	}
+}
