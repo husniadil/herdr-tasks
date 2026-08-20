@@ -183,6 +183,10 @@ func (d *Daemon) serveConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 	if req.Verb == "events" && req.Follow {
+		if _, _, err := d.admit(req); err != nil {
+			enc.Encode(d.stamp(protocol.Response{Error: errorBody(err)}))
+			return
+		}
 		d.streamEvents(ctx, req, enc)
 		return
 	}
@@ -192,27 +196,38 @@ func (d *Daemon) serveConn(ctx context.Context, conn net.Conn) {
 // Answer runs one request and renders the §6.2 envelope. It is the whole
 // daemon as a function, which is what lets the verb tests skip the socket.
 func (d *Daemon) Answer(req protocol.Request) protocol.Response {
-	resp := d.answer(req)
-	// Every answer, not only doctor's: the door that needs to know it is
-	// talking to a stranger is the one making an ordinary call.
+	return d.stamp(d.answer(req))
+}
+
+// stamp puts this daemon's surface and build on an answer. Every answer, not
+// only doctor's, and not only the one-shot ones: the door that needs to know
+// it is talking to a stranger is the one making an ordinary call, and a
+// follower holding a connection open for hours is the one most likely to
+// outlive a daemon restart.
+func (d *Daemon) stamp(resp protocol.Response) protocol.Response {
 	resp.Fingerprint = verbs.Fingerprint()
 	resp.Build = verbs.ThisBuild()
 	return resp
 }
 
+// errorBody renders one failure as the §6.2 error half.
+func errorBody(err error) *protocol.ErrorBody {
+	body := &protocol.ErrorBody{Code: codes.Unexpected, Message: err.Error()}
+	var ce *codes.Error
+	if errors.As(err, &ce) {
+		body.Code, body.Message = ce.Code, ce.Message
+	}
+	var pe *parkedError
+	if errors.As(err, &pe) {
+		body.ParkedID = pe.id
+	}
+	return body
+}
+
 func (d *Daemon) answer(req protocol.Request) protocol.Response {
 	result, err := d.Handle(req)
 	if err != nil {
-		body := &protocol.ErrorBody{Code: codes.Unexpected, Message: err.Error()}
-		var ce *codes.Error
-		if errors.As(err, &ce) {
-			body.Code, body.Message = ce.Code, ce.Message
-		}
-		var pe *parkedError
-		if errors.As(err, &pe) {
-			body.ParkedID = pe.id
-		}
-		return protocol.Response{Error: body}
+		return protocol.Response{Error: errorBody(err)}
 	}
 	raw, merr := json.Marshal(result)
 	if merr != nil {
@@ -236,45 +251,60 @@ func (e *parkedError) Unwrap() error { return e.err }
 
 // Handle resolves the principal, runs the gate, and dispatches the verb.
 func (d *Daemon) Handle(req protocol.Request) (any, error) {
+	v, actor, err := d.admit(req)
+	if err != nil {
+		return nil, err
+	}
+	return d.dispatch(v.Name, req, actor)
+}
+
+// admit is everything that happens to a request BEFORE its verb runs: the verb
+// exists, every argument is one it declares, the principal is derived, and the
+// policy gate has had its say. `events --follow` used to skip all of it by
+// being routed straight to the stream, so a door newer than the daemon had the
+// part the daemon did not know silently dropped and was told it was following.
+// One function, called by both paths.
+func (d *Daemon) admit(req protocol.Request) (verbs.Verb, tasks.Actor, error) {
 	v, ok := verbs.ByName(req.Verb)
 	if !ok {
-		return nil, codes.Errorf(codes.Usage, "unknown verb %q", req.Verb)
+		return verbs.Verb{}, tasks.Actor{}, codes.Errorf(codes.Usage, "unknown verb %q", req.Verb)
 	}
 	// An argument this verb does not declare is refused rather than dropped.
 	// A door newer than the daemon would otherwise have the part the daemon
 	// does not know silently removed and be told it succeeded.
 	for _, name := range sortedKeys(req.Args) {
 		if !v.Accepts(name) {
-			return nil, codes.Errorf(codes.Usage,
+			return verbs.Verb{}, tasks.Actor{}, codes.Errorf(codes.Usage,
 				"%s does not take %q; this door may be newer than the daemon, in which case restart the daemon",
 				req.Verb, name)
 		}
 	}
 	actor, err := d.actor(req)
 	if err != nil {
-		return nil, err
+		return verbs.Verb{}, tasks.Actor{}, err
 	}
 	if v.Gated != "" {
 		target := argString(req.Args, "id")
 		res := d.Policy().Check(gate.Request{Subject: string(actor.Principal), Verb: v.Gated, Target: target})
 		switch res.Decision {
 		case gate.Deny:
-			return nil, codes.Errorf(codes.Denied, "the policy gate refused %s: %s", v.Gated, res.Reason)
+			return verbs.Verb{}, tasks.Actor{}, codes.Errorf(codes.Denied,
+				"the policy gate refused %s: %s", v.Gated, res.Reason)
 		case gate.Defer:
 			payload, _ := json.Marshal(req.Args)
 			id, perr := d.Store.Park(store.Parked{
 				Project: req.Project, Subject: string(actor.Principal), Verb: v.Gated,
 				Target: target, Payload: string(payload), Reason: res.Reason}, d.Now())
 			if perr != nil {
-				return nil, perr
+				return verbs.Verb{}, tasks.Actor{}, perr
 			}
-			return nil, &parkedError{
+			return verbs.Verb{}, tasks.Actor{}, &parkedError{
 				err: codes.Errorf(codes.Denied, "the policy gate parked %s for the operator: %s", v.Gated, res.Reason),
 				id:  id,
 			}
 		}
 	}
-	return d.dispatch(req.Verb, req, actor)
+	return v, actor, nil
 }
 
 // actor derives the caller's principal (§3.2) and, for an agent, snapshots the
@@ -428,6 +458,11 @@ func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *js
 		AllProjects: req.AllProjects,
 		Entity:      argString(req.Args, "entity"),
 	}
+	// --limit is declared on the verb, so a stream that ignored it was a door
+	// promising something it did not do. It bounds the WHOLE stream: `events
+	// --follow --limit 1` waits for the next event, prints it, and ends.
+	left := int(argInt(req.Args, "limit"))
+	bounded := left > 0
 	since := argString(req.Args, "since")
 	if since != "" {
 		if ms, ok := parseMS(since); ok {
@@ -443,7 +478,7 @@ func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *js
 	for {
 		evs, err := d.Store.Events(f)
 		if err != nil {
-			enc.Encode(protocol.Response{Error: &protocol.ErrorBody{Code: codes.Unexpected, Message: err.Error()}})
+			enc.Encode(d.stamp(protocol.Response{Error: errorBody(err)}))
 			return
 		}
 		for _, ev := range evs {
@@ -451,13 +486,23 @@ func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *js
 			if merr != nil {
 				continue
 			}
-			if err := enc.Encode(protocol.Response{Result: raw}); err != nil {
+			if err := enc.Encode(d.stamp(protocol.Response{Result: raw})); err != nil {
 				return
 			}
 			f.SinceID, f.SinceAt = ev.ID, 0
+			if bounded {
+				if left--; left == 0 {
+					// Said on purpose, so the follower can tell a stream that
+					// finished from a daemon that died: at the socket both are
+					// just a closed connection.
+					enc.Encode(d.stamp(protocol.Response{Done: true}))
+					return
+				}
+			}
 		}
 		select {
 		case <-ctx.Done():
+			enc.Encode(d.stamp(protocol.Response{Done: true}))
 			return
 		case <-ch:
 		case <-tick.C:

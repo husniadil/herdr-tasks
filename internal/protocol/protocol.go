@@ -32,6 +32,11 @@ type Request struct {
 type Response struct {
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *ErrorBody      `json:"error,omitempty"`
+	// Done ends a stream on purpose. Without it a daemon that finished and a
+	// daemon that was killed both look like a closed socket, and a follower
+	// cannot tell "there is no more" from "I stopped being told" — so it
+	// reported success for both. Only `events --follow` sends it.
+	Done bool `json:"done,omitempty"`
 	// Fingerprint is the door surface the answering daemon speaks. A door
 	// compares it with its own and says so when they differ — and an empty
 	// one is the same signal, because a daemon old enough to predate this

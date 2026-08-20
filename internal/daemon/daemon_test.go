@@ -1205,3 +1205,107 @@ func TestRemovingADependencyTellsItsDependents(t *testing.T) {
 	lonely := createTask(t, d, "nobody waits for this")
 	mustCall(t, d, protocol.Request{Verb: "task.delete", Args: map[string]any{"id": lonely.Task.ID}})
 }
+
+// socketOf starts this daemon on a real socket and returns its path.
+func socketOf(t *testing.T, d *Daemon) string {
+	t.Helper()
+	path := config.SocketPath()
+	ln, err := Listen(path, config.LockPath())
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(func() { cancel(); ln.Close() })
+	go d.Serve(ctx, ln)
+	return path
+}
+
+// ask sends one raw request and returns the first answer, and whether more
+// followed on the same connection.
+func ask(t *testing.T, path string, req protocol.Request) (protocol.Response, *json.Decoder, net.Conn) {
+	t.Helper()
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		t.Fatalf("send: %v", err)
+	}
+	// A deadline, because the failure this is used to catch is a request that
+	// gets STREAMED where it should have been refused: without one the test
+	// would hang waiting for an event that is never coming, and a hang is a
+	// worse test failure than a wrong answer.
+	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	dec := json.NewDecoder(conn)
+	var resp protocol.Response
+	if err := dec.Decode(&resp); err != nil {
+		conn.Close()
+		t.Fatalf("no answer within the deadline (a refusal that streamed instead?): %v", err)
+	}
+	conn.SetReadDeadline(time.Time{})
+	return resp, dec, conn
+}
+
+// §8.2 with §6.1: a follow request is a request. It was routed straight to the
+// stream, so the undeclared-argument refusal never ran for it — a door newer
+// than the daemon had the part the daemon did not know silently dropped and
+// was told it was following. This drives the socket directly, because a door
+// of the same build cannot produce an argument its own daemon does not know.
+func TestAFollowRequestGoesThroughTheSameDoorChecks(t *testing.T) {
+	d := newDaemon(t, nil)
+	path := socketOf(t, d)
+
+	follow, _, conn := ask(t, path, protocol.Request{Verb: "events", Project: proj, Follow: true,
+		Args: map[string]any{"nonesuch": 1}})
+	conn.Close()
+	if follow.Error == nil {
+		t.Fatalf("the follow request was accepted: %s", follow.Result)
+	}
+	if follow.Error.Code != codes.Usage {
+		t.Fatalf("code = %s, want USAGE: %s", follow.Error.Code, follow.Error.Message)
+	}
+
+	// The same words the one-shot path uses, because it is the same check.
+	plain := d.Answer(protocol.Request{Verb: "events", Project: proj,
+		Args: map[string]any{"nonesuch": 1}})
+	if plain.Error == nil || plain.Error.Message != follow.Error.Message {
+		t.Fatalf("the two paths refuse differently:\nfollow: %+v\nplain:  %+v", follow.Error, plain.Error)
+	}
+	// And an unknown verb is refused the same way rather than streamed.
+	bad, _, c2 := ask(t, path, protocol.Request{Verb: "nosuchverb", Project: proj, Follow: true})
+	c2.Close()
+	if bad.Error == nil || bad.Error.Code != codes.Usage {
+		t.Fatalf("an unknown verb with follow set: %+v", bad.Error)
+	}
+}
+
+// §13.3 / task 13: a follower holds a connection open for hours, so it is the
+// door most likely to outlive a daemon restart — and every answer it received
+// was unstamped, so it could never be told.
+func TestAFollowAnswerCarriesTheBuildStamp(t *testing.T) {
+	d := newDaemon(t, nil)
+	path := socketOf(t, d)
+	createTask(t, d, "something to stream")
+
+	resp, _, conn := ask(t, path, protocol.Request{Verb: "events", Project: proj, Follow: true,
+		Args: map[string]any{"limit": 1}})
+	defer conn.Close()
+	if resp.Error != nil {
+		t.Fatalf("the stream refused: %+v", resp.Error)
+	}
+	if resp.Fingerprint != verbs.Fingerprint() {
+		t.Fatalf("fingerprint = %q, want %q", resp.Fingerprint, verbs.Fingerprint())
+	}
+	if !verbs.ThisBuild().Same(resp.Build) {
+		t.Fatalf("build = %+v, want this daemon's %+v", resp.Build, verbs.ThisBuild())
+	}
+
+	// The refusal half carries it too: a door refused for speaking a surface
+	// the daemon does not know is exactly the door that needs to hear why.
+	bad, _, c2 := ask(t, path, protocol.Request{Verb: "events", Project: proj, Follow: true,
+		Args: map[string]any{"nonesuch": 1}})
+	c2.Close()
+	if bad.Fingerprint != verbs.Fingerprint() {
+		t.Fatalf("the refusal is unstamped: %+v", bad)
+	}
+}

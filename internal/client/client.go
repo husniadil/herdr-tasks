@@ -104,10 +104,20 @@ func Stream(req protocol.Request, fn func(json.RawMessage) error) error {
 	for {
 		var resp protocol.Response
 		if err := dec.Decode(&resp); err != nil {
-			return nil
+			// A closed socket is not an ending. The daemon says when a stream
+			// is over (Done); anything else that stops the decoder is the
+			// daemon going away under us, and returning nil there made a
+			// killed daemon and a finished stream the same thing — the caller
+			// exited 0 having silently stopped watching.
+			return codes.Errorf(codes.Unavailable,
+				"the daemon stopped streaming without saying it had finished: %v", err)
 		}
+		warnOnSkew(os.Stderr, resp.Fingerprint, resp.Build)
 		if resp.Error != nil {
 			return &Failure{Body: resp.Error}
+		}
+		if resp.Done {
+			return nil
 		}
 		if err := fn(resp.Result); err != nil {
 			return err

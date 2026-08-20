@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -972,9 +973,12 @@ func TestAStreamThatFailsPartWayEndsWithTheEnvelope(t *testing.T) {
 				return
 			}
 			bufio.NewReader(conn).ReadString('\n')
-			fmt.Fprintln(conn, `{"result":{"id":"E1","name":"tasks.task.created"}}`)
-			fmt.Fprintln(conn, `{"result":{"id":"E2","name":"tasks.task.claimed"}}`)
-			fmt.Fprintln(conn, `{"error":{"code":"UNAVAILABLE","message":"the trail could not be read"}}`)
+			// The fake claims this door's own surface and build, so the only
+			// thing on stderr can be the failure this test is about.
+			stamp := `,"fingerprint":"` + verbs.Fingerprint() + `","build":` + buildOf(t, w.bin) + `}`
+			fmt.Fprintln(conn, `{"result":{"id":"E1","name":"tasks.task.created"}`+stamp)
+			fmt.Fprintln(conn, `{"result":{"id":"E2","name":"tasks.task.claimed"}`+stamp)
+			fmt.Fprintln(conn, `{"error":{"code":"UNAVAILABLE","message":"the trail could not be read"}`+stamp)
 			conn.Close()
 		}
 	}()
@@ -1056,5 +1060,147 @@ func TestABrokenPluginContextWarnsWithoutSpoilingTheDocument(t *testing.T) {
 	}
 	if strings.Contains(stderr, "HERDR_PLUGIN_CONTEXT_JSON") {
 		t.Fatalf("a good context warned anyway: %q", stderr)
+	}
+}
+
+// follower runs `ht events --follow --json` against the world's daemon and
+// returns what it wrote and how it ended. The stream is read as it arrives, so
+// the test can act between documents.
+type follower struct {
+	cmd    *exec.Cmd
+	out    *syncBuffer
+	errOut *syncBuffer
+}
+
+// syncBuffer collects a child's output while the test reads it. exec writes
+// from its own goroutine, so an unguarded builder is a real race — caught by
+// `go test -race`, which is exactly what the gate runs it for.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func startFollower(t *testing.T, w *world, args ...string) *follower {
+	t.Helper()
+	cmd := exec.Command(w.bin, append([]string{"events", "--follow", "--json"}, args...)...)
+	cmd.Dir, cmd.Env = w.project, w.env()
+	f := &follower{cmd: cmd, out: &syncBuffer{}, errOut: &syncBuffer{}}
+	cmd.Stdout, cmd.Stderr = f.out, f.errOut
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start the follower: %v", err)
+	}
+	t.Cleanup(func() { cmd.Process.Kill(); cmd.Wait() })
+	return f
+}
+
+// wait returns the follower's exit status once it ends, or fails the test.
+func (f *follower) wait(t *testing.T, within time.Duration) int {
+	t.Helper()
+	done := make(chan error, 1)
+	go func() { done <- f.cmd.Wait() }()
+	select {
+	case err := <-done:
+		if ee, ok := err.(*exec.ExitError); ok {
+			return ee.ExitCode()
+		}
+		if err != nil {
+			t.Fatalf("the follower failed to run: %v", err)
+		}
+		return 0
+	case <-time.After(within):
+		t.Fatalf("the follower did not end within %s; it had written:\n%s%s", within, f.out, f.errOut)
+		return -1
+	}
+}
+
+func (f *follower) documents() []string {
+	lines := []string{}
+	for _, ln := range strings.Split(strings.TrimSpace(f.out.String()), "\n") {
+		if strings.TrimSpace(ln) != "" {
+			lines = append(lines, ln)
+		}
+	}
+	return lines
+}
+
+// §8.2: --limit is declared on the verb, so a follow that ignores it is a door
+// promising something it does not do. It streams that many and stops.
+func TestAFollowHonoursItsLimit(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "first")
+	f := startFollower(t, w, "--limit", "1")
+	// More events than the limit, so an unbounded stream would show it.
+	for i := 0; i < 3; i++ {
+		w.json(w.env(), "task", "create", fmt.Sprintf("more %d", i))
+	}
+	if status := f.wait(t, 15*time.Second); status != 0 {
+		t.Fatalf("a stream that reached its limit exited %d: %s%s", status, f.out, f.errOut)
+	}
+	if docs := f.documents(); len(docs) != 1 {
+		t.Fatalf("the stream emitted %d documents for --limit 1:\n%s", len(docs), f.out)
+	}
+}
+
+// §6.3: a daemon that dies under a stream is UNAVAILABLE, not success. The
+// client returned nil on ANY decode error, so a killed daemon and a finished
+// stream were the same thing and the caller silently stopped watching.
+func TestAFollowerOutlivedByItsDaemonExitsUnavailable(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "so the daemon is up")
+	f := startFollower(t, w)
+	// Let it connect and drain the backlog before the daemon goes.
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) && len(f.documents()) == 0 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if len(f.documents()) == 0 {
+		t.Fatalf("the follower never received anything: %s%s", f.out, f.errOut)
+	}
+	killDaemon(t, w)
+
+	if status := f.wait(t, 15*time.Second); status != codes.Exit(codes.Unavailable) {
+		t.Fatalf("exit %d, want %d (UNAVAILABLE): %s%s", status, codes.Exit(codes.Unavailable), f.out, f.errOut)
+	}
+	// And the envelope is the last document, as §6.2 requires of a stream.
+	docs := f.documents()
+	if got := oneEnvelope(t, docs[len(docs)-1]); got != codes.Unavailable {
+		t.Fatalf("the last document's code is %q, want UNAVAILABLE", got)
+	}
+}
+
+// killDaemon SIGKILLs the daemon this world started, so it cannot say goodbye.
+func killDaemon(t *testing.T, w *world) {
+	t.Helper()
+	if err := exec.Command("pkill", "-9", "-f", w.bin+" daemon").Run(); err != nil {
+		t.Fatalf("kill the daemon: %v", err)
+	}
+}
+
+// §6.3: a stream that ends ON PURPOSE exits 0, so the UNAVAILABLE above is a
+// real signal and not a blanket. --limit reaching its bound is that ending.
+func TestAStreamThatEndsOnPurposeExitsZero(t *testing.T) {
+	w := newWorld(t)
+	f := startFollower(t, w, "--limit", "1")
+	w.json(w.env(), "task", "create", "the one event")
+	if status := f.wait(t, 15*time.Second); status != 0 {
+		t.Fatalf("exit %d, want 0: %s%s", status, f.out, f.errOut)
+	}
+	if docs := f.documents(); len(docs) != 1 {
+		t.Fatalf("%d documents, want 1:\n%s", len(docs), f.out)
+	}
+	if strings.Contains(f.out.String(), `"done"`) {
+		t.Fatalf("the end marker reached the caller's stdout: %s", f.out)
 	}
 }
