@@ -422,12 +422,11 @@ func CanHardDelete(t *Task) error {
 // UpdatePatch is the set of editable fields. A nil pointer leaves the field
 // alone, which is what makes "clear the description" expressible.
 type UpdatePatch struct {
-	Title          *string
-	Description    *string
-	Priority       *int64
-	Validation     *[]Criterion
-	Deps           *[]string
-	DiscoveredFrom *string
+	Title       *string
+	Description *string
+	Priority    *int64
+	Validation  *[]Criterion
+	Deps        *[]string
 }
 
 // Update edits a live task.
@@ -463,9 +462,6 @@ func Update(t *Task, by Actor, p UpdatePatch, now int64) (Event, error) {
 	}
 	if p.Deps != nil {
 		t.Deps, changed = *p.Deps, append(changed, "deps")
-	}
-	if p.DiscoveredFrom != nil {
-		t.DiscoveredFrom, changed = *p.DiscoveredFrom, append(changed, "discovered_from")
 	}
 	t.UpdatedAt = now
 	return Event{Kind: KindUpdated, Actor: by.Principal, At: now,

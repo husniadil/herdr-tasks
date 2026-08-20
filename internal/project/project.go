@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/husniadil/herdr-tasks/internal/codes"
 )
 
 // Options is the §4.2 resolution order, as data.
@@ -118,8 +120,9 @@ func canonical(dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
-		abs = resolved
+	abs, err = resolveLinks(abs)
+	if err != nil {
+		return "", err
 	}
 	if root, ok := gitCommonRoot(abs); ok {
 		return root, nil
@@ -155,13 +158,15 @@ func gitCommonRoot(dir string) (string, bool) {
 		return "", false
 	}
 	if filepath.Base(common) == ".git" {
-		return resolveLinks(filepath.Dir(common)), true
+		root, err := resolveLinks(filepath.Dir(common))
+		return root, err == nil
 	}
 	top, ok := gitPath(dir, "--show-toplevel")
 	if !ok {
 		return "", false
 	}
-	return resolveLinks(top), true
+	root, err := resolveLinks(top)
+	return root, err == nil
 }
 
 // gitPath asks git for one path, absolute, or reports that it could not.
@@ -179,11 +184,36 @@ func gitPath(dir, what string) (string, bool) {
 	return path, path != ""
 }
 
-func resolveLinks(path string) string {
-	if resolved, err := filepath.EvalSymlinks(path); err == nil {
-		return resolved
+// resolveLinks is §4.1's "symlinks are resolved", including for a path that
+// does not exist yet. EvalSymlinks cannot resolve what is not there, and
+// taking the path unresolved made the SAME directory two different projects
+// depending on whether it had been created — on macOS, /var/tmp/x before and
+// /private/var/tmp/x after, with everything filed under the first stranded the
+// moment it was. So a missing path takes its nearest existing ancestor's
+// canonical form with the missing tail put back.
+//
+// Anything that is not "it is not there" fails: a permission error or a
+// symlink loop means this path has no key we can be sure of, and quietly
+// inventing a second one is the failure being fixed here.
+func resolveLinks(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
 	}
-	return path
+	if !os.IsNotExist(err) {
+		return "", codes.Errorf(codes.Usage, "cannot resolve %s: %v", path, err)
+	}
+	parent, last := filepath.Dir(path), filepath.Base(path)
+	if parent == path || last == "." || last == string(filepath.Separator) {
+		// Nothing left to climb: an absolute path whose root does not resolve
+		// is as canonical as it is going to get.
+		return path, nil
+	}
+	up, err := resolveLinks(parent)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(up, last), nil
 }
 
 // DisplayName is the basename a human reads. It is never a key (§4.1).

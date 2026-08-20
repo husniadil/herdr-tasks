@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -229,5 +230,23 @@ func TestProseNamesACancelledBlocker(t *testing.T) {
 	}
 	if strings.Contains(out, "cancelled") {
 		t.Errorf("an ordinary blocked task was reported as abandoned:\n%s", out)
+	}
+}
+
+// §5.9 with §16.2: truncation cuts CHARACTERS, not bytes. Both firstLine
+// helpers sliced a byte offset, so a cut landing inside a multi-byte character
+// produced invalid UTF-8 — and the daemon's copy becomes a promoted note's
+// task TITLE, so the broken bytes are written to the database and read back
+// forever.
+func TestFirstLineCutsOnCharacterBoundaries(t *testing.T) {
+	// The byte cut at 80 lands inside a three-byte character; the rune cut at
+	// 80 has to happen too, so the string is longer than 80 characters.
+	body := strings.Repeat("状", 120)
+	got := firstLine(body)
+	if !utf8.ValidString(got) {
+		t.Fatalf("the CLI's firstLine cut a character in half: %q", got)
+	}
+	if got == body {
+		t.Fatalf("nothing was truncated, so the test proves nothing: %d runes", len([]rune(got)))
 	}
 }

@@ -647,10 +647,13 @@ func criteria(list []string) []tasks.Criterion {
 	return out
 }
 
+// firstLine is the title a promoted note becomes. Runes, not bytes: this
+// result is STORED, so a cut landing inside a multi-byte character writes half
+// of one into the database and it is read back that way forever.
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	if len(line) > 120 {
-		line = strings.TrimSpace(line[:120])
+	if r := []rune(line); len(r) > 120 {
+		line = strings.TrimSpace(string(r[:120]))
 	}
 	return line
 }

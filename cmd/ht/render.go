@@ -287,8 +287,11 @@ func stamp(ms int64) string {
 
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
-	if len(line) > 80 {
-		line = line[:80] + "…"
+	// Runes, not bytes: a byte offset can land inside a multi-byte character
+	// and leave half of one behind, which renders as a replacement character
+	// and is not what anyone wrote.
+	if r := []rune(line); len(r) > 80 {
+		line = string(r[:80]) + "…"
 	}
 	return line
 }

@@ -1,6 +1,7 @@
 package tasks
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -577,5 +578,26 @@ func TestClaimAndTouchAgreeForTheHolder(t *testing.T) {
 		if touchErr != nil && claimErr == nil {
 			t.Errorf("%s: claim works for the holder and touch does not (%v)", name, touchErr)
 		}
+	}
+}
+
+// §6.1: UpdatePatch is the set of fields a door can edit, and DiscoveredFrom
+// was in it with no door declaring the argument — editable in the domain,
+// unreachable from anywhere. Dead surface is worse than a missing feature: it
+// reads as a capability and behaves as nothing. Provenance is still set at
+// create, where hTaskCreate validates that the origin exists; editing it later
+// would need that validation written for a use nobody has stated, so the field
+// went rather than a door being added for it.
+func TestUpdateDoesNotOfferProvenance(t *testing.T) {
+	patch := reflect.TypeOf(UpdatePatch{})
+	for i := 0; i < patch.NumField(); i++ {
+		if patch.Field(i).Name == "DiscoveredFrom" {
+			t.Fatal("UpdatePatch offers DiscoveredFrom; no door declares the argument, so it cannot be reached")
+		}
+	}
+	// And it is still recorded at create, which is the path that has one.
+	task := newTask()
+	if task.DiscoveredFrom != "" {
+		t.Fatalf("a task made without provenance carries %q", task.DiscoveredFrom)
 	}
 }

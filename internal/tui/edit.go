@@ -41,8 +41,26 @@ func startEdit(e Edit) (string, error) {
 	if err != nil {
 		return "", codes.Errorf(codes.Unexpected, "cannot write the note out to edit: %v", err)
 	}
-	defer f.Close()
-	if _, err := f.WriteString(e.Body + "\n"); err != nil {
+	return writeEditFile(f, e.Body)
+}
+
+// writeEditFile fills the file and closes it, and clears up after itself when
+// it cannot. A file that was never written has nothing in it worth keeping —
+// unlike the one finishEdit keeps and names when the DAEMON refuses the edit,
+// which holds work the operator did and must survive.
+func writeEditFile(f *os.File, body string) (string, error) {
+	fail := func(err error) (string, error) {
+		f.Close()
+		os.Remove(f.Name())
+		return "", codes.Errorf(codes.Unexpected, "cannot write the note out to edit: %v", err)
+	}
+	if _, err := f.WriteString(body + "\n"); err != nil {
+		return fail(err)
+	}
+	// Closing is where a buffered write actually fails, so its error is the
+	// same failure and gets the same clean-up.
+	if err := f.Close(); err != nil {
+		os.Remove(f.Name())
 		return "", codes.Errorf(codes.Unexpected, "cannot write the note out to edit: %v", err)
 	}
 	return f.Name(), nil

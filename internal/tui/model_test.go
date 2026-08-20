@@ -1742,3 +1742,54 @@ func TestTheDetailPanelNamesACancelledBlocker(t *testing.T) {
 		t.Fatalf("an ordinary blocked task was reported as abandoned:\n%s", shown)
 	}
 }
+
+// §11.6: a temp file that was never written has nothing worth keeping, and
+// leaving one behind on every failure fills the operator's temp dir with empty
+// files nobody will ever look at. The file finishEdit keeps when the DAEMON
+// refuses is a different thing entirely — it holds work the operator did — and
+// that one must survive.
+func TestAFailedWriteLeavesNoTempFileBehind(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "ht-note-*.md")
+	if err != nil {
+		t.Fatalf("temp: %v", err)
+	}
+	path := f.Name()
+	f.Close() // so the write below really fails
+
+	got, err := writeEditFile(f, "a body that never lands")
+	if err == nil {
+		t.Fatalf("writing to a closed file must fail; it returned %q", got)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("the temp file survived a failed write: %v", err)
+	}
+}
+
+// The other half of task 17's rule, so this fix cannot sweep it up: when the
+// DAEMON call fails, the file stays and its path is named.
+func TestAFailedDaemonCallKeepsTheEditedFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kept.md")
+	if err := os.WriteFile(path, []byte("what the operator wrote\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	msg := afterUpdate(path, errors.New("CONFLICT: note moved"))
+	failed, ok := msg.(ErrMsg)
+	if !ok {
+		t.Fatalf("a refused update answered %#v", msg)
+	}
+	if !strings.Contains(failed.Message, path) {
+		t.Fatalf("the failure does not name the file it kept: %q", failed.Message)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Fatalf("the operator's work was thrown away: %v", statErr)
+	}
+
+	// And a successful update does clear it up, so the keeping is about
+	// failure and not about never tidying.
+	if _, ok := afterUpdate(path, nil).(DoneMsg); !ok {
+		t.Fatal("a successful update must report done")
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("the temp file survived a successful update: %v", statErr)
+	}
+}

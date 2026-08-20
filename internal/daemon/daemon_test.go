@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/config"
@@ -1405,5 +1406,49 @@ func TestAnIdleFollowerIsKept(t *testing.T) {
 	}
 	if resp.Error != nil || len(resp.Result) == 0 {
 		t.Fatalf("the follower received %+v", resp)
+	}
+}
+
+// §5.9 with §16.2: the daemon's firstLine becomes a promoted note's task
+// title, so a byte-offset cut writes invalid UTF-8 into the database.
+func TestAPromotedTitleIsValidUTF8(t *testing.T) {
+	d := newDaemon(t, nil)
+	// Long enough to be truncated, and multi-byte so the cut can land inside
+	// a character.
+	// One ASCII character first, so the 120-byte cut lands INSIDE a three-byte
+	// character rather than on a boundary by luck.
+	body := "x" + strings.Repeat("状", 200)
+	raw := mustCall(t, d, protocol.Request{Verb: "note.add", Args: map[string]any{"body": body}})
+	var added NoteResult
+	if err := json.Unmarshal(raw, &added); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	raw = mustCall(t, d, protocol.Request{Verb: "note.promote", Args: map[string]any{"id": added.Note.ID}})
+	var promoted NoteResult
+	if err := json.Unmarshal(raw, &promoted); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	got := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": promoted.Note.TaskID}})
+	var res TaskResult
+	if err := json.Unmarshal(got, &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	title := res.Task.Title
+	if !utf8.ValidString(title) {
+		t.Fatalf("the promoted title is not valid UTF-8: %q", title)
+	}
+	// And the corruption is not merely laundered: json.Marshal replaces
+	// invalid bytes with U+FFFD, so a title that was cut mid-character comes
+	// back "valid" with a replacement character where the rest of it was.
+	// That is what the operator sees, and it is what this catches.
+	if strings.ContainsRune(title, utf8.RuneError) {
+		t.Fatalf("the promoted title carries a replacement character, so it was cut mid-character: %q", title)
+	}
+	if title == "" || len([]rune(title)) > tasks.MaxTitle {
+		t.Fatalf("the promoted title is %d runes: %q", len([]rune(title)), title)
+	}
+	// It really was truncated, or the test proves nothing.
+	if len([]rune(title)) >= 200 {
+		t.Fatalf("nothing was truncated: %d runes", len([]rune(title)))
 	}
 }

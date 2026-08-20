@@ -15,6 +15,7 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/config"
 	"github.com/husniadil/herdr-tasks/internal/daemon"
 	"github.com/husniadil/herdr-tasks/internal/herdrclient"
+	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/testenv"
@@ -131,7 +132,7 @@ func TestCLIAndMCPReturnTheSameDocument(t *testing.T) {
 	_ = d
 
 	// The CLI path: the daemon's own answer, which is what --json prints.
-	cliRaw, err := call(protocol.Request{Verb: "task.create", Project: "/tmp/p",
+	cliRaw, err := call(protocol.Request{Verb: "task.create", Project: canonProject(t, "/tmp/p"),
 		Args: map[string]any{"title": "same both ways"}})
 	if err != nil {
 		t.Fatalf("cli call: %v", err)
@@ -168,7 +169,7 @@ func TestCLIAndMCPReturnTheSameDocument(t *testing.T) {
 
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "tasks_get",
-		Arguments: map[string]any{"id": "1", "project": "/tmp/p"},
+		Arguments: map[string]any{"id": "1", "project": canonProject(t, "/tmp/p")},
 	})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
@@ -176,7 +177,7 @@ func TestCLIAndMCPReturnTheSameDocument(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("tool error: %s", text(res))
 	}
-	cliGet, err := call(protocol.Request{Verb: "task.get", Project: "/tmp/p", Args: map[string]any{"id": "1"}})
+	cliGet, err := call(protocol.Request{Verb: "task.get", Project: canonProject(t, "/tmp/p"), Args: map[string]any{"id": "1"}})
 	if err != nil {
 		t.Fatalf("cli get: %v", err)
 	}
@@ -207,7 +208,7 @@ func TestMCPErrorsCarryTheContractCode(t *testing.T) {
 
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
 		Name:      "tasks_get",
-		Arguments: map[string]any{"id": "404", "project": "/tmp/p"},
+		Arguments: map[string]any{"id": "404", "project": canonProject(t, "/tmp/p")},
 	})
 	if err != nil {
 		t.Fatalf("a missing task must be a tool error, not a protocol error: %v", err)
@@ -343,7 +344,7 @@ func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	t.Setenv("HERDR_PANE_ID", "wF:p1")
 	d, call := inProcessDaemon(t)
 	_ = d
-	const project = "/tmp/p"
+	project := canonProject(t, "/tmp/p")
 	if _, err := call(protocol.Request{Verb: "task.create", Project: project,
 		Args: map[string]any{"title": "reviewed by its own harness"}}); err != nil {
 		t.Fatalf("create: %v", err)
@@ -439,10 +440,10 @@ func TestTheMCPDoorRefusesArgumentsItsSchemaForbids(t *testing.T) {
 		args map[string]any
 		arg  string
 	}{
-		"a word where an integer is declared":     {"tasks_list", map[string]any{"limit": "nope", "project": "/tmp/p"}, "limit"},
-		"a fraction where an integer is declared": {"tasks_create", map[string]any{"title": "t", "priority": 2.9, "project": "/tmp/p"}, "priority"},
-		"a number where a string is declared":     {"tasks_get", map[string]any{"id": 12, "project": "/tmp/p"}, "id"},
-		"a string where a list is declared":       {"tasks_submit", map[string]any{"id": "1", "report": "r", "evidence": "one", "project": "/tmp/p"}, "evidence"},
+		"a word where an integer is declared":     {"tasks_list", map[string]any{"limit": "nope", "project": canonProject(t, "/tmp/p")}, "limit"},
+		"a fraction where an integer is declared": {"tasks_create", map[string]any{"title": "t", "priority": 2.9, "project": canonProject(t, "/tmp/p")}, "priority"},
+		"a number where a string is declared":     {"tasks_get", map[string]any{"id": 12, "project": canonProject(t, "/tmp/p")}, "id"},
+		"a string where a list is declared":       {"tasks_submit", map[string]any{"id": "1", "report": "r", "evidence": "one", "project": canonProject(t, "/tmp/p")}, "evidence"},
 	} {
 		res := callTool(t, sess, tc.tool, tc.args)
 		if !res.IsError {
@@ -474,7 +475,7 @@ func TestBaseUpdatedAtIsReachableThroughMCP(t *testing.T) {
 	tick.Store(1_700_000_000_000)
 	d.Now = func() int64 { return tick.Add(1) }
 	sess := mcpSession(t, call)
-	const project = "/tmp/p"
+	project := canonProject(t, "/tmp/p")
 
 	raw, err := call(protocol.Request{Verb: "task.create", Project: project,
 		Args: map[string]any{"title": "raced"}})
@@ -537,14 +538,14 @@ func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
 	t.Setenv("HERDR_PANE_ID", "")
 	_, call := inProcessDaemon(t)
 	sess := mcpSession(t, call)
-	for _, p := range []string{"/tmp/one", "/tmp/two"} {
+	for _, p := range []string{canonProject(t, "/tmp/one"), canonProject(t, "/tmp/two")} {
 		if _, err := call(protocol.Request{Verb: "task.create", Project: p,
 			Args: map[string]any{"title": "in " + p}}); err != nil {
 			t.Fatalf("create: %v", err)
 		}
 	}
 
-	scoped := callTool(t, sess, "tasks_list", map[string]any{"project": "/tmp/one"})
+	scoped := callTool(t, sess, "tasks_list", map[string]any{"project": canonProject(t, "/tmp/one")})
 	if scoped.IsError {
 		t.Fatalf("scoped list: %s", text(scoped))
 	}
@@ -556,7 +557,7 @@ func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
 		t.Fatalf("scoped list found %d, want 1: %s", one.Count, text(scoped))
 	}
 
-	all := callTool(t, sess, "tasks_list", map[string]any{"project": "/tmp/one", "all_projects": true})
+	all := callTool(t, sess, "tasks_list", map[string]any{"project": canonProject(t, "/tmp/one"), "all_projects": true})
 	if all.IsError {
 		t.Fatalf("all-projects list: %s", text(all))
 	}
@@ -603,7 +604,7 @@ func TestEveryDeclaredTypeIsEnforced(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s.%s declares the unknown type %q", v.MCP, name, prop.Type)
 			}
-			args := map[string]any{"project": "/tmp/p", name: bad}
+			args := map[string]any{"project": canonProject(t, "/tmp/p"), name: bad}
 			// Fill the required arguments so the refusal is about the type
 			// and not about something missing.
 			for _, a := range v.Args {
@@ -639,7 +640,7 @@ func TestBothDoorsGuardAMutationTheSameWay(t *testing.T) {
 	tick.Store(1_700_000_000_000)
 	d.Now = func() int64 { return tick.Add(1) }
 	sess := mcpSession(t, call)
-	const project = "/tmp/p"
+	project := canonProject(t, "/tmp/p")
 
 	make := func(title string) (string, int64) {
 		t.Helper()
@@ -697,4 +698,18 @@ func TestBothDoorsGuardAMutationTheSameWay(t *testing.T) {
 			t.Fatalf("the doors refuse in different words: cli=%q mcp=%s", cliStale.Error.Message, text(mcpStale))
 		}
 	}
+}
+
+// canonProject is a project key BOTH doors agree on. The MCP door resolves
+// what it is handed (§4.1) and the daemon takes the string as it comes, so a
+// fixture that spells the same directory two ways is testing its own
+// inconsistency — which is what canonProject(t, "/tmp/p") became once a path that does not
+// exist yet started resolving its symlinks like one that does.
+func canonProject(t *testing.T, dir string) string {
+	t.Helper()
+	p, err := project.Resolve(project.Options{Explicit: dir})
+	if err != nil {
+		t.Fatalf("resolve %s: %v", dir, err)
+	}
+	return p
 }

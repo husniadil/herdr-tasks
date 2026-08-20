@@ -399,3 +399,62 @@ func TestTheContextWarningIsSaidOnce(t *testing.T) {
 		t.Fatalf("the warning was said %d times: %q", got, warn.String())
 	}
 }
+
+// §4.1: a directory that does not exist YET still has one canonical form.
+// EvalSymlinks cannot resolve a path that is not there, and the result was
+// simply taken unresolved — so `--project /var/tmp/x` was a different project
+// from the same directory once created, and everything filed against the first
+// key was stranded the moment it was.
+func TestAPathThatDoesNotExistYetGetsTheKeyItWillHave(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	// Through the symlinked parent, at a child that is not there yet.
+	missing := filepath.Join(link, "not-yet")
+	before, err := Resolve(Options{Explicit: missing})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(real, "not-yet"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	after, err := Resolve(Options{Explicit: missing})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if before != after {
+		t.Fatalf("the same directory is two projects:\n  before it existed: %q\n  after:             %q", before, after)
+	}
+	if before != filepath.Join(canonicalOf(t, real), "not-yet") {
+		t.Fatalf("resolved %q, want the symlink-resolved parent with the child on it", before)
+	}
+}
+
+// The macOS case the note reproduced: /var is a symlink to /private/var, so a
+// not-yet-existing path under it used to key differently from the same path
+// once created.
+func TestASymlinkedSystemDirIsResolvedBeforeItExists(t *testing.T) {
+	if _, err := os.Lstat("/var"); err != nil {
+		t.Skip("no /var here")
+	}
+	resolvedVar, err := filepath.EvalSymlinks("/var")
+	if err != nil {
+		t.Skipf("cannot resolve /var: %v", err)
+	}
+	if resolvedVar == "/var" {
+		t.Skip("/var is not a symlink on this host")
+	}
+	got, err := Resolve(Options{Explicit: "/var/tmp/ht-not-created-9f3c"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if want := filepath.Join(resolvedVar, "tmp", "ht-not-created-9f3c"); got != want {
+		t.Fatalf("resolved %q, want %q", got, want)
+	}
+}
