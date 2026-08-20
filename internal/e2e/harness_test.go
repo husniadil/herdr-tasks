@@ -376,40 +376,39 @@ func sprint(v any) string {
 // guards against is a hang, not slowness.
 const paneTimeout = 30 * time.Second
 
-// waitForFile polls until path exists or the timeout elapses, and reports
-// WHICH of the two happened. The return value is the whole point: a wait that
-// cannot say why it stopped makes its caller guess, and the caller guesses
-// wrong in the one case that matters.
-func waitForFile(path string, timeout time.Duration) bool {
-	deadline := time.Now().Add(timeout)
-	for {
-		if _, err := os.Stat(path); err == nil {
-			return true
-		}
-		if !time.Now().Before(deadline) {
-			return false
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-}
-
-// timedOut is the failure a pane command that never finished produces. It
-// names the timeout, the command, and whatever the command had managed to
-// write, because a partial line is usually the reason.
-func timedOut(pane string, args []string, after time.Duration, partial string) error {
-	if partial == "" {
-		partial = "(nothing)"
-	}
-	return fmt.Errorf("timed out after %s waiting for `ht %s` to finish in pane %s; it had written %q",
-		after, strings.Join(args, " "), pane, partial)
-}
-
-// readSoFar is whatever a command has written, for the timeout message. A
-// missing file is not an error here: the command may not have started.
-func readSoFar(path string) string {
-	body, err := os.ReadFile(path)
+// repoRoot is the plugin root: the directory holding herdr-plugin.toml, found
+// from this package rather than assumed, so the suite still works from a
+// worktree or a copied checkout.
+func repoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
 	if err != nil {
-		return ""
+		t.Fatalf("getwd: %v", err)
 	}
-	return strings.TrimSpace(string(body))
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "herdr-plugin.toml")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("no herdr-plugin.toml above %s", dir)
+		}
+		dir = parent
+	}
+}
+
+// linkPlugin installs this plugin into the THROWAWAY Herdr, so the manifest's
+// own [[events]] reactions are registered and can fire. Nothing here reaches
+// the operator's Herdr: the link is written under the throwaway HOME, on the
+// throwaway socket, in the throwaway session (§12.3).
+func (w *world) linkPlugin() {
+	w.t.Helper()
+	root := repoRoot(w.t)
+	if _, err := os.Stat(filepath.Join(root, "bin", "ht")); err != nil {
+		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: the manifest's reactions run ./bin/ht, which is not built: %v", err)
+	}
+	if _, err := w.tryHerdr("plugin", "link", root); err != nil {
+		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: this herdr cannot link a local plugin: %v", err)
+	}
+	w.t.Cleanup(func() { w.tryHerdr("plugin", "unlink", "herdr-tasks") })
 }

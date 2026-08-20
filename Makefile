@@ -37,8 +37,12 @@ test-full:
 	@# that OS to run on.
 	GOOS=linux GOARCH=amd64 go vet ./...
 	GOOS=darwin GOARCH=arm64 go vet ./...
-	@# Layer 3 is not run here — it needs a real herdr — but it is compiled
-	@# here, so the suite cannot rot behind its build tag.
+	@# Layer 3's herdr-NEEDING half is not run here — it needs a real herdr —
+	@# but it is compiled here, so the suite cannot rot behind its build tag.
+	@# Its herdr-FREE half carries no build tag, so `go test` below runs it
+	@# like any other package: the harness's own failure reporting decides
+	@# whether every other layer-3 failure is legible, and it used to be
+	@# compiled by this line and executed by nothing.
 	go vet -tags e2e ./...
 	go test -race ./...
 

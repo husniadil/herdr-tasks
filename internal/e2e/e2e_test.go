@@ -3,8 +3,6 @@
 package e2e
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -129,10 +127,12 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 // lifecycle events, and a plugin with leases sweeps them when a pane dies —
 // recording the sweep in the entity's events.
 //
-// The sweep on `pane.exited` is not automatic yet: the manifest declares no
-// [[events]] reaction, so the proof here runs the same pass the reaction would
-// (`ht sweep --pane`) after really closing the pane through Herdr. The gap is
-// recorded in docs/contract-notes.md.
+// This is the MANUAL pass, `ht sweep --pane`, which is what the operator runs
+// and what the manifest's own reaction runs for them. It is worth keeping
+// separately from the automatic one below: the reaction script exits early
+// when Herdr gives it no pane id, and then this is the only way the work comes
+// back. The automatic path is
+// TestClosingAPaneReleasesItsLeasesWithoutBeingAsked.
 func TestLeaseIsReleasedAfterTheClaimingPaneDies(t *testing.T) {
 	w := startWorld(t)
 	pane := w.pane("lease")
@@ -214,41 +214,6 @@ func TestNoDaemonThisSuiteStartedSurvivesIt(t *testing.T) {
 	}
 }
 
-// The harness's own failure reporting. A pane command that never finishes must
-// be reported as the timeout it was: before this, the wait fell out of its
-// loop silently and the half-written file was read anyway, so a slow command
-// surfaced as "the pane printed no JSON document" — the door blamed for the
-// harness running out of patience. Needs no Herdr, so it runs even where the
-// rest of layer 3 skips.
-func TestAPaneWaitThatRunsOutOfTimeSaysSoInsteadOfBlamingTheOutput(t *testing.T) {
-	appeared := filepath.Join(t.TempDir(), "done")
-	if err := os.WriteFile(appeared, []byte("0\n"), 0o600); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if !waitForFile(appeared, time.Second) {
-		t.Fatal("the wait missed a file that was already there")
-	}
-
-	missing := filepath.Join(t.TempDir(), "never")
-	start := time.Now()
-	if waitForFile(missing, 200*time.Millisecond) {
-		t.Fatal("the wait claimed a file that never appears did")
-	}
-	if waited := time.Since(start); waited < 200*time.Millisecond {
-		t.Fatalf("the wait gave up after %s, before its own timeout", waited)
-	}
-
-	err := timedOut("w1:p1", []string{"task", "claim", "01H"}, 200*time.Millisecond, `{"partial":`)
-	for _, want := range []string{"timed out", "200ms", "task claim 01H", "w1:p1", `{\"partial\":`} {
-		if !strings.Contains(err.Error(), want) {
-			t.Fatalf("the timeout does not name %q: %v", want, err)
-		}
-	}
-	if strings.Contains(err.Error(), "no JSON document") {
-		t.Fatalf("a timeout is still reported as a parse failure: %v", err)
-	}
-}
-
 // §5.9 through the whole stack: the shipped binary, a real daemon and a real
 // Herdr. The unit tests hold the state machine's refusal; this holds the part
 // a caller actually sees — the §6.3 exit status — because a bound that
@@ -284,5 +249,54 @@ func TestFreeTextBoundsAreEnforcedThroughTheRealStack(t *testing.T) {
 	w.mustInPane(pane, "task", "submit", id, "--report", "did it", "--evidence", "make test-full: exit 0")
 	if s := w.task(id)["status"]; s != "review" {
 		t.Fatalf("a submission inside the bounds did not reach review: %v", s)
+	}
+}
+
+// §8.4 / §11.5: the manifest promises that a pane going away gives its work
+// back by itself, and until now nothing checked. This closes a pane through
+// Herdr and waits for the claim to come back WITHOUT running `ht sweep --pane`
+// — if it comes back, the reaction Herdr registered from the manifest is what
+// brought it.
+func TestClosingAPaneReleasesItsLeasesWithoutBeingAsked(t *testing.T) {
+	w := startWorld(t)
+	w.linkPlugin()
+	pane := w.pane("automatic")
+	w.beAgent(pane, "claude", "holder")
+
+	created := w.ht("task", "create", "held by a pane that is about to close")
+	id, _ := created["task"].(map[string]any)["id"].(string)
+	w.mustInPane(pane, "task", "claim", id)
+	if held := w.task(id); held["claimed_by"] != "agent:"+pane {
+		t.Fatalf("precondition: the pane holds it; claimed_by = %v", held["claimed_by"])
+	}
+
+	w.herdr("pane", "close", pane)
+
+	deadline := time.Now().Add(20 * time.Second)
+	var back map[string]any
+	for time.Now().Before(deadline) {
+		back = w.task(id)
+		if back["status"] == "todo" && back["claimed_by"] == nil {
+			break
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if back["status"] != "todo" || back["claimed_by"] != nil {
+		logs, _ := w.tryHerdr("plugin", "log", "list")
+		t.Fatalf("the manifest's pane reaction did not release the lease within 20s: %v\nplugin logs: %v", back, logs)
+	}
+
+	var kinds []string
+	for _, e := range w.ht("events", "--entity", "task")["events"].([]any) {
+		kinds = append(kinds, e.(map[string]any)["kind"].(string))
+	}
+	found := false
+	for _, k := range kinds {
+		if k == "swept" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("the automatic release left no trail: %v", kinds)
 	}
 }

@@ -150,12 +150,28 @@ Two further shape notes, from the same pass:
 
 ## §11.5 — proving lease release when a pane dies, end to end
 
-The layer-3 test closes the claiming pane through the real Herdr and then runs
-`ht sweep --pane <id>`, the same pass a `pane.exited` reaction would run, and
-asserts the task is back in `todo` with a `swept` event on its trail. That is
-the nearest provable equivalent while the manifest carries no `[[events]]`
-reaction (see the §11.5 note above): what is not yet proved end to end is
-Herdr *delivering* the event, not what the plugin does when it has it.
+Both halves are now proved against a real headless Herdr, and they are
+different halves.
+
+`TestLeaseIsReleasedAfterTheClaimingPaneDies` closes the pane and runs
+`ht sweep --pane <id>` itself — the MANUAL pass, which is what an operator
+runs and what the manifest's reaction runs on their behalf. It is worth
+keeping on its own because `scripts/on-pane-gone.sh` exits early when Herdr
+gives it no pane id, and then this is the only way the work comes back.
+
+`TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` links this plugin into
+the throwaway Herdr so the manifest's own `[[events]]` reactions are
+registered, closes the pane, and waits for the claim to come back with nobody
+asking. Measured on herdr 0.8.0: it comes back in well under a second. The
+control matters as much as the result — with the plugin NOT linked, the same
+test waits the full twenty seconds and the task is still `doing`, still held
+by the closed pane. So Herdr really is delivering the event and the manifest's
+reaction really is what releases the lease.
+
+Earlier versions of this note said the manifest declared no `[[events]]`
+reaction. It has declared two — `pane.closed` and `pane.exited` — since the
+manifest gained them; the note and a comment in the layer-3 suite both went
+stale, and nothing caught it because nothing ran the automatic path.
 
 ## §11.6 — what a popup is, and what it is not
 
