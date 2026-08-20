@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -149,6 +150,14 @@ func (d *Daemon) serveConn(ctx context.Context, conn net.Conn) {
 // Answer runs one request and renders the §6.2 envelope. It is the whole
 // daemon as a function, which is what lets the verb tests skip the socket.
 func (d *Daemon) Answer(req protocol.Request) protocol.Response {
+	resp := d.answer(req)
+	// Every answer, not only doctor's: the door that needs to know it is
+	// talking to a stranger is the one making an ordinary call.
+	resp.Fingerprint = verbs.Fingerprint()
+	return resp
+}
+
+func (d *Daemon) answer(req protocol.Request) protocol.Response {
 	result, err := d.Handle(req)
 	if err != nil {
 		body := &protocol.ErrorBody{Code: codes.Unexpected, Message: err.Error()}
@@ -187,6 +196,16 @@ func (d *Daemon) Handle(req protocol.Request) (any, error) {
 	v, ok := verbs.ByName(req.Verb)
 	if !ok {
 		return nil, codes.Errorf(codes.Usage, "unknown verb %q", req.Verb)
+	}
+	// An argument this verb does not declare is refused rather than dropped.
+	// A door newer than the daemon would otherwise have the part the daemon
+	// does not know silently removed and be told it succeeded.
+	for _, name := range sortedKeys(req.Args) {
+		if !v.Accepts(name) {
+			return nil, codes.Errorf(codes.Usage,
+				"%s does not take %q; this door may be newer than the daemon, in which case restart the daemon",
+				req.Verb, name)
+		}
 	}
 	actor, err := d.actor(req)
 	if err != nil {
@@ -412,4 +431,15 @@ func (d *Daemon) Reload(cfg *config.Config) {
 	d.cfgMu.Lock()
 	defer d.cfgMu.Unlock()
 	d.cfg, d.gate = cfg, next
+}
+
+// sortedKeys is the argument names in a stable order, so a request with two
+// undeclared arguments names the same one every time.
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

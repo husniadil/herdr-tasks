@@ -5,6 +5,12 @@
 // true rather than checked after the fact.
 package verbs
 
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"strings"
+)
+
 // Kind of an argument, in the small vocabulary both doors can render.
 const (
 	String  = "string"
@@ -298,6 +304,46 @@ var All = []Verb{
 }
 
 // ByName finds a verb by its daemon name.
+// Fingerprint identifies the door surface this build speaks: every verb, every
+// argument it declares, and its gate name. It is NOT the release version.
+// Version is bumped by hand and stayed 0.1.0 across the change that added an
+// argument to note.promote, so a version comparison could not tell a door and
+// a daemon apart while one of them was silently dropping the new argument.
+// This changes exactly when the surface changes.
+func Fingerprint() string { return FingerprintOf(All) }
+
+// FingerprintOf is Fingerprint over an arbitrary table, so a test can prove
+// that a changed surface changes the answer.
+func FingerprintOf(list []Verb) string {
+	var b strings.Builder
+	for _, v := range list {
+		b.WriteString(v.Name)
+		b.WriteString("\x00")
+		b.WriteString(v.Gated)
+		for _, a := range v.Args {
+			b.WriteString("\x00")
+			b.WriteString(a.Name)
+			b.WriteString(":")
+			b.WriteString(a.Type)
+		}
+		b.WriteString("\n")
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:8])
+}
+
+// Accepts reports whether this verb declares an argument by that name. The
+// daemon refuses the ones it does not: an argument nobody reads is a request
+// the caller thinks it made and the daemon never saw.
+func (v Verb) Accepts(name string) bool {
+	for _, a := range v.Args {
+		if a.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func ByName(name string) (Verb, bool) {
 	for _, v := range All {
 		if v.Name == name {

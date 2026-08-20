@@ -1,7 +1,10 @@
 package main_test
 
 import (
+	"bufio"
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/testenv"
+	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
 // world is one throwaway installation: its own binary, state dir, config dir,
@@ -408,4 +412,81 @@ func TestVerbsScopeToTheHerdrContextNotTheWorkingDirectory(t *testing.T) {
 	if back["count"] != float64(1) {
 		t.Fatalf("reading from the pane found %v tasks, want 1", back["count"])
 	}
+}
+
+// A door newer than the daemon had the part the daemon did not understand
+// dropped, and was told it succeeded. The daemon stamps every answer with the
+// door surface it speaks; the door says so when that is not its own. Both
+// halves are driven against a hand-rolled daemon so the door is the only real
+// thing under test.
+func TestSkewIsReportedByTheDoor(t *testing.T) {
+	for name, tc := range map[string]struct {
+		answer string
+		want   string
+	}{
+		"a daemon speaking a different surface": {
+			answer: `{"result":{"tasks":[],"count":0},"fingerprint":"0badc0de0badc0de"}`,
+			want:   "restart the daemon",
+		},
+		"a daemon too old to have one at all": {
+			answer: `{"result":{"tasks":[],"count":0}}`,
+			want:   "restart the daemon",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newWorld(t)
+			ln := fakeDaemon(t, w, tc.answer)
+			defer ln.Close()
+			stdout, stderr, status := w.run(w.env(), "task", "list", "--json")
+			if status != 0 {
+				t.Fatalf("skew must warn, not fail: exit %d: %s%s", status, stdout, stderr)
+			}
+			if !strings.Contains(stderr, tc.want) {
+				t.Fatalf("stderr did not report the skew: %q", stderr)
+			}
+			if !strings.Contains(stdout, `"count":0`) {
+				t.Fatalf("the answer must still reach stdout, unpolluted: %q", stdout)
+			}
+		})
+	}
+}
+
+// The matching case: a daemon speaking this door's own surface says nothing.
+func TestSkewIsSilentWhenTheSurfacesMatch(t *testing.T) {
+	w := newWorld(t)
+	ln := fakeDaemon(t, w,
+		`{"result":{"tasks":[],"count":0},"fingerprint":"`+verbs.Fingerprint()+`"}`)
+	defer ln.Close()
+	_, stderr, status := w.run(w.env(), "task", "list", "--json")
+	if status != 0 {
+		t.Fatalf("exit %d: %s", status, stderr)
+	}
+	if strings.Contains(stderr, "restart the daemon") {
+		t.Fatalf("a matching daemon must say nothing: %q", stderr)
+	}
+}
+
+// fakeDaemon listens on the socket the door will dial and answers every
+// request with one canned line, so the door never autostarts a real one.
+func fakeDaemon(t *testing.T, w *world, answer string) net.Listener {
+	t.Helper()
+	if err := os.MkdirAll(w.state, 0o700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	ln, err := net.Listen("unix", filepath.Join(w.state, "tasks.sock"))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			bufio.NewReader(conn).ReadString('\n')
+			fmt.Fprintln(conn, answer)
+			conn.Close()
+		}
+	}()
+	return ln
 }

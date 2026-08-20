@@ -28,6 +28,12 @@ type Request struct {
 type Response struct {
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  *ErrorBody      `json:"error,omitempty"`
+	// Fingerprint is the door surface the answering daemon speaks. A door
+	// compares it with its own and says so when they differ — and an empty
+	// one is the same signal, because a daemon old enough to predate this
+	// field is exactly the daemon that would drop an argument it never
+	// learned. Additive, so an old door simply ignores it.
+	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
 // ErrorBody is the §6.2 envelope. ParkedID is the §9.3 addition a DENIED

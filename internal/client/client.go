@@ -5,14 +5,17 @@ package client
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/config"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
+	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
 // StartTimeout bounds the autostart wait. §2.2: a CLI invocation that finds no
@@ -34,10 +37,36 @@ func Call(req protocol.Request) (json.RawMessage, error) {
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&resp); err != nil {
 		return nil, codes.Errorf(codes.Unavailable, "read the answer to %s: %v", req.Verb, err)
 	}
+	warnOnSkew(resp.Fingerprint)
 	if resp.Error != nil {
 		return nil, &Failure{Body: resp.Error}
 	}
 	return resp.Result, nil
+}
+
+// skewWarned keeps the warning to once per process. It is worth saying, but
+// not once per call in a loop.
+var skewWarned sync.Once
+
+// warnOnSkew says so when the answering daemon does not speak this door's
+// surface. It warns rather than refuses: the request has already been
+// answered, and a door that failed here would break the upgrade it is meant
+// to make visible. An empty fingerprint counts — a daemon predating the field
+// is exactly the one that drops arguments it never learned.
+func warnOnSkew(got string) {
+	mine := verbs.Fingerprint()
+	if got == mine {
+		return
+	}
+	skewWarned.Do(func() {
+		daemon := "reports " + got
+		if got == "" {
+			daemon = "is too old to say which"
+		}
+		fmt.Fprintf(os.Stderr,
+			"ht: this door speaks %s and the daemon %s; parts of a request it does not know are dropped — restart the daemon\n",
+			mine, daemon)
+	})
 }
 
 // Stream sends one request and hands every answer to fn until the daemon stops

@@ -563,3 +563,80 @@ func findLine(lines []string, needle string) string {
 	}
 	return ""
 }
+
+// §6.2 vocabulary, applied one level down: the daemon already refuses an
+// unknown VERB loudly, and an argument it does not know is the same mistake.
+// A door newer than the daemon otherwise has its request silently narrowed —
+// the promote that succeeded with no criteria at all.
+func TestUnknownArgIsRefusedByName(t *testing.T) {
+	d := newDaemon(t, nil)
+	task := createTask(t, d, "strict")
+
+	resp := call(t, d, protocol.Request{Verb: "task.update",
+		Args: map[string]any{"id": task.Task.ID, "title": "fine", "nonesuch": "x"}})
+	if resp.Error == nil {
+		t.Fatalf("an undeclared argument was accepted: %s", resp.Result)
+	}
+	if resp.Error.Code != codes.Usage {
+		t.Fatalf("code = %s, want %s", resp.Error.Code, codes.Usage)
+	}
+	if !strings.Contains(resp.Error.Message, "nonesuch") {
+		t.Fatalf("the message must name the argument: %q", resp.Error.Message)
+	}
+	if !strings.Contains(resp.Error.Message, "task.update") {
+		t.Fatalf("the message must name the verb: %q", resp.Error.Message)
+	}
+}
+
+// The other half, so the check cannot be satisfied by refusing everything:
+// every argument the verb declares still goes through.
+func TestDeclaredArgsStillPass(t *testing.T) {
+	d := newDaemon(t, nil)
+	task := createTask(t, d, "declared")
+	mustCall(t, d, protocol.Request{Verb: "task.update", Args: map[string]any{
+		"id": task.Task.ID, "title": "renamed", "description": "why",
+		"priority": 3, "validation": []any{"make test-full exits 0"},
+	}})
+}
+
+// Every verb in the table must be reachable with the arguments it declares.
+// A typo in an Arg name would otherwise make the verb unusable only once a
+// caller tried that argument.
+func TestEveryDeclaredArgIsAccepted(t *testing.T) {
+	for _, v := range verbs.All {
+		for _, a := range v.Args {
+			if !v.Accepts(a.Name) {
+				t.Fatalf("%s declares %q but the checker does not accept it", v.Name, a.Name)
+			}
+		}
+	}
+}
+
+// The fingerprint is over the door surface, not the release number: a
+// hand-bumped semver stayed 0.1.0 across the change that caused the incident,
+// so a version check would have compared 0.1.0 against 0.1.0 and passed.
+func TestFingerprintTracksTheDoorSurfaceNotTheVersion(t *testing.T) {
+	first := verbs.Fingerprint()
+	if first == "" {
+		t.Fatal("the fingerprint must not be empty")
+	}
+	if first != verbs.Fingerprint() {
+		t.Fatal("the fingerprint must be stable for one build")
+	}
+	// Adding an argument to any verb is exactly the change that broke promote.
+	changed := verbs.FingerprintOf(append([]verbs.Verb{{
+		Name: "task.create", Args: []verbs.Arg{{Name: "nonesuch"}},
+	}}, verbs.All...))
+	if changed == first {
+		t.Fatal("a changed door surface must change the fingerprint")
+	}
+}
+
+// §10.3: doctor reports it, so a door can compare and say so.
+func TestDoctorReportsTheFingerprint(t *testing.T) {
+	d := newDaemon(t, nil)
+	report := d.Doctor(protocol.Request{Project: proj}, tasks.Actor{Principal: tasks.PrincipalHuman})
+	if report.Fingerprint != verbs.Fingerprint() {
+		t.Fatalf("doctor fingerprint = %q, want %q", report.Fingerprint, verbs.Fingerprint())
+	}
+}

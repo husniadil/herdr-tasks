@@ -20,8 +20,12 @@ import (
 // reachability and the schema it saw, hook and gate configuration, and
 // anything degraded. It never fails.
 type DoctorReport struct {
-	Version         string   `json:"version"`
-	Contract        string   `json:"contract"`
+	Version  string `json:"version"`
+	Contract string `json:"contract"`
+	// Fingerprint is the door surface this daemon speaks (§13.3). A door
+	// compares it with its own: equal means the two agree about every verb
+	// and argument, and anything else means restart the daemon.
+	Fingerprint     string   `json:"fingerprint"`
 	Plugin          string   `json:"plugin"`
 	Binary          string   `json:"binary"`
 	StateDir        string   `json:"state_dir"`
@@ -62,6 +66,7 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 	r := DoctorReport{
 		Version:       Version,
 		Contract:      ContractVersion,
+		Fingerprint:   verbs.Fingerprint(),
 		Plugin:        "herdr-tasks",
 		StateDir:      config.StateDir(),
 		ConfigDir:     config.ConfigDir(),
