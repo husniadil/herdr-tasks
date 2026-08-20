@@ -35,14 +35,28 @@ the contract until it is amended upstream.
 
 ## Non-negotiables
 
-1. **Dependency budget: four libraries** — cobra, modernc.org/sqlite, the
+1. **Dependency budget: five libraries** — cobra, modernc.org/sqlite, the
    official MCP go-sdk (`github.com/modelcontextprotocol/go-sdk`, pinned
-   v1.7.0), and bubbletea (`github.com/charmbracelet/bubbletea`) for the TUI.
+   v1.7.0), bubbletea (`github.com/charmbracelet/bubbletea`) for the TUI, and
+   `github.com/charmbracelet/x/ansi` for measuring text in terminal cells.
    Adding or swapping one is a deliberate decision, recorded here in the same
    commit that makes it. bubbletea earns its place because §11.6 asks for a
-   mouse-first pane and the alternative is our own terminal input parser;
-   nothing else from the charm family is imported directly, and the model and
-   update logic stay pure so the tests never start a terminal.
+   mouse-first pane and the alternative is our own terminal input parser; the
+   model and update logic stay pure so the tests never start a terminal.
+
+   `x/ansi` is the one other charm import, and it is here for a reason that is
+   not convenience: bubbletea's renderer truncates every line it writes with
+   `ansi.Truncate` at the terminal width, so any width function of ours that
+   disagreed with `ansi.StringWidth` would put the overflow back — the layout
+   would believe a line fits and the renderer would cut it, losing text
+   silently. Agreement with the renderer is the requirement, so we use the
+   renderer's own function rather than a second opinion. It was already
+   compiled into the binary through bubbletea, so this costs a `go.mod` line
+   and no new supply-chain surface. `mattn/go-runewidth`, the obvious
+   alternative and also already present, is NOT interchangeable: it sums
+   runes where the renderer measures graphemes, and reports a regional-
+   indicator flag as one cell against the renderer's two. Nothing else from
+   the charm family is imported directly.
 
 2. **The `--json` shape and the error-code vocabulary are semver-bound.** A
    shipped field or code is never repurposed or removed; only new ones are

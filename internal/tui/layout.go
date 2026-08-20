@@ -237,7 +237,7 @@ func promptLine(p Prompt, width int) string {
 		return head + string(r[:cursor]) + string(promptCursor) + string(r[cursor:])
 	}
 	// One column of the room is the cursor's own.
-	avail := width - len([]rune(head)) - 1
+	avail := width - cells(head) - 1
 	if avail < 1 {
 		// A pane too narrow for the label keeps the value and loses the label:
 		// what is being typed matters more than what it is called.
@@ -246,21 +246,29 @@ func promptLine(p Prompt, width int) string {
 			avail = 1
 		}
 	}
-	start := 0
-	if len(r) > avail {
-		start = cursor - avail/2
-		if start > len(r)-avail {
-			start = len(r) - avail
+	// Grow the window outwards from the cursor a character at a time, taking
+	// each side in turn, until the CELLS run out. Sizing the window in
+	// characters instead would let a value of double-width characters draw
+	// twice the pane's width, and the renderer would cut it — at the end,
+	// which is where the typing is.
+	left, right, used := cursor, cursor, 0
+	for {
+		grew := false
+		if left > 0 {
+			if w := cells(string(r[left-1])); used+w <= avail {
+				left, used, grew = left-1, used+w, true
+			}
 		}
-		if start < 0 {
-			start = 0
+		if right < len(r) {
+			if w := cells(string(r[right])); used+w <= avail {
+				right, used, grew = right+1, used+w, true
+			}
+		}
+		if !grew {
+			break
 		}
 	}
-	end := start + avail
-	if end > len(r) {
-		end = len(r)
-	}
-	window := string(r[start:cursor]) + string(promptCursor) + string(r[cursor:end])
+	window := string(r[left:cursor]) + string(promptCursor) + string(r[cursor:right])
 	return clampWidth(head+window, width)
 }
 
@@ -358,14 +366,15 @@ func clampLines(lines []string, n int) []string {
 	return lines
 }
 
-// clampWidth keeps a line inside the pane. A line wider than the pane wraps,
-// and a wrapped line is two rows the height budget counted as one.
+// clampWidth keeps a line inside the pane, measured in cells. bubbletea cuts
+// anything wider at the same boundary, so a line this function lets through is
+// a line that reaches the terminal whole.
 func clampWidth(s string, w int) string {
 	if w <= 0 {
 		return s
 	}
-	if r := []rune(s); len(r) > w {
-		return string(r[:w])
+	if cells(s) > w {
+		return truncateCells(s, w)
 	}
 	return s
 }
@@ -378,16 +387,22 @@ func wrapTo(s string, w int) []string {
 	}
 	out := []string{}
 	for _, line := range strings.Split(s, "\n") {
-		r := []rune(line)
-		if len(r) == 0 {
+		if line == "" {
 			out = append(out, "")
 			continue
 		}
-		for len(r) > w {
-			out = append(out, string(r[:w]))
-			r = r[w:]
+		for cells(line) > w {
+			head := truncateCells(line, w)
+			if head == "" {
+				// A single character wider than the whole pane. Emit it
+				// anyway: one overflowing row the renderer trims is better
+				// than a loop that never ends or text that never appears.
+				head = string([]rune(line)[0])
+			}
+			out = append(out, head)
+			line = line[len(head):]
 		}
-		out = append(out, string(r))
+		out = append(out, line)
 	}
 	return out
 }
@@ -506,15 +521,18 @@ func notesLines(m Model) []string {
 	return out
 }
 
+// pad renders s in a column exactly w cells wide, keeping at least one cell of
+// gap before the next column. Measured in cells, not characters: padding a
+// double-width title by character count pushes the column beside it to the
+// right by one cell per wide character, until the renderer cuts it off.
 func pad(s string, w int) string {
-	r := []rune(s)
 	if w <= 1 {
 		return s
 	}
-	if len(r) > w-1 {
-		return string(r[:w-1]) + " "
+	if cells(s) > w-1 {
+		s = truncateCells(s, w-1)
 	}
-	return s + strings.Repeat(" ", w-len(r))
+	return s + strings.Repeat(" ", w-cells(s))
 }
 
 func humanLeft(ms int64) string {

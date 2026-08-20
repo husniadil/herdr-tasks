@@ -798,12 +798,14 @@ func TestRenderClampsTheBodyNotTheChrome(t *testing.T) {
 		if !strings.Contains(Render(m, 0), "[esc] close") {
 			t.Errorf("%s: the way out went instead of the body", name)
 		}
-		// Every line has to fit the width too, or one "line" is several rows
-		// and the count above is measuring the wrong thing.
+		// Every line has to fit the width too, or the renderer cuts it and
+		// the text past the cut is simply gone. Measured in CELLS: a rune is
+		// not a column, and counting runes here is what let a wide-rune line
+		// through at nearly twice the pane's width.
 		for i, ln := range lines {
-			if len([]rune(ln)) > m.Width {
-				t.Errorf("%s: line %d is %d columns wide, which wraps into extra rows: %.40q…",
-					name, i, len([]rune(ln)), ln)
+			if cells(ln) > m.Width {
+				t.Errorf("%s: line %d is %d cells wide, which the renderer will cut: %.40q…",
+					name, i, cells(ln), ln)
 			}
 		}
 	}
@@ -1009,8 +1011,8 @@ func TestPromptWindowFollowsTheCursor(t *testing.T) {
 			if line == "" {
 				t.Fatalf("w=%d c=%d: the prompt was not drawn", width, cursor)
 			}
-			if len([]rune(line)) > width {
-				t.Errorf("w=%d c=%d: the prompt line is %d runes", width, cursor, len([]rune(line)))
+			if cells(line) > width {
+				t.Errorf("w=%d c=%d: the prompt line is %d cells", width, cursor, cells(line))
 			}
 			// The cursor marker has to be on screen, with the value's own
 			// neighbours around it — that is what "you can see what you are
@@ -1272,6 +1274,124 @@ func TestDocsKeysMatchTheFooter(t *testing.T) {
 	for key := range documented {
 		if !advertised[key] {
 			t.Errorf("README documents %q, which no footer offers", key)
+		}
+	}
+}
+
+// cjk is a run of double-width characters: n runes, 2n cells. It is the shape
+// that breaks any layout that counts characters instead of columns.
+func cjk(n int) string { return strings.Repeat("状", n) }
+
+// §11.6: a terminal measures in columns. bubbletea truncates every line it
+// writes at the terminal width using its own display-width function, so a
+// layout that clamps by rune count hands it lines it will silently cut — the
+// text is gone and nothing on screen says so.
+func TestEveryRenderedLineFitsTheWidthInCells(t *testing.T) {
+	wide := board(t, task(1, tasks.StatusTodo, cjk(30)))
+	notes := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: cjk(40)}}, nil)
+	deep := []*tasks.Task{}
+	for i := 1; i <= 40; i++ {
+		deep = append(deep, task(int64(i), tasks.StatusTodo, cjk(30)))
+	}
+
+	for name, m := range map[string]Model{
+		"a wide title":     wide,
+		"a wide note":      notes,
+		"forty wide cards": board(t, deep...),
+	} {
+		m.Width, m.Height = 80, 24
+		for i, ln := range screen(m) {
+			if cells(ln) > m.Width {
+				t.Errorf("%s: line %d is %d cells wide (%d runes), which the renderer will cut: %.30q…",
+					name, i, cells(ln), len([]rune(ln)), ln)
+			}
+		}
+	}
+}
+
+// §11.6: the detail panel is where a note is READ. A body wrapped by rune
+// count produces lines the renderer cuts at half their length, so a third of
+// the text is on no line at all — the worst kind of loss, because the panel
+// looks complete.
+func TestDetailWrapsByCellsAndDropsNothing(t *testing.T) {
+	body := cjk(60)
+	lines := wrapTo(body, 80)
+	for i, ln := range lines {
+		if cells(ln) > 80 {
+			t.Errorf("wrapped line %d is %d cells wide", i, cells(ln))
+		}
+	}
+	if rejoined := strings.Join(lines, ""); rejoined != body {
+		t.Errorf("wrapping dropped text: %d runes back from %d", len([]rune(rejoined)), len([]rune(body)))
+	}
+
+	// And through Render, which is what the operator actually sees.
+	m := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: body}}, nil)
+	m.Width, m.Height = 80, 24
+	m.Detail = true
+	shown := strings.Join(screen(m), "")
+	if !strings.Contains(shown, cjk(30)) {
+		t.Errorf("the detail panel lost the body: %q", shown)
+	}
+}
+
+// §11.6: the board is two columns, and the right one starts where the layout
+// says it starts. Padding by rune count pushes it right by one cell per wide
+// character, and the renderer then cuts its title off the screen.
+func TestTheRightColumnStartsAtTheSameCellWhateverTheLeftHolds(t *testing.T) {
+	at := func(left string) (int, string) {
+		t.Helper()
+		m := board(t, task(1, tasks.StatusTodo, left), task(2, tasks.StatusReview, "review me"))
+		m.Width, m.Height = 80, 24
+		for _, ln := range screen(m) {
+			if i := strings.Index(ln, "#2"); i >= 0 {
+				return cells(ln[:i]), ln
+			}
+		}
+		t.Fatalf("the review card was not drawn for %q", left)
+		return 0, ""
+	}
+	plain, _ := at("an ascii title")
+	wide, line := at(cjk(30))
+	if plain != wide {
+		t.Errorf("the right column starts at cell %d with a wide left column, %d with an ascii one", wide, plain)
+	}
+	if !strings.Contains(line, "review me") {
+		t.Errorf("the right column's title was cut: %q", line)
+	}
+}
+
+// §11.6: the prompt stays one row and keeps the cursor in view when what is
+// typed is double-width. A prompt that grew to two rows would push the header
+// off the screen — the regression task 15 closed.
+func TestThePromptFitsInCellsWhileTypingWideRunes(t *testing.T) {
+	for _, height := range []int{10, 24, 40} {
+		for _, cursor := range []int{0, 45, 90} {
+			m := promptOf(t, "Find in board", cjk(90))
+			m.Width, m.Height = 80, height
+			m.Prompt.Cursor = cursor
+
+			lines := screen(m)
+			if len(lines) != height {
+				t.Fatalf("h=%d c=%d: %d lines for %d rows", height, cursor, len(lines), height)
+			}
+			if !strings.Contains(lines[0], "/repo") {
+				t.Fatalf("h=%d c=%d: the header went: %q", height, cursor, lines[0])
+			}
+			prompt := ""
+			for _, ln := range lines {
+				if strings.ContainsRune(ln, promptCursor) {
+					prompt = ln
+				}
+			}
+			if prompt == "" {
+				t.Fatalf("h=%d c=%d: the cursor is not on screen", height, cursor)
+			}
+			for i, ln := range lines {
+				if cells(ln) > m.Width {
+					t.Fatalf("h=%d c=%d: line %d is %d cells wide: %.30q…", height, cursor, i, cells(ln), ln)
+				}
+			}
 		}
 	}
 }
