@@ -24,7 +24,13 @@ To develop against a checkout:
 ```sh
 make build && make test-full
 herdr plugin link .
+ln -s "$PWD/skills/tasks" ~/.claude/skills/tasks
 ```
+
+The symlink is what puts the skill in front of an agent — nothing in the Herdr
+manifest installs it, because the skill is read by the harness and not by
+Herdr. Link it rather than copy it: the checkout stays the single source, and
+a copy is a second version of the truth from the next commit onwards.
 
 ## Using it
 
@@ -69,6 +75,30 @@ description = "Open the tasks board"
 command; the value is `<plugin id>.<action id>`, both from `herdr-plugin.toml`.
 Pressing the key when the board is already open is a no-op rather than an
 error, so it can be leaned on.
+
+### Once it is open
+
+A popup pane carries no `HERDR_PANE_ID`, so the board is the **human**
+principal (§3.2) and offers human verbs only: there is no claim, touch or
+submit key, because that work belongs to the agent doing it. Everything below
+is also clickable — the footer draws each verb where the mouse can reach it.
+
+| Key | Where | What it does |
+| --- | --- | --- |
+| `enter` | board | open the detail panel on the selection |
+| `a` | board, task in review | approve it |
+| `x` | board, task in review | reject it, asking what must change |
+| `v` | notes | record a verdict — a proposal, not a decision |
+| `p` | notes | promote the note into a task |
+| `K` | notes | keep it: approved, not now |
+| `d` | notes | drop it, with a reason |
+| `e` | notes | open the body in `$EDITOR` (`VISUAL` first) and save the edit |
+| `a` | notes | file a new note |
+| `y` | parked actions | run the action the policy gate deferred |
+| `n` | parked actions | reject it |
+| `/` | either board | filter it — the search runs in the daemon, like `--query` |
+| `tab` | either board | switch between the tasks board and the notes board |
+| `esc` | either board | close the detail, then clear the filter, then leave |
 
 ## The shared plugin contract
 

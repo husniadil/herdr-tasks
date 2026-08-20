@@ -7,7 +7,9 @@ description: The task backlog and notes board for this Herdr fleet. Use when pic
 
 `ht` is the backlog. A **task** is a commitment with a lifecycle and a claim; a
 **note** is an idea that has not been decided yet. Everything is scoped to the
-**project**, the git root of wherever you are — no flag needed.
+**project**, the git root of wherever you are — no flag needed. An empty list
+says which project it searched and how many rows match elsewhere; read that
+line before concluding there is no work.
 
 You never say who you are. Your principal is derived from the Herdr pane you
 run in, and the harness is read from Herdr, not from you.
@@ -64,6 +66,7 @@ committing to.
 ```sh
 ht note add "the sweep releases a lease without logging why"
 ht note list --status inbox
+ht note list --query sweep               # search bodies and verdict reasons
 ht note discuss 3                        # you are triaging it
 ht note discuss 3 --question "is this ours or herdr's?"   # park it on the operator
 ht note verdict 3 task --reason "small, and it costs us every incident"
@@ -71,7 +74,12 @@ ht note verdict 3 task --reason "small, and it costs us every incident"
 
 `verdict` is a **proposal**. Promoting a note into a task, keeping it, or
 dropping it is the operator's call — those verbs refuse an agent principal.
-Amend your own verdict freely until the operator acts.
+Amend your own verdict freely until the operator acts — and the wording of a
+note you wrote, the same way, until they decide it:
+
+```sh
+ht note update 3 --body "the sweep releases a lease without saying why"
+```
 
 Found real work while doing something else? Either file a note, or file the
 task and say where it came from:
@@ -128,3 +136,8 @@ Add `--json` to any verb for one machine-readable document; without it the
 output is prose and is not meant to be parsed. Errors carry a code —
 `CONFLICT` means someone else won or the row moved, `FORBIDDEN` means the rule
 says not you, `DENIED` means the policy gate said no.
+
+A line on stderr saying this door and the daemon are different builds is a
+**warning, not a failure**: your answer is still on stdout and still correct
+for the daemon that gave it. Report the line rather than retrying — restarting
+the daemon is the operator's call, not yours.

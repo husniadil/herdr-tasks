@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -1203,5 +1204,74 @@ func TestEditRoundTripKeepsWhatTheOperatorWrote(t *testing.T) {
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("the scratch file outlived the edit: %v", err)
+	}
+}
+
+// keyTable pulls the first column out of README's popup key table, which is
+// the one place a reader learns what to press once the popup is open.
+func keyTable(t *testing.T) map[string]bool {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	keys, inTable := map[string]bool{}, false
+	for _, line := range strings.Split(string(body), "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			inTable = false
+			continue
+		}
+		cells := strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|")
+		first := strings.Trim(strings.TrimSpace(cells[0]), "`")
+		if strings.EqualFold(first, "key") {
+			inTable = true
+			continue
+		}
+		if !inTable || strings.HasPrefix(first, "-") {
+			continue
+		}
+		keys[first] = true
+	}
+	return keys
+}
+
+// §11.6: the popup is mouse-first, and the footer is where it advertises what
+// it can do — but the footer is only visible once the popup is open, and a
+// reader deciding whether to bind a key at all is reading the README. So the
+// two are checked against each other, both ways: a key the TUI grew without a
+// line in the table fails, and a line for a key the TUI does not have fails
+// just as loudly.
+func TestDocsKeysMatchTheFooter(t *testing.T) {
+	note := &tasks.Note{ID: "N1", Seq: 1, Status: tasks.NoteInbox, Body: "an idea"}
+	parked := store.Parked{ID: "P1", Verb: "tasks.create", Subject: "agent:wF:p1"}
+	parkedPane := func(m Model) Model { m.Pane = PaneParked; return m }
+
+	advertised := map[string]bool{}
+	for _, m := range []Model{
+		board(t, task(1, tasks.StatusReview, "a")),
+		board(t, task(1, tasks.StatusTodo, "a")),
+		board(t),
+		notesModel(t, []*tasks.Note{note}, nil),
+		notesModel(t, nil, nil),
+		parkedPane(notesModel(t, nil, []store.Parked{parked})),
+		parkedPane(notesModel(t, nil, nil)),
+	} {
+		for _, v := range m.Verbs() {
+			advertised[v.Key] = true
+		}
+	}
+	documented := keyTable(t)
+	if len(documented) == 0 {
+		t.Fatal("README has no popup key table: the popup half of the plugin is invisible to a reader")
+	}
+	for key := range advertised {
+		if !documented[key] {
+			t.Errorf("the footer offers %q and README does not mention it", key)
+		}
+	}
+	for key := range documented {
+		if !advertised[key] {
+			t.Errorf("README documents %q, which no footer offers", key)
+		}
 	}
 }

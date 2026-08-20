@@ -157,6 +157,36 @@ the nearest provable equivalent while the manifest carries no `[[events]]`
 reaction (see the §11.5 note above): what is not yet proved end to end is
 Herdr *delivering* the event, not what the plugin does when it has it.
 
+## §11.6 — what a popup is, and what it is not
+
+Three facts measured while probing whether a popup can suspend into an editor.
+All three were found in a throwaway named session with an attached client,
+because a popup needs one (§11.6) and the operator's session is out of bounds
+(§12.3).
+
+A popup is **not addressable as a pane**. It does not appear in
+`herdr pane list`, and `herdr plugin pane close` takes a pane id — so a plugin
+cannot find and close its own popup over the API. Opening one again while it
+is up answers `popup already open`, which is how `scripts/open-pane.sh`
+recognises the idempotent case.
+
+`herdr plugin pane open` has a second refusal besides that one:
+`ui_busy — popup panes can only open from the normal workspace view`, returned
+whenever the client is in any mode but `Terminal`
+(`src/app/api/plugins/mod.rs`, the placement check). A palette, a picker or a
+restored startup screen is enough. So the board's keybinding legitimately does
+nothing at those moments; the script passes the message through rather than
+treating it as success, which is the right side to err on.
+
+A plugin pane's environment is the **server's**, not the operator's shell and
+not the pane the popup was opened from. Measured with `$EDITOR`: the value the
+popup saw was the one exported by the shell that started the herdr session. A
+herdr launched from a login shell therefore carries that shell's editor, and
+one started by a launcher or a service may carry none at all — which is why
+`ht tui` reads `VISUAL` then `EDITOR` and refuses, naming both, rather than
+falling back to `vi`. An operator who cannot leave the editor a plugin chose
+for them is in the trap §11.6's close key exists to have closed.
+
 ## §12.3 — what "never the operator's Herdr" costs in practice
 
 The throwaway server in `internal/e2e` needs more than a private
