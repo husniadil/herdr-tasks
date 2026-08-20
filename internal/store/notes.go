@@ -88,14 +88,20 @@ type NoteFilter struct {
 	AllProjects bool
 	Status      string
 	Query       string
-	Limit       int
+	// Elsewhere inverts the project scope: every project EXCEPT Project.
+	Elsewhere bool
+	Limit     int
 }
 
 // ListNotes returns notes in the filter's scope.
 func (s *Store) ListNotes(f NoteFilter) ([]*tasks.Note, error) {
 	where := []string{"1 = 1"}
 	args := []any{}
-	if !f.AllProjects {
+	switch {
+	case f.AllProjects:
+	case f.Elsewhere:
+		where, args = append(where, "project != ?"), append(args, f.Project)
+	default:
 		where, args = append(where, "project = ?"), append(args, f.Project)
 	}
 	if f.Status != "" {

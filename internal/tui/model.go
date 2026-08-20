@@ -106,6 +106,13 @@ type Model struct {
 	BoardFilter string
 	NotesFilter string
 
+	// BoardElsewhere and NotesElsewhere are how many rows the same filter
+	// matches in OTHER projects, which only the empty state reads: a popup
+	// takes its project from the focused pane (§4.2), so an empty board is
+	// either a project with no work or a pane the operator did not mean.
+	BoardElsewhere int
+	NotesElsewhere int
+
 	// Detail says the detail panel is open on the selection.
 	Detail bool
 	Prompt *Prompt
@@ -140,11 +147,16 @@ type MouseMsg struct{ X, Y int }
 // SizeMsg is a resize.
 type SizeMsg struct{ Width, Height int }
 
-// DataMsg is a fresh read of the daemon's answer to the list verbs.
+// DataMsg is a fresh read of the daemon's answer to the list verbs. The two
+// counts arrive from their own list: `task.list` and `note.list` both answer
+// with a key named `elsewhere`, and one shared field would let the second
+// answer overwrite the first.
 type DataMsg struct {
-	Tasks  []*tasks.Task
-	Notes  []*tasks.Note
-	Parked []store.Parked
+	Tasks          []*tasks.Task
+	Notes          []*tasks.Note
+	Parked         []store.Parked
+	BoardElsewhere int
+	NotesElsewhere int
 }
 
 // ErrMsg is a failed call, carried with its §6.3 code so the footer can say
@@ -174,6 +186,7 @@ func Update(m Model, msg Msg) (Model, *Call) {
 		return m, nil
 	case DataMsg:
 		m.Tasks, m.Notes, m.Parked = v.Tasks, v.Notes, v.Parked
+		m.BoardElsewhere, m.NotesElsewhere = v.BoardElsewhere, v.NotesElsewhere
 		return m.clampCursors(), nil
 	case ErrMsg:
 		m.Err = v.Code + ": " + v.Message

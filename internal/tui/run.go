@@ -110,11 +110,6 @@ func (p *program) run(c Call) tea.Cmd {
 func (p *program) load(filters map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		var data DataMsg
-		var out struct {
-			Tasks  []*tasks.Task  `json:"tasks"`
-			Notes  []*tasks.Note  `json:"notes"`
-			Parked []store.Parked `json:"parked"`
-		}
 		for _, verb := range []string{"task.list", "note.list", "parked.list"} {
 			req := p.base
 			req.Verb, req.Args = verb, map[string]any{}
@@ -125,11 +120,27 @@ func (p *program) load(filters map[string]string) tea.Cmd {
 			if err != nil {
 				return errMsg(err)
 			}
+			// Each answer is read on its own: `task.list` and `note.list` both
+			// carry an `elsewhere`, and one shared struct would keep whichever
+			// replied last.
+			var out struct {
+				Tasks     []*tasks.Task  `json:"tasks"`
+				Notes     []*tasks.Note  `json:"notes"`
+				Parked    []store.Parked `json:"parked"`
+				Elsewhere int            `json:"elsewhere"`
+			}
 			if err := json.Unmarshal(raw, &out); err != nil {
 				return ErrMsg{Code: codes.Unexpected, Message: err.Error()}
 			}
+			switch verb {
+			case "task.list":
+				data.Tasks, data.BoardElsewhere = out.Tasks, out.Elsewhere
+			case "note.list":
+				data.Notes, data.NotesElsewhere = out.Notes, out.Elsewhere
+			case "parked.list":
+				data.Parked = out.Parked
+			}
 		}
-		data.Tasks, data.Notes, data.Parked = out.Tasks, out.Notes, out.Parked
 		return data
 	}
 }

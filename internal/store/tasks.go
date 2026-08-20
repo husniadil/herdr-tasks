@@ -117,14 +117,23 @@ type TaskFilter struct {
 	Mine        tasks.Principal
 	Query       string
 	Archived    bool
-	Limit       int
+	// Elsewhere inverts the project scope: every project EXCEPT Project. It
+	// answers "is the operator looking at the wrong board" with the same
+	// clauses the list itself used, so the count can never disagree with what
+	// the command it suggests would print.
+	Elsewhere bool
+	Limit     int
 }
 
 // ListTasks returns tasks in the filter's scope, newest last.
 func (s *Store) ListTasks(f TaskFilter) ([]*tasks.Task, error) {
 	where := []string{"1 = 1"}
 	args := []any{}
-	if !f.AllProjects {
+	switch {
+	case f.AllProjects:
+	case f.Elsewhere:
+		where, args = append(where, "project != ?"), append(args, f.Project)
+	default:
 		where, args = append(where, "project = ?"), append(args, f.Project)
 	}
 	if f.Status != "" {

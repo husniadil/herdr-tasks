@@ -127,10 +127,17 @@ func hTaskCreate(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return d.taskResult(t)
 }
 
-// TaskListResult is what `task list` answers with.
+// TaskListResult is what `task list` answers with. Project and Elsewhere are
+// §4.2 made visible: an empty answer that does not say which project it is
+// empty FOR is indistinguishable from a board scoped to the wrong one, which
+// has twice been read as data loss. Elsewhere counts what the SAME filter
+// matches outside this project, so it is never a promise the suggested
+// command cannot keep, and it is only computed when there is nothing to show.
 type TaskListResult struct {
-	Tasks []*tasks.Task `json:"tasks"`
-	Count int           `json:"count"`
+	Tasks     []*tasks.Task `json:"tasks"`
+	Count     int           `json:"count"`
+	Project   string        `json:"project,omitempty"`
+	Elsewhere int           `json:"elsewhere,omitempty"`
 }
 
 func hTaskList(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
@@ -150,7 +157,23 @@ func hTaskList(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return TaskListResult{Tasks: list, Count: len(list)}, nil
+	// §4.4: an --all-projects answer was not scoped to a project, so it does
+	// not claim one. Naming the project that merely happened to resolve would
+	// describe a scope the caller did not ask for.
+	res := TaskListResult{Tasks: list, Count: len(list)}
+	if !req.AllProjects {
+		res.Project = req.Project
+	}
+	if len(list) == 0 && !req.AllProjects {
+		other := f
+		other.Elsewhere, other.Limit = true, 0
+		rest, err := d.Store.ListTasks(other)
+		if err != nil {
+			return nil, err
+		}
+		res.Elsewhere = len(rest)
+	}
+	return res, nil
 }
 
 func hTaskGet(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
@@ -305,24 +328,41 @@ func hNoteAdd(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return NoteResult{Note: n}, nil
 }
 
-// NoteListResult is what `note list` answers with.
+// NoteListResult is what `note list` answers with, carrying the same §4.2
+// scope facts as TaskListResult and for the same reason.
 type NoteListResult struct {
-	Notes []*tasks.Note `json:"notes"`
-	Count int           `json:"count"`
+	Notes     []*tasks.Note `json:"notes"`
+	Count     int           `json:"count"`
+	Project   string        `json:"project,omitempty"`
+	Elsewhere int           `json:"elsewhere,omitempty"`
 }
 
 func hNoteList(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
-	list, err := d.Store.ListNotes(store.NoteFilter{
+	f := store.NoteFilter{
 		Project:     req.Project,
 		AllProjects: req.AllProjects,
 		Status:      argString(req.Args, "status"),
 		Query:       argString(req.Args, "query"),
 		Limit:       int(argInt(req.Args, "limit")),
-	})
+	}
+	list, err := d.Store.ListNotes(f)
 	if err != nil {
 		return nil, err
 	}
-	return NoteListResult{Notes: list, Count: len(list)}, nil
+	res := NoteListResult{Notes: list, Count: len(list)}
+	if !req.AllProjects {
+		res.Project = req.Project
+	}
+	if len(list) == 0 && !req.AllProjects {
+		other := f
+		other.Elsewhere, other.Limit = true, 0
+		rest, err := d.Store.ListNotes(other)
+		if err != nil {
+			return nil, err
+		}
+		res.Elsewhere = len(rest)
+	}
+	return res, nil
 }
 
 func hNoteGet(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {

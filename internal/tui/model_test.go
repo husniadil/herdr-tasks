@@ -593,10 +593,17 @@ func TestVerbsAndFooterClickReachTheNewKeys(t *testing.T) {
 // recorder is a Sender that answers every list verb with an empty document and
 // keeps what it was asked, so the runtime's own wiring is testable without a
 // daemon, a socket or a terminal (§12.1 layer 1).
-type recorder struct{ got []protocol.Request }
+type recorder struct {
+	got []protocol.Request
+	// answers is the document each verb replies with, when a test cares.
+	answers map[string]string
+}
 
 func (r *recorder) Call(req protocol.Request) (json.RawMessage, error) {
 	r.got = append(r.got, req)
+	if a, ok := r.answers[req.Verb]; ok {
+		return json.RawMessage(a), nil
+	}
 	return json.RawMessage(`{"tasks":[],"notes":[],"parked":[]}`), nil
 }
 
@@ -629,5 +636,74 @@ func TestTUIFilterSurvivesThePollThatRedrawsTheBoard(t *testing.T) {
 		if req.Args["query"] != q {
 			t.Fatalf("%s was polled with query %#v, want %q", req.Verb, req.Args["query"], q)
 		}
+	}
+}
+
+// §4.2 / §11.6: the popup takes its project from the focused pane, so opening
+// it from the wrong pane gives a board that is empty and correct. Nothing
+// distinguished that from a board that lost its data, and it was read as data
+// loss twice. The empty state says which project answered, and where the work
+// is when it is somewhere else.
+func TestTUIEmptyBoardSaysWhichProjectItIsEmptyFor(t *testing.T) {
+	for name, m := range map[string]Model{
+		"board": board(t),
+		"notes": notesModel(t, nil, nil),
+	} {
+		out := Render(m, 0)
+		if !strings.Contains(out, "/repo") {
+			t.Errorf("%s: the empty view does not name its project:\n%s", name, out)
+		}
+		if !strings.Contains(out, "focused pane") {
+			t.Errorf("%s: the empty view does not say what set the scope:\n%s", name, out)
+		}
+		if strings.Contains(out, "other project") {
+			t.Errorf("%s: an empty store still pointed somewhere else:\n%s", name, out)
+		}
+	}
+
+	// With work elsewhere, the empty state says so and how much.
+	elsewhere := board(t)
+	elsewhere.BoardElsewhere = 3
+	if out := Render(elsewhere, 0); !strings.Contains(out, "3") || !strings.Contains(out, "other project") {
+		t.Fatalf("the board did not say where the work is:\n%s", out)
+	}
+	notes := notesModel(t, nil, nil)
+	notes.NotesElsewhere = 2
+	if out := Render(notes, 0); !strings.Contains(out, "2") || !strings.Contains(out, "other project") {
+		t.Fatalf("the notes board did not say where the notes are:\n%s", out)
+	}
+
+	// A board with rows explains nothing: the operator can see what it holds.
+	full := board(t, task(1, tasks.StatusTodo, "a"))
+	full.BoardElsewhere = 3
+	if out := Render(full, 0); strings.Contains(out, "focused pane") {
+		t.Fatalf("a board with work on it carried the empty state:\n%s", out)
+	}
+	withNote := notesModel(t, []*tasks.Note{{ID: "N1", Seq: 1, Status: "inbox", Body: "an idea"}}, nil)
+	if out := Render(withNote, 0); strings.Contains(out, "focused pane") {
+		t.Fatalf("a notes board with a note on it carried the empty state:\n%s", out)
+	}
+}
+
+// The poll reads three lists into one model, and two of them answer with a
+// project and a count of their own. Reading them into one shared field would
+// make the notes board's answer overwrite the task board's.
+func TestTUIEmptyCountsArriveFromTheirOwnList(t *testing.T) {
+	rec := &recorder{answers: map[string]string{
+		"task.list":   `{"tasks":[],"count":0,"project":"/repo","elsewhere":3}`,
+		"note.list":   `{"notes":[],"count":0,"project":"/repo","elsewhere":7}`,
+		"parked.list": `{"parked":[]}`,
+	}}
+	p := &program{model: New(ViewBoard, "/repo"), send: rec, base: protocol.Request{Project: "/repo"}}
+	msg := p.load(p.model.Filters())()
+	data, ok := msg.(DataMsg)
+	if !ok {
+		t.Fatalf("the poll produced %T: %v", msg, msg)
+	}
+	if data.BoardElsewhere != 3 {
+		t.Fatalf("the board's count is %d, want 3", data.BoardElsewhere)
+	}
+	if data.NotesElsewhere != 7 {
+		t.Fatalf("the notes count is %d, want 7 — the two lists share a key name", data.NotesElsewhere)
 	}
 }

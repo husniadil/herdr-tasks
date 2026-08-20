@@ -222,6 +222,10 @@ func renderBoard(b *strings.Builder, m Model, now int64) {
 			deepest = n
 		}
 	}
+	if deepest == 0 {
+		b.WriteString(emptyState(m.Project, m.BoardElsewhere, "task"))
+		return
+	}
 	for row := 0; row < deepest; row++ {
 		for i := range Columns {
 			col := m.Column(i)
@@ -238,6 +242,23 @@ func renderBoard(b *strings.Builder, m Model, now int64) {
 		}
 		b.WriteString("\n")
 	}
+}
+
+// emptyState is what a view with nothing on it says (§4.2). A popup takes its
+// project from the focused pane, so an empty board has two very different
+// causes — a project with no work, or a pane the operator did not mean — and
+// nothing on the screen told them apart. Twice that was read as data loss.
+//
+// The scope is named, the cause of the scope is named, and where the work
+// actually is is named when it is somewhere else. The way over is not a key:
+// the board follows the pane, so the gesture is to focus the pane you meant.
+func emptyState(project string, elsewhere int, what string) string {
+	line := fmt.Sprintf("\n  Nothing here. This board is %s, which is the focused pane's project.\n", project)
+	if elsewhere > 0 {
+		line += fmt.Sprintf("  %d %s(s) in other projects — focus a pane in the one you meant and reopen.\n",
+			elsewhere, what)
+	}
+	return line
 }
 
 // lease is the claim made visible on the card: who holds it and how much of
@@ -263,6 +284,10 @@ func renderNotes(b *strings.Builder, m Model) {
 	rows := len(m.Notes)
 	if len(m.Parked) > rows {
 		rows = len(m.Parked)
+	}
+	if len(m.Notes) == 0 && len(m.Parked) == 0 {
+		b.WriteString(emptyState(m.Project, m.NotesElsewhere, "note"))
+		return
 	}
 	for row := 0; row < rows; row++ {
 		left := ""

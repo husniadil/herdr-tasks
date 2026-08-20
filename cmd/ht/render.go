@@ -23,7 +23,7 @@ func renderHuman(v verbs.Verb, raw json.RawMessage) error {
 			return err
 		}
 		if res.Count == 0 {
-			fmt.Println("No tasks match.")
+			fmt.Println(emptyLine("tasks", res.Project, res.Elsewhere))
 			return nil
 		}
 		for _, t := range res.Tasks {
@@ -36,7 +36,7 @@ func renderHuman(v verbs.Verb, raw json.RawMessage) error {
 			return err
 		}
 		if res.Count == 0 {
-			fmt.Println("No notes match.")
+			fmt.Println(emptyLine("notes", res.Project, res.Elsewhere))
 			return nil
 		}
 		for _, n := range res.Notes {
@@ -275,6 +275,24 @@ func firstLine(s string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
 	if len(line) > 80 {
 		line = line[:80] + "…"
+	}
+	return line
+}
+
+// emptyLine is what an empty list says (§4.2). It names the project it is
+// empty FOR, because a board scoped to a project the caller was not thinking
+// of looks exactly like a board with nothing on it — and when the same filter
+// matches somewhere else, it says so and hands over the command that shows
+// it. The hint appears only when it is true: pointing at nothing is worse
+// than saying nothing.
+func emptyLine(what, project string, elsewhere int) string {
+	line := fmt.Sprintf("No %s match in %s.", what, project)
+	if project == "" {
+		line = fmt.Sprintf("No %s match.", what)
+	}
+	if elsewhere > 0 {
+		line += fmt.Sprintf(" %d in other projects: ht %s list --all-projects",
+			elsewhere, strings.TrimSuffix(what, "s"))
 	}
 	return line
 }

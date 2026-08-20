@@ -657,3 +657,91 @@ func TestOpenPaneTreatsAnAlreadyOpenPopupAsSuccess(t *testing.T) {
 		})
 	}
 }
+
+// §4.2 / §6.2: a board scoped to a project the operator was not thinking of
+// looks exactly like a board with nothing on it. Twice now that has been read
+// as data loss. An empty answer therefore names the project it is empty FOR,
+// and when the same filter matches somewhere else it says where to look —
+// both on the line a human reads and in the document a program parses,
+// because both are first-class callers.
+func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
+	w := newWorld(t)
+	other := filepath.Join(filepath.Dir(w.project), "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	empty := filepath.Join(filepath.Dir(w.project), "empty")
+	if err := os.MkdirAll(empty, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	w.json(w.env(), "task", "create", "the work is over here", "--project", other)
+	w.json(w.env(), "note", "add", "and so is the idea", "--project", other)
+
+	// The incident: a project of its own with nothing in it, while the store
+	// holds work elsewhere.
+	stdout, _, status := w.run(w.env(), "task", "list", "--project", w.project)
+	if status != 0 {
+		t.Fatalf("an empty list is not an error: exit %d", status)
+	}
+	if !strings.Contains(stdout, w.project) {
+		t.Fatalf("the empty line does not name the project it is empty for: %q", stdout)
+	}
+	if !strings.Contains(stdout, "1") || !strings.Contains(stdout, "--all-projects") {
+		t.Fatalf("the empty line does not say where the work is: %q", stdout)
+	}
+	// §4.1 resolves symlinks, so the answer is the canonical path, not the one
+	// that was typed. /var is a symlink to /private/var on macOS.
+	want, err := filepath.EvalSymlinks(w.project)
+	if err != nil {
+		t.Fatalf("canonical path: %v", err)
+	}
+	doc := w.json(w.env(), "task", "list", "--project", w.project)
+	if doc["project"] != want {
+		t.Fatalf(`--json "project" = %v, want %q`, doc["project"], want)
+	}
+	if doc["elsewhere"] != float64(1) {
+		t.Fatalf(`--json "elsewhere" = %v, want 1`, doc["elsewhere"])
+	}
+	if doc["count"] != float64(0) {
+		t.Fatalf("adding the fields moved count: %v", doc["count"])
+	}
+
+	// The notes board answers the same way: it is the same incident.
+	stdout, _, _ = w.run(w.env(), "note", "list", "--project", w.project)
+	if !strings.Contains(stdout, w.project) || !strings.Contains(stdout, "--all-projects") {
+		t.Fatalf("the empty notes line says neither where it is nor where to look: %q", stdout)
+	}
+
+	// A hint that is not true must not appear. Nothing matches `--status
+	// cancelled` anywhere, so there is nowhere to send the operator.
+	stdout, _, _ = w.run(w.env(), "task", "list", "--project", empty, "--status", "cancelled")
+	if strings.Contains(stdout, "--all-projects") {
+		t.Fatalf("a hint appeared with nothing to point at: %q", stdout)
+	}
+	if !strings.Contains(stdout, empty) {
+		t.Fatalf("the empty line still owes the project: %q", stdout)
+	}
+	// The count is of the SAME filter, not of the store: `--status todo`
+	// matches the other project's task, `--status done` matches nothing.
+	doc = w.json(w.env(), "task", "list", "--project", w.project, "--status", "done")
+	if doc["elsewhere"] != nil && doc["elsewhere"] != float64(0) {
+		t.Fatalf("elsewhere counted rows the suggested command would not show: %v", doc["elsewhere"])
+	}
+
+	// §4.4: an --all-projects answer was never scoped to a project, so an
+	// empty one must not name the project that happened to resolve — that
+	// would describe a scope the caller did not ask for.
+	stdout, _, _ = w.run(w.env(), "task", "list", "--project", w.project, "--all-projects", "--status", "cancelled")
+	if strings.Contains(stdout, w.project) {
+		t.Fatalf("an --all-projects answer named a project it did not scope to: %q", stdout)
+	}
+	if doc := w.json(w.env(), "task", "list", "--project", w.project, "--all-projects"); doc["project"] != nil {
+		t.Fatalf(`--all-projects still claimed "project": %v`, doc["project"])
+	}
+
+	// A board with rows on it explains nothing: the line is for the empty case.
+	stdout, _, _ = w.run(w.env(), "task", "list", "--project", other)
+	if strings.Contains(stdout, "--all-projects") {
+		t.Fatalf("a full board carried the empty state: %q", stdout)
+	}
+}
