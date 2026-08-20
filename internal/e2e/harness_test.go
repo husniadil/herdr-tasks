@@ -302,16 +302,12 @@ func (w *world) htInPane(pane string, args ...string) (map[string]any, error) {
 	line := fmt.Sprintf("%s %s --json > %s 2>&1; echo $? > %s",
 		w.htPath, strings.Join(quoted, " "), out, done)
 	w.herdr("pane", "run", pane, line)
-	// FOLLOW-UP: this loop does not tell a timeout from a finish, so a command
-	// still running surfaces as "the pane printed no JSON document" rather
-	// than as the timeout it was. Worth fixing the first time it flakes; the
-	// fix is to carry the loop's exit reason into the error below.
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(done); err == nil {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
+	if !waitForFile(done, paneTimeout) {
+		// Carry the reason the wait ended. Reading the half-written file and
+		// reporting "printed no JSON document" would blame the door for the
+		// harness running out of patience, which is the kind of message that
+		// makes a flake take an afternoon.
+		return nil, timedOut(pane, args, paneTimeout, readSoFar(out))
 	}
 	body, err := os.ReadFile(out)
 	if err != nil {
@@ -355,4 +351,46 @@ func sprint(v any) string {
 		return fmt.Sprint(v)
 	}
 	return string(b)
+}
+
+// paneTimeout bounds a command run inside a pane. It is generous: what it
+// guards against is a hang, not slowness.
+const paneTimeout = 30 * time.Second
+
+// waitForFile polls until path exists or the timeout elapses, and reports
+// WHICH of the two happened. The return value is the whole point: a wait that
+// cannot say why it stopped makes its caller guess, and the caller guesses
+// wrong in the one case that matters.
+func waitForFile(path string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+}
+
+// timedOut is the failure a pane command that never finished produces. It
+// names the timeout, the command, and whatever the command had managed to
+// write, because a partial line is usually the reason.
+func timedOut(pane string, args []string, after time.Duration, partial string) error {
+	if partial == "" {
+		partial = "(nothing)"
+	}
+	return fmt.Errorf("timed out after %s waiting for `ht %s` to finish in pane %s; it had written %q",
+		after, strings.Join(args, " "), pane, partial)
+}
+
+// readSoFar is whatever a command has written, for the timeout message. A
+// missing file is not an error here: the command may not have started.
+func readSoFar(path string) string {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(body))
 }

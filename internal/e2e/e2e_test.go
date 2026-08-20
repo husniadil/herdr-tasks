@@ -3,8 +3,11 @@
 package e2e
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // §3.2, §3.3: a caller's principal is derived, never declared. A door running
@@ -208,5 +211,40 @@ func TestNoDaemonThisSuiteStartedSurvivesIt(t *testing.T) {
 
 	if left := w.daemonPIDs(); len(left) != 0 {
 		t.Fatalf("the world left %d daemon(s) running: %v (started: %v)", len(left), left, started)
+	}
+}
+
+// The harness's own failure reporting. A pane command that never finishes must
+// be reported as the timeout it was: before this, the wait fell out of its
+// loop silently and the half-written file was read anyway, so a slow command
+// surfaced as "the pane printed no JSON document" — the door blamed for the
+// harness running out of patience. Needs no Herdr, so it runs even where the
+// rest of layer 3 skips.
+func TestAPaneWaitThatRunsOutOfTimeSaysSoInsteadOfBlamingTheOutput(t *testing.T) {
+	appeared := filepath.Join(t.TempDir(), "done")
+	if err := os.WriteFile(appeared, []byte("0\n"), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if !waitForFile(appeared, time.Second) {
+		t.Fatal("the wait missed a file that was already there")
+	}
+
+	missing := filepath.Join(t.TempDir(), "never")
+	start := time.Now()
+	if waitForFile(missing, 200*time.Millisecond) {
+		t.Fatal("the wait claimed a file that never appears did")
+	}
+	if waited := time.Since(start); waited < 200*time.Millisecond {
+		t.Fatalf("the wait gave up after %s, before its own timeout", waited)
+	}
+
+	err := timedOut("w1:p1", []string{"task", "claim", "01H"}, 200*time.Millisecond, `{"partial":`)
+	for _, want := range []string{"timed out", "200ms", "task claim 01H", "w1:p1", `{\"partial\":`} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the timeout does not name %q: %v", want, err)
+		}
+	}
+	if strings.Contains(err.Error(), "no JSON document") {
+		t.Fatalf("a timeout is still reported as a parse failure: %v", err)
 	}
 }
