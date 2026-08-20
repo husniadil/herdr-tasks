@@ -234,6 +234,76 @@ func TestInstructionsCoverTheRequiredGround(t *testing.T) {
 	}
 }
 
+// §12.3 with §3.2: the MCP door derives its principal from HERDR_PANE_ID in
+// its own process environment (mcpdoor.go:162-164) and these tests run
+// in-process, so without a seam the suite's principal is the pane of whoever
+// ran it — the operator's live Herdr identity reaching a test. The harness
+// clears the trio; this holds that it does, for the principal and for the
+// Herdr context stored alongside it.
+//
+// The hostile identity is planted here rather than inherited, so this test
+// says the same thing inside a Herdr pane and outside one.
+func TestTheMCPDoorTakesNoIdentityFromTheProcessThatRanTheTests(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "wOPERATOR:p9")
+	t.Setenv("HERDR_TAB_ID", "wOPERATOR:t9")
+	t.Setenv("HERDR_WORKSPACE_ID", "wOPERATOR")
+	_, call := inProcessDaemon(t)
+	project := canonProject(t, "/tmp/p")
+
+	anonymous := createThroughMCP(t, call, project, "created by nobody in particular")
+	if got := anonymous["created_by"]; got != "human" {
+		t.Fatalf("created_by = %v, want human: HERDR_PANE_ID reached the door from the process environment", got)
+	}
+	for field, envVar := range map[string]string{
+		"pane_id": "HERDR_PANE_ID", "tab_id": "HERDR_TAB_ID", "workspace_id": "HERDR_WORKSPACE_ID",
+	} {
+		if got, ok := anonymous[field]; ok && got != "" {
+			t.Fatalf("%s = %v: %s reached the door from the process environment", field, got, envVar)
+		}
+	}
+
+	// And a test that WANTS a pane still gets exactly the one it names, so
+	// long as it names it after the harness has cleared the ambient one.
+	t.Setenv("HERDR_PANE_ID", "wF:p7")
+	pinned := createThroughMCP(t, call, project, "created by a named pane")
+	if got := pinned["created_by"]; got != "agent:wF:p7" {
+		t.Fatalf("created_by = %v, want agent:wF:p7", got)
+	}
+}
+
+// createThroughMCP creates a task through the tool handler rather than through
+// the caller directly, because reading the environment is what the handler
+// does and what is under test here.
+func createThroughMCP(t *testing.T, call Caller, project, title string) map[string]any {
+	t.Helper()
+	srv := New(call)
+	clientSide := mcp.NewClient(&mcp.Implementation{Name: "identity-test", Version: "0"}, nil)
+	ct, st := mcp.NewInMemoryTransports()
+	ctx := context.Background()
+	if _, err := srv.Connect(ctx, st, nil); err != nil {
+		t.Fatalf("server connect: %v", err)
+	}
+	sess, err := clientSide.Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatalf("client connect: %v", err)
+	}
+	defer sess.Close()
+	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
+		Name: "tasks_create", Arguments: map[string]any{"title": title, "project": project},
+	})
+	if err != nil || res.IsError {
+		t.Fatalf("create through the MCP door: %v %s", err, text(res))
+	}
+	var doc struct {
+		Task map[string]any `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &doc); err != nil {
+		t.Fatalf("the create answer is not one JSON document: %q", text(res))
+	}
+	return doc.Task
+}
+
 // inProcessDaemon gives the MCP door a real daemon without a socket, so the
 // parity test compares the doors and not the transport.
 func inProcessDaemon(t *testing.T) (*daemon.Daemon, Caller) {
@@ -241,6 +311,16 @@ func inProcessDaemon(t *testing.T) (*daemon.Daemon, Caller) {
 	dir := testenv.ShortDir(t)
 	t.Setenv("TASKS_STATE_DIR", dir)
 	t.Setenv("TASKS_CONFIG_DIR", t.TempDir())
+	// §12.3: the MCP door reads the Herdr trio from its own environment
+	// (mcpdoor.go:162-164) and these tests run in-process, so the suite would
+	// otherwise derive its principal — and the pane, tab and workspace it
+	// stores on a task — from whoever ran it. Cleared here, at the one seam
+	// every test goes through, because a rule enforced per call site is a rule
+	// that regresses. A test that wants a specific pane names it AFTER this
+	// returns; see TestBothDoorsRefuseWithTheSameWords.
+	t.Setenv("HERDR_PANE_ID", "")
+	t.Setenv("HERDR_TAB_ID", "")
+	t.Setenv("HERDR_WORKSPACE_ID", "")
 	s, err := store.Open(filepath.Join(dir, "tasks.db"))
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
@@ -341,11 +421,11 @@ func TestNoteQueryReachesBothDoors(t *testing.T) {
 // §6.6 recusal, where the same harness may not review its own submission.
 func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	testenv.SkipUnlessFull(t)
-	// Pin the pane both doors derive their principal from. The MCP door reads
-	// HERDR_PANE_ID from its own environment, so without this the test would
-	// take the pane of whoever ran it — and compare two different principals.
-	t.Setenv("HERDR_PANE_ID", "wF:p1")
 	d, call := inProcessDaemon(t)
+	// Both doors derive their principal from HERDR_PANE_ID; this test needs a
+	// specific one rather than the cleared default, so it names it after the
+	// harness has cleared what the process brought in.
+	t.Setenv("HERDR_PANE_ID", "wF:p1")
 	_ = d
 	project := canonProject(t, "/tmp/p")
 	if _, err := call(protocol.Request{Verb: "task.create", Project: project,
@@ -434,7 +514,6 @@ func callTool(t *testing.T, sess *mcp.ClientSession, name string, args map[strin
 // declared integer means.
 func TestTheMCPDoorRefusesArgumentsItsSchemaForbids(t *testing.T) {
 	testenv.SkipUnlessFull(t)
-	t.Setenv("HERDR_PANE_ID", "")
 	_, call := inProcessDaemon(t)
 	sess := mcpSession(t, call)
 
@@ -468,7 +547,6 @@ func TestTheMCPDoorRefusesArgumentsItsSchemaForbids(t *testing.T) {
 // and was unreachable.
 func TestBaseUpdatedAtIsReachableThroughMCP(t *testing.T) {
 	testenv.SkipUnlessFull(t)
-	t.Setenv("HERDR_PANE_ID", "")
 	d, call := inProcessDaemon(t)
 	// A counted clock, not the wall clock: create and update landing in the
 	// same millisecond leaves updated_at where it was, and then the value the
@@ -538,7 +616,6 @@ func TestBaseUpdatedAtIsReachableThroughMCP(t *testing.T) {
 // the way the CLI's flag asks.
 func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
 	testenv.SkipUnlessFull(t)
-	t.Setenv("HERDR_PANE_ID", "")
 	_, call := inProcessDaemon(t)
 	sess := mcpSession(t, call)
 	for _, p := range []string{canonProject(t, "/tmp/one"), canonProject(t, "/tmp/two")} {
@@ -580,7 +657,6 @@ func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
 // says nothing about how the door validates, only that it does.
 func TestEveryDeclaredTypeIsEnforced(t *testing.T) {
 	testenv.SkipUnlessFull(t)
-	t.Setenv("HERDR_PANE_ID", "")
 	_, call := inProcessDaemon(t)
 	sess := mcpSession(t, call)
 
@@ -637,7 +713,6 @@ func TestEveryDeclaredTypeIsEnforced(t *testing.T) {
 // on both, it means the same thing on both.
 func TestBothDoorsGuardAMutationTheSameWay(t *testing.T) {
 	testenv.SkipUnlessFull(t)
-	t.Setenv("HERDR_PANE_ID", "")
 	d, call := inProcessDaemon(t)
 	tick := new(atomic.Int64)
 	tick.Store(1_700_000_000_000)
