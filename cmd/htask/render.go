@@ -16,7 +16,7 @@ import (
 // renderHuman prints for a person reading a terminal. §6.2: this output is not
 // for parsing, which is what --json is for. Both audiences are first-class, so
 // neither rendering is a rendering of the other.
-func renderHuman(v verbs.Verb, raw json.RawMessage) error {
+func renderHuman(v verbs.Verb, raw json.RawMessage, now int64) error {
 	switch v.Name {
 	case "task.list":
 		var res daemon.TaskListResult
@@ -28,7 +28,7 @@ func renderHuman(v verbs.Verb, raw json.RawMessage) error {
 			return nil
 		}
 		for _, t := range res.Tasks {
-			fmt.Println(taskLine(t))
+			fmt.Println(taskLine(t, now))
 		}
 		return nil
 	case "note.list":
@@ -104,7 +104,7 @@ func renderHuman(v verbs.Verb, raw json.RawMessage) error {
 	if err := json.Unmarshal(raw, &one); err == nil {
 		switch {
 		case one.Task != nil:
-			printTask(one.Task)
+			printTask(one.Task, now)
 			return nil
 		case one.Note != nil:
 			printNote(one.Note)
@@ -119,7 +119,7 @@ func renderHuman(v verbs.Verb, raw json.RawMessage) error {
 	return nil
 }
 
-func taskLine(t *tasks.Task) string {
+func taskLine(t *tasks.Task, now int64) string {
 	mark := " "
 	switch {
 	case t.Blocked:
@@ -129,12 +129,12 @@ func taskLine(t *tasks.Task) string {
 	}
 	line := fmt.Sprintf("%s #%-4d %-9s %s", mark, t.Seq, t.Status, t.Title)
 	if t.ClaimedBy != "" {
-		line += fmt.Sprintf("  (held by %s)", t.ClaimedBy)
+		line += fmt.Sprintf("  (held by %s%s)", t.ClaimedBy, reviewWait(t, now))
 	}
 	return line
 }
 
-func printTask(t *tasks.Task) {
+func printTask(t *tasks.Task, now int64) {
 	fmt.Printf("#%d  %s\n", t.Seq, t.Title)
 	fmt.Printf("     %s", t.Status)
 	if t.Blocked {
@@ -154,6 +154,7 @@ func printTask(t *tasks.Task) {
 		if t.LeaseUntil > 0 {
 			fmt.Printf(", lease until %s", stamp(t.LeaseUntil))
 		}
+		fmt.Print(reviewWait(t, now))
 	}
 	fmt.Printf("\n     id %s\n", t.ID)
 	if t.Description != "" {
@@ -295,6 +296,39 @@ func live(b bool) string {
 		return "live"
 	}
 	return "not reachable"
+}
+
+// reviewWait is how long a task has been waiting for a reviewer, said in the
+// same clause as who holds it. Only a review row has it: a doing row already
+// prints a time — its lease — and a row that came back from review is working
+// again, not waiting, however old its last submission is.
+func reviewWait(t *tasks.Task, now int64) string {
+	if t.Status != tasks.StatusReview || t.SubmittedAt == 0 {
+		return ""
+	}
+	return ", submitted " + waited(t.SubmittedAt, now)
+}
+
+// waited says a duration in the largest unit that still has a whole number in
+// it, which is the precision a wait is read at: seconds while it is fresh,
+// days once nobody has looked. It is derived here and stored nowhere, so it
+// is right whenever it is read. A submission stamped in the future is a clock
+// disagreeing with itself, and the smallest true thing to say about it is
+// that no time has passed.
+func waited(submitted, now int64) string {
+	d := time.Duration(now-submitted) * time.Millisecond
+	switch {
+	case d < time.Minute:
+		if d < 0 {
+			d = 0
+		}
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours())/24)
 }
 
 // stamp renders a Unix-millisecond timestamp as ISO at the presentation edge,

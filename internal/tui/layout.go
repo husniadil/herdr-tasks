@@ -637,8 +637,10 @@ func emptyState(project string, elsewhere int, what string) []string {
 	return out
 }
 
-// lease is the claim made visible on the card: who holds it and how much of
-// the lease is left, because a claim nobody can see is a claim nobody renews
+// lease is the claim made visible on the card: who holds it, and the time that
+// matters for what they hold — how much of the lease is left while the work is
+// in hand, how long it has waited once it is submitted. A claim nobody can see
+// is a claim nobody renews, and a wait nobody can see is a wait nobody ends
 // (§16.3).
 func lease(t *tasks.Task, now int64) string {
 	if t.ClaimedBy == "" {
@@ -647,6 +649,13 @@ func lease(t *tasks.Task, now int64) string {
 	who := string(t.ClaimedBy)
 	if t.ClaimedByName != "" {
 		who = t.ClaimedByName
+	}
+	if t.Status == tasks.StatusReview && t.SubmittedAt != 0 {
+		// A review card prints a time too, and it is a different one: the
+		// lease ended at the submission, and what the operator is deciding
+		// about is how long it has waited since. Derived at render, so it is
+		// right whenever it is read.
+		return " · " + who + " submitted " + waited(t.SubmittedAt, now)
 	}
 	if t.LeaseUntil == 0 {
 		return " · " + who
@@ -701,6 +710,26 @@ func pad(s string, w int) string {
 		s = truncateCells(s, w-1)
 	}
 	return s + strings.Repeat(" ", w-cells(s))
+}
+
+// waited says how long ago something happened, in the largest unit that still
+// has a whole number in it. A stamp in the future is a clock disagreeing with
+// itself, and the smallest true thing to say about it is that no time has
+// passed.
+func waited(at, now int64) string {
+	d := time.Duration(now-at) * time.Millisecond
+	switch {
+	case d < time.Minute:
+		if d < 0 {
+			d = 0
+		}
+		return fmt.Sprintf("%ds ago", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours())/24)
 }
 
 func humanLeft(ms int64) string {

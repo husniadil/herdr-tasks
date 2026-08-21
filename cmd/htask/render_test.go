@@ -32,7 +32,7 @@ func TestParkedListSaysWhenAVerbFailed(t *testing.T) {
 		t.Fatal("no parked.list verb")
 	}
 	out := captureStdout(t, func() {
-		if err := renderHuman(v, raw); err != nil {
+		if err := renderHuman(v, raw, 0); err != nil {
 			t.Fatalf("renderHuman: %v", err)
 		}
 	})
@@ -215,7 +215,7 @@ func verbNameOf(c *cobra.Command) string {
 func TestProseNamesACancelledBlocker(t *testing.T) {
 	abandoned := &tasks.Task{Seq: 7, Title: "waits on dropped work",
 		Status: tasks.StatusTodo, Blocked: true, Abandoned: []int64{3, 4}}
-	out := captureStdout(t, func() { printTask(abandoned) })
+	out := captureStdout(t, func() { printTask(abandoned, 0) })
 	for _, want := range []string{"blocked", "cancelled", "#3", "#4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the prose does not say %q:\n%s", want, out)
@@ -224,7 +224,7 @@ func TestProseNamesACancelledBlocker(t *testing.T) {
 
 	plain := &tasks.Task{Seq: 8, Title: "waits on work still to come",
 		Status: tasks.StatusTodo, Blocked: true}
-	out = captureStdout(t, func() { printTask(plain) })
+	out = captureStdout(t, func() { printTask(plain, 0) })
 	if !strings.Contains(out, "blocked") {
 		t.Errorf("an ordinary blocked task does not say so:\n%s", out)
 	}
@@ -248,5 +248,116 @@ func TestFirstLineCutsOnCharacterBoundaries(t *testing.T) {
 	}
 	if got == body {
 		t.Fatalf("nothing was truncated, so the test proves nothing: %d runes", len([]rune(got)))
+	}
+}
+
+// The review row is the only claimed row that printed no time: a doing row
+// carries its lease, and submitted_at sat in the payload with no reader. Both
+// human surfaces answer "for how long" from submitted_at, at display time.
+func TestTheReviewLineSaysHowLongItHasWaited(t *testing.T) {
+	const now = int64(1_700_000_000_000)
+	const hour = int64(3_600_000)
+	waiting := &tasks.Task{
+		ID: "T1", Seq: 3, Status: tasks.StatusReview, Title: "wire the door",
+		ClaimedBy: "agent:wF:p1", ClaimedByHarness: "claude",
+		// UpdatedAt moved after the submission — an edit while it waited.
+		// The age is the wait, so it is the submission it counts from.
+		SubmittedAt: now - 2*hour, UpdatedAt: now - 5*60_000,
+	}
+	working := &tasks.Task{
+		ID: "T2", Seq: 4, Status: tasks.StatusDoing, Title: "hold the lease",
+		ClaimedBy: "agent:wF:p2", ClaimedByHarness: "claude",
+		LeaseUntil: now + 10*60_000, UpdatedAt: now,
+	}
+
+	get, ok := verbs.ByName("task.get")
+	if !ok {
+		t.Fatal("no task.get verb")
+	}
+	raw, err := json.Marshal(map[string]any{"task": waiting})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	out := captureStdout(t, func() {
+		if err := renderHuman(get, raw, now); err != nil {
+			t.Fatalf("renderHuman: %v", err)
+		}
+	})
+	if strings.Contains(out, "5m ago") {
+		t.Fatalf("the age came from UpdatedAt, not SubmittedAt — UpdatedAt moves on "+
+			"reject and resubmit, restarting the clock on the task waiting longest:\n%s", out)
+	}
+	if !strings.Contains(out, "submitted 2h ago") {
+		t.Fatalf("task get does not say how long it has waited:\n%s", out)
+	}
+
+	// The doing row is untouched: it already prints a time, and it is a
+	// different one.
+	raw, err = json.Marshal(map[string]any{"task": working})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	out = captureStdout(t, func() {
+		if err := renderHuman(get, raw, now); err != nil {
+			t.Fatalf("renderHuman: %v", err)
+		}
+	})
+	if !strings.Contains(out, "lease until") {
+		t.Fatalf("the doing line lost its lease:\n%s", out)
+	}
+	if strings.Contains(out, "ago") {
+		t.Fatalf("a doing task is not waiting for review:\n%s", out)
+	}
+
+	list, ok := verbs.ByName("task.list")
+	if !ok {
+		t.Fatal("no task.list verb")
+	}
+	raw, err = json.Marshal(map[string]any{
+		"tasks": []*tasks.Task{waiting, working}, "count": 2, "project": "/repo"})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	out = captureStdout(t, func() {
+		if err := renderHuman(list, raw, now); err != nil {
+			t.Fatalf("renderHuman: %v", err)
+		}
+	})
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.Contains(line, "wire the door"):
+			if strings.Contains(line, "5m ago") {
+				t.Fatalf("the row's age came from UpdatedAt, not SubmittedAt: %q", line)
+			}
+			if !strings.Contains(line, "submitted 2h ago") {
+				t.Fatalf("the review row does not say how long it has waited: %q", line)
+			}
+		case strings.Contains(line, "hold the lease"):
+			if strings.Contains(line, "ago") {
+				t.Fatalf("a doing row is not waiting for review: %q", line)
+			}
+		}
+	}
+}
+
+// The units a wait is read in: seconds while it is fresh, days once nobody
+// has looked. A wait is never negative, and a clock that says it is says the
+// smallest true thing instead.
+func TestAWaitIsReadInTheUnitThatFitsIt(t *testing.T) {
+	const now = int64(1_700_000_000_000)
+	for _, c := range []struct {
+		submitted int64
+		want      string
+	}{
+		{now, "0s ago"},
+		{now - 45_000, "45s ago"},
+		{now - 90_000, "1m ago"},
+		{now - 2*3_600_000, "2h ago"},
+		{now - 50*3_600_000, "2d ago"},
+		{now + 60_000, "0s ago"},
+	} {
+		if got := waited(c.submitted, now); got != c.want {
+			t.Fatalf("waited(%d) = %q, want %q", c.submitted-now, got, c.want)
+		}
 	}
 }

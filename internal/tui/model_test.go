@@ -2222,3 +2222,59 @@ func TestAnOrphanedCitationIsShownNotSwallowed(t *testing.T) {
 		t.Fatalf("an orphaned citation was swallowed:\n%s", d)
 	}
 }
+
+// §16.3, the same reason a lease is on the card: a wait nobody can see is a
+// wait nobody ends. The doing card already prints a time; the review card
+// printed none while submitted_at sat unread in the row.
+func TestReviewAgeIsOnTheCardAndInTheDetail(t *testing.T) {
+	const now = int64(1_700_000_000_000)
+	const hour = int64(3_600_000)
+	waiting := task(3, tasks.StatusReview, "wire the door")
+	waiting.ClaimedBy, waiting.ClaimedByName = "agent:wF:p1", "builder"
+	// UpdatedAt moved after the submission. The wait is counted from the
+	// submission, so an edit does not restart it.
+	waiting.SubmittedAt, waiting.UpdatedAt = now-2*hour, now-5*60_000
+	working := task(4, tasks.StatusDoing, "hold the lease")
+	working.ClaimedBy, working.ClaimedByName = "agent:wF:p2", "runner"
+	working.LeaseUntil = now + 5*60_000
+
+	m := board(t, waiting, working)
+	m.Width = 200
+	out := Render(m, now)
+	// The columns share a line, so each card is read on its own: from its
+	// title to the padding that separates it from the next column.
+	card := func(title string) string {
+		i := strings.Index(out, title)
+		if i < 0 {
+			t.Fatalf("no card for %q:\n%s", title, out)
+		}
+		seg := out[i:]
+		if j := strings.Index(seg, "  "); j >= 0 {
+			seg = seg[:j]
+		}
+		return seg
+	}
+	if seg := card("wire the door"); strings.Contains(seg, "5m ago") {
+		t.Fatalf("the card's age came from UpdatedAt, not SubmittedAt — UpdatedAt "+
+			"moves on reject and resubmit, restarting the clock on the task "+
+			"waiting longest: %q", seg)
+	} else if !strings.Contains(seg, "submitted 2h ago") {
+		t.Fatalf("the review card does not say how long it has waited: %q", seg)
+	}
+	if seg := card("hold the lease"); !strings.Contains(seg, "5m") || strings.Contains(seg, "ago") {
+		t.Fatalf("the doing card lost its lease countdown: %q", seg)
+	}
+
+	// Column 2 is review; the detail panel opens on the selection.
+	m.Col, m.Row[2] = 2, 0
+	if got := m.SelectedTask(); got == nil || got.Title != "wire the door" {
+		t.Fatalf("selection is %#v", got)
+	}
+	d := Detail(m, now)
+	if strings.Contains(d, "5m ago") {
+		t.Fatalf("the detail's age came from UpdatedAt, not SubmittedAt:\n%s", d)
+	}
+	if !strings.Contains(d, "submitted 2h ago") {
+		t.Fatalf("the detail panel does not say how long it has waited:\n%s", d)
+	}
+}

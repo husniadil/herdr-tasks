@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -214,7 +215,7 @@ func run(v verbs.Verb, req protocol.Request) error {
 		fmt.Fprintln(os.Stdout)
 		return nil
 	}
-	return renderHuman(v, raw)
+	return renderHuman(v, raw, time.Now().UnixMilli())
 }
 
 func runStream(v verbs.Verb, req protocol.Request) error {
