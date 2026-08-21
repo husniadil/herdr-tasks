@@ -37,7 +37,7 @@ var (
 func docFiles(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, name := range []string{"README.md", filepath.Join("skills", "tasks", "SKILL.md")} {
+	for _, name := range []string{"README.md", filepath.Join("skills", "tasks", "SKILL.md"), contractFile} {
 		body, err := os.ReadFile(filepath.Join("..", "..", name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)

@@ -349,3 +349,25 @@ Recorded because the contract is silent here rather than violated in either
 direction, and because a single constant is the natural way to write this: a
 plugin whose short name and plugin id happen to match cannot tell the two
 apart.
+
+## §13.3 — the vendored contract is two revisions ahead of the declared one
+
+`docs/contract.md` is the contract itself, brought into this repository so a
+reader who has only this repository can resolve the 63 distinct `§` citations
+its code and docs make. It is a transcription: normative content is unchanged,
+and the only edits are the ones this repository's own rules force — the
+umbrella project's name and the tools it replaces are not named (§13.1), and
+the revision tag reads "this revision" where the source wrote a version token.
+
+The transcribed document states Version 0.3.0-draft. This plugin declares
+revision 0.1.0-draft, in the README and in `htask version` and `htask doctor`
+(§13.4). The two disagree, and the vendored file is the newer one.
+
+Nothing here reconciles them, on purpose. Moving the declared revision is a
+conformance claim: it says this plugin has been read against 0.2.0-draft and
+0.3.0-draft and still holds. The changes those revisions list — §11.4
+slash-command delivery, §11.6 plugin-pane mechanics, §8.4's rewritten event
+contract, §5.9 write-time text bounds, §6.1 reconciled with §7.3 — each need
+checking against what is built here before anyone says so. Until that is done,
+the honest state is a declared revision that is behind the vendored text, said
+out loud in both places rather than papered over by editing either number.

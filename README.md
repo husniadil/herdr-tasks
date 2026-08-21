@@ -114,7 +114,12 @@ is also clickable — the footer draws each verb where the mouse can reach it.
 
 This plugin conforms to the **shared plugin contract**, revision 0.1.0-draft,
 which §13.4 requires it to declare here and in `doctor` output — `htask version`
-and `htask doctor` both print it. Where implementation found
+and `htask doctor` both print it. The contract is vendored at
+[`docs/contract.md`](docs/contract.md), so every § this repository cites
+resolves inside it; `TestContractCitationsResolve` fails on one that does not.
+The vendored copy is revision 0.3.0-draft, two revisions ahead of what this
+plugin declares — see [`docs/contract-notes.md`](docs/contract-notes.md).
+Where implementation found
 the contract underspecified, the gap is recorded in
 [`docs/contract-notes.md`](docs/contract-notes.md) rather than silently worked
 around.
