@@ -11,7 +11,7 @@ import (
 )
 
 const noteColumns = `id, seq, project, body, status, author, author_name, author_harness,
-	verdict, reason, question, task_id, created_at, updated_at, pane_id`
+	verdict, reason, question, task_id, task_project, created_at, updated_at, pane_id`
 
 // CreateNote files a note with its added event, in one transaction.
 func (s *Store) CreateNote(in tasks.NewNoteInput, by tasks.Actor, now int64) (*tasks.Note, error) {
@@ -28,7 +28,7 @@ func (s *Store) CreateNote(in tasks.NewNoteInput, by tasks.Actor, now int64) (*t
 	if n.Seq, err = nextSeq(tx, n.Project, "note"); err != nil {
 		return nil, wrap(err)
 	}
-	if _, err := tx.Exec("INSERT INTO notes ("+noteColumns+") VALUES (?"+strings.Repeat(", ?", 14)+")",
+	if _, err := tx.Exec("INSERT INTO notes ("+noteColumns+") VALUES (?"+strings.Repeat(", ?", 15)+")",
 		append([]any{n.ID}, noteArgs(n)...)...); err != nil {
 		return nil, wrap(err)
 	}
@@ -57,19 +57,76 @@ func (s *Store) NoteTransition(project, ref string, baseUpdatedAt int64, fn func
 	if err != nil {
 		return nil, err
 	}
-	cols := strings.Split(strings.ReplaceAll(noteColumns, "\n\t", " "), ", ")
-	sets := make([]string, 0, len(cols))
-	for _, c := range cols[1:] {
-		sets = append(sets, strings.TrimSpace(c)+" = ?")
-	}
-	if _, err := tx.Exec("UPDATE notes SET "+strings.Join(sets, ", ")+" WHERE id = ?",
-		append(noteArgs(n), n.ID)...); err != nil {
+	if err := updateNote(tx, n); err != nil {
 		return nil, wrap(err)
 	}
 	if err := appendEvent(tx, "notes_events", n.ID, n.Project, ev); err != nil {
 		return nil, wrap(err)
 	}
 	return n, wrap(tx.Commit())
+}
+
+// updateNote writes every column of a note back, so one writer cannot forget
+// the column another one added.
+func updateNote(tx *sql.Tx, n *tasks.Note) error {
+	cols := strings.Split(strings.ReplaceAll(noteColumns, "\n\t", " "), ", ")
+	sets := make([]string, 0, len(cols))
+	for _, c := range cols[1:] {
+		sets = append(sets, strings.TrimSpace(c)+" = ?")
+	}
+	_, err := tx.Exec("UPDATE notes SET "+strings.Join(sets, ", ")+" WHERE id = ?",
+		append(noteArgs(n), n.ID)...)
+	return err
+}
+
+// PromoteNote creates the task and moves the note in ONE transaction, even
+// when the two live on different projects: projects are rows in one SQLite
+// file, not separate stores, so this is a single atomic write and there is no
+// window where a promoted note points at a task that was never created. If
+// that ever stops being true — two files, two daemons — this method is where
+// the honest two-phase story would have to be written; today it is one BEGIN.
+func (s *Store) PromoteNote(noteProject, ref string, baseUpdatedAt int64, in tasks.NewTaskInput, by tasks.Actor, now int64) (*tasks.Note, *tasks.Task, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, nil, wrap(err)
+	}
+	defer tx.Rollback()
+	n, err := readNote(tx, noteProject, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	if baseUpdatedAt != 0 && n.UpdatedAt != baseUpdatedAt {
+		return nil, nil, codes.Errorf(codes.Conflict,
+			"note moved: updated_at is %d, not the %d you read", n.UpdatedAt, baseUpdatedAt)
+	}
+	in.ID = ids.New(now)
+	task, tev, err := tasks.New(in, by, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if task.Seq, err = nextSeq(tx, task.Project, "task"); err != nil {
+		return nil, nil, wrap(err)
+	}
+	if err := insertTask(tx, task); err != nil {
+		return nil, nil, wrap(err)
+	}
+	if err := appendEvent(tx, "tasks_events", task.ID, task.Project, tev); err != nil {
+		return nil, nil, wrap(err)
+	}
+	nev, err := tasks.NotePromote(n, by, task.ID, task.Project, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := updateNote(tx, n); err != nil {
+		return nil, nil, wrap(err)
+	}
+	if err := appendEvent(tx, "notes_events", n.ID, n.Project, nev); err != nil {
+		return nil, nil, wrap(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, wrap(err)
+	}
+	return n, task, nil
 }
 
 // GetNote reads one note by ULID or by the project's seq.
@@ -182,15 +239,17 @@ func scanNote(sc scanner) (*tasks.Note, error) {
 		reason  sql.NullString
 		quest   sql.NullString
 		taskID  sql.NullString
+		taskPrj sql.NullString
 		pane    sql.NullString
 	)
 	if err := sc.Scan(&n.ID, &n.Seq, &n.Project, &n.Body, &n.Status, &n.Author, &name, &harness,
-		&verdict, &reason, &quest, &taskID, &n.CreatedAt, &n.UpdatedAt, &pane); err != nil {
+		&verdict, &reason, &quest, &taskID, &taskPrj, &n.CreatedAt, &n.UpdatedAt, &pane); err != nil {
 		return nil, err
 	}
 	n.AuthorName, n.AuthorHarness = name.String, harness.String
 	n.Verdict = tasks.Verdict(verdict.String)
 	n.Reason, n.Question, n.TaskID, n.PaneID = reason.String, quest.String, taskID.String, pane.String
+	n.TaskProject = taskPrj.String
 	return &n, nil
 }
 
@@ -199,6 +258,6 @@ func noteArgs(n *tasks.Note) []any {
 		n.Seq, n.Project, n.Body, string(n.Status), string(n.Author),
 		nullIfEmpty(n.AuthorName), nullIfEmpty(n.AuthorHarness),
 		nullIfEmpty(string(n.Verdict)), nullIfEmpty(n.Reason), nullIfEmpty(n.Question),
-		nullIfEmpty(n.TaskID), n.CreatedAt, n.UpdatedAt, nullIfEmpty(n.PaneID),
+		nullIfEmpty(n.TaskID), nullIfEmpty(n.TaskProject), n.CreatedAt, n.UpdatedAt, nullIfEmpty(n.PaneID),
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
 
@@ -76,7 +77,11 @@ func Detail(m Model, now int64) string {
 		fmt.Fprintf(&b, "asked: %s\n", n.Question)
 	}
 	if n.TaskID != "" {
-		fmt.Fprintf(&b, "became task %s\n", n.TaskID)
+		if n.TaskProject != "" {
+			fmt.Fprintf(&b, "became task %s on %s\n", n.TaskID, project.DisplayName(n.TaskProject))
+		} else {
+			fmt.Fprintf(&b, "became task %s\n", n.TaskID)
+		}
 	}
 	return b.String()
 }

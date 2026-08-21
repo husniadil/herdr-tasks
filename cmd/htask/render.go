@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/husniadil/herdr-tasks/internal/daemon"
+	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
@@ -222,7 +223,11 @@ func printNote(n *tasks.Note) {
 		fmt.Println()
 	}
 	if n.TaskID != "" {
-		fmt.Printf("\nPromoted to task %s\n", n.TaskID)
+		if n.TaskProject != "" {
+			fmt.Printf("\nPromoted to task %s on %s (%s)\n", n.TaskID, project.DisplayName(n.TaskProject), n.TaskProject)
+		} else {
+			fmt.Printf("\nPromoted to task %s\n", n.TaskID)
+		}
 	}
 }
 

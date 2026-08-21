@@ -1511,3 +1511,50 @@ func TestMigrationAddsSubmittedSessionAndKeepsOldRowsReadable(t *testing.T) {
 		t.Fatalf("read back = %+v, %v", got, err)
 	}
 }
+
+// §5.2: migration 6 adds notes.task_project beside task_id. A note promoted
+// before it was promoted within its own project, so it must read back with an
+// empty task_project — which is exactly what "the note's own board" means —
+// rather than a guessed one.
+func TestMigrationAddsTaskProjectAndKeepsOldNotesReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	for i := 0; i < 5; i++ { // migrations 1..5: schema version 5, before task_project
+		if migrations[i].SQL == "" {
+			continue
+		}
+		if _, err := db.Exec(migrations[i].SQL); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO meta (schema_version, created_at) VALUES (5, 1)"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO notes
+		(id, seq, project, body, status, author, task_id, created_at, updated_at)
+		VALUES ('01ARZ3NDEKTSV4RRFFQ69G5FB1', 1, '/p', 'an old idea', 'task', 'human',
+		        '01ARZ3NDEKTSV4RRFFQ69G5FAV', 1, 2)`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (which migrates): %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.GetNote("/p", "1")
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+	if got.Body != "an old idea" || got.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("the pre-migration row did not survive: %+v", got)
+	}
+	if got.TaskProject != "" {
+		t.Fatalf("task_project = %q, want empty: the old row was promoted at home", got.TaskProject)
+	}
+}

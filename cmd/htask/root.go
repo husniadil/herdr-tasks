@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -171,6 +172,9 @@ func buildVerb(v verbs.Verb) *cobra.Command {
 				args[n] = *p
 			}
 		}
+		if err := resolveTargetProject(args); err != nil {
+			return err
+		}
 		req, err := request(v.Name, args)
 		if err != nil {
 			return err
@@ -181,6 +185,29 @@ func buildVerb(v verbs.Verb) *cobra.Command {
 		return run(v, req)
 	}
 	return cmd
+}
+
+// resolveTargetProject canonicalizes --to-project here, in the door, for the
+// reason --project is resolved here: a relative path is relative to the
+// CALLER's working directory, and the daemon's is somewhere else entirely. The
+// target must also already exist — a promote into a path that is not there is
+// a typo, and inventing a board nobody will find fails quietly (§4.2).
+func resolveTargetProject(args map[string]any) error {
+	raw, ok := args["to-project"].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	info, err := os.Stat(raw)
+	if err != nil || !info.IsDir() {
+		return codes.Errorf(codes.Usage, "cannot resolve the target project %q: not a directory", raw)
+	}
+	cwd, _ := os.Getwd()
+	proj, err := project.Resolve(project.Options{Explicit: raw, Cwd: cwd})
+	if err != nil {
+		return codes.Errorf(codes.Usage, "cannot resolve the target project %q: %v", raw, err)
+	}
+	args["to-project"] = proj
+	return nil
 }
 
 // request fills in everything the door derives rather than the caller

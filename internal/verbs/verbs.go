@@ -285,12 +285,14 @@ var All = []Verb{
 	{
 		Name: "note.promote", CLI: []string{"note", "promote"},
 		Short:   "Turn a note into a task (operator only)",
+		Long:    "The task is created on the note's own board unless --to-project names another one; the note stays where it was filed either way and points at the task it became.",
 		Gated:   "tasks.note_promote",
 		Who:     "The operator only.",
 		Mutates: true,
 		Args: []Arg{
 			idArg("The note id or number"),
 			{Name: "title", Type: String, Desc: "The task title; the note body is the default"},
+			{Name: "to-project", Type: String, Desc: "Create the task on this project's board instead of the note's own (§4.2)"},
 			{Name: "validation", Type: Strings, Desc: "An acceptance criterion, as a command and what its output must show (repeatable)"},
 		},
 	},

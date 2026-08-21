@@ -90,17 +90,17 @@ func TestNoteVerdictRejectsUnknownValue(t *testing.T) {
 // for a harness to turn its own idea into a commitment.
 func TestPromoteIsHumanOnly(t *testing.T) {
 	n := newNote(t)
-	err := noteErr(NotePromote(n, agent("wF:p1", "claude"), "01ARZ3NDEKTSV4RRFFQ69G5FT1", t0+5))
+	err := noteErr(NotePromote(n, agent("wF:p1", "claude"), "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+5))
 	if got := codeOf(t, err); got != codes.Forbidden {
 		t.Fatalf("agent promote code = %q, want FORBIDDEN", got)
 	}
-	if _, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", t0+6); err != nil {
+	if _, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+6); err != nil {
 		t.Fatalf("human promote: %v", err)
 	}
 	if n.Status != NoteTask || n.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FT1" {
 		t.Fatalf("bad promote: %+v", n)
 	}
-	err = noteErr(NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT2", t0+7))
+	err = noteErr(NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT2", "", t0+7))
 	if got := codeOf(t, err); got != codes.Conflict {
 		t.Fatalf("re-promote code = %q, want CONFLICT", got)
 	}
@@ -194,7 +194,7 @@ func TestNoteUpdateIsTheAuthorsOrTheOperators(t *testing.T) {
 	}{
 		{NoteKept, func(x *Note) error { return noteErr(NoteKeep(x, human, "not now", t0+1)) }},
 		{NoteDropped, func(x *Note) error { return noteErr(NoteDrop(x, human, "no", t0+1)) }},
-		{NoteTask, func(x *Note) error { return noteErr(NotePromote(x, human, "T1", t0+1)) }},
+		{NoteTask, func(x *Note) error { return noteErr(NotePromote(x, human, "T1", "", t0+1)) }},
 	} {
 		x := newNote(t)
 		if err := decide.run(x); err != nil {

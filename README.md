@@ -60,6 +60,19 @@ htask task goal 12                            # a paste-ready /goal condition
 htask doctor
 ```
 
+A note the operator promotes becomes a task on the note's own board, or on
+another project's when they name one:
+
+```sh
+htask note promote 3 --title "Log the reason a lease was swept" \
+                     --validation "make test-full: ok"
+htask note promote 3 --to-project ../sibling-repo
+```
+
+`--to-project` resolves the way `--project` does (§4.2). The task is created
+there, the note stays where it was filed, and both the id and the project of
+the task are recorded on the note, so `note get` can point across.
+
 `--evidence` is proof for the task as a whole. `--evidence-for` is proof for
 one acceptance criterion, written as `"<criterion>: what it printed"` where the
 number is the criterion's place in the list `htask task get` prints. Cite one

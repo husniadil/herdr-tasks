@@ -69,6 +69,10 @@ type Note struct {
 	Question string `json:"question,omitempty"`
 	// TaskID is the task this note became, once the operator promoted it.
 	TaskID string `json:"task_id,omitempty"`
+	// TaskProject is the board that task lives on. Empty means the note's own
+	// project: a promotion may cross projects, and the id alone does not say
+	// where to look for it.
+	TaskProject string `json:"task_project,omitempty"`
 
 	CreatedAt int64 `json:"created_at"`
 	UpdatedAt int64 `json:"updated_at"`
@@ -202,7 +206,13 @@ func NoteVerdict(n *Note, by Actor, v Verdict, reason string, now int64) (Event,
 // NotePromote turns a note into a task. Human-only: a note becoming a
 // commitment is the operator's decision, and an agent proposing its own
 // promotion is exactly the loop this rule exists to break.
-func NotePromote(n *Note, by Actor, taskID string, now int64) (Event, error) {
+//
+// taskProject is the board the task was created on. It may be another
+// project's: the note stays where it was filed and points across, so the
+// provenance survives work that belongs to a different repository. It is
+// recorded only when it differs from the note's own project, so the common
+// case reads the way it always did.
+func NotePromote(n *Note, by Actor, taskID, taskProject string, now int64) (Event, error) {
 	if !by.IsHuman() {
 		return Event{}, codes.New(codes.Forbidden, "only the operator promotes a note")
 	}
@@ -211,9 +221,14 @@ func NotePromote(n *Note, by Actor, taskID string, now int64) (Event, error) {
 	}
 	n.Status = NoteTask
 	n.TaskID = taskID
+	n.TaskProject = ""
+	detail := map[string]any{"task_id": taskID}
+	if taskProject != "" && taskProject != n.Project {
+		n.TaskProject = taskProject
+		detail["task_project"] = taskProject
+	}
 	n.UpdatedAt = now
-	return Event{Kind: KindNotePromoted, Actor: by.Principal, At: now,
-		Detail: map[string]any{"task_id": taskID}}, nil
+	return Event{Kind: KindNotePromoted, Actor: by.Principal, At: now, Detail: detail}, nil
 }
 
 // NoteKeep files a note as approved but not now.

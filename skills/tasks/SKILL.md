@@ -103,6 +103,19 @@ htask note verdict 3 task --reason "small, and it costs us every incident"
 
 `verdict` is a **proposal**. Promoting a note into a task, keeping it, or
 dropping it is the operator's call — those verbs refuse an agent principal.
+When the operator does promote, the task is created on the note's own board
+unless they say otherwise, and the note stays where it was filed and points at
+the task it became:
+
+```sh
+htask note promote 3 --title "Log the reason a lease was swept" \
+                     --validation "make test-full: ok"
+htask note promote 3 --to-project ../sibling-repo
+```
+
+`--to-project` is for a note whose work belongs to a different repository: the
+task lands on that project's board, the note stays on this one, and `note get`
+names both, so the trail from idea to task survives crossing projects.
 Amend your own verdict freely until the operator acts — and the wording of a
 note you wrote, the same way, until they decide it:
 

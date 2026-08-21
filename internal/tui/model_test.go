@@ -2579,3 +2579,28 @@ func TestNotesViewportCostsNoRow(t *testing.T) {
 		t.Fatalf("the range changed the document's height: %d lines against %d", b, a)
 	}
 }
+
+// A note promoted onto ANOTHER project's board says so in its detail: the id
+// alone does not tell the operator which board to look on.
+func TestNoteDetailNamesACrossProjectTask(t *testing.T) {
+	m := notesModel(t, []*tasks.Note{{
+		ID: "N1", Seq: 1, Status: "task", Body: "belongs elsewhere", Project: "/repo",
+		TaskID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", TaskProject: "/other/sibling-repo",
+	}}, nil)
+	d := Detail(m, 0)
+	if !strings.Contains(d, "01ARZ3NDEKTSV4RRFFQ69G5FAV") || !strings.Contains(d, "sibling-repo") {
+		t.Fatalf("the detail does not name the task's board:\n%s", d)
+	}
+}
+
+// And a promotion that stayed home reads exactly as it always did.
+func TestNoteDetailSaysNothingAboutProjectWhenThePromotionStayedHome(t *testing.T) {
+	m := notesModel(t, []*tasks.Note{{
+		ID: "N1", Seq: 1, Status: "task", Body: "ordinary", Project: "/repo",
+		TaskID: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+	}}, nil)
+	d := Detail(m, 0)
+	if !strings.Contains(d, "became task 01ARZ3NDEKTSV4RRFFQ69G5FAV\n") {
+		t.Fatalf("the detail changed for a same-project promotion:\n%s", d)
+	}
+}

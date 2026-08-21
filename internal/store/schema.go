@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -160,4 +160,10 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// session, reads back NULL, and CheckRecusal treats an absent producer
 	// session as no match rather than guessing one.
 	{SQL: `ALTER TABLE tasks ADD COLUMN submitted_by_session TEXT;`},
+	// 6 — the board a promoted note's task landed on, so a promotion that
+	// crossed projects can be followed. A NEW column beside task_id, never a
+	// change to it: a row written before this migration was promoted within
+	// its own project, reads back NULL, and an empty task_project means
+	// exactly that.
+	{SQL: `ALTER TABLE notes ADD COLUMN task_project TEXT;`},
 }

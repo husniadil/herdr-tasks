@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -428,12 +429,16 @@ func hNotePromote(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 	if err != nil {
 		return nil, err
 	}
+	target, err := promoteTarget(n.Project, argString(req.Args, "to-project"))
+	if err != nil {
+		return nil, err
+	}
 	title := argString(req.Args, "title")
 	if title == "" {
 		title = firstLine(n.Body)
 	}
-	t, err := d.Store.CreateTask(tasks.NewTaskInput{
-		Project:     n.Project,
+	updated, t, err := d.Store.PromoteNote(req.Project, n.ID, req.BaseUpdatedAt, tasks.NewTaskInput{
+		Project:     target,
 		Title:       title,
 		Description: n.Body,
 		Validation:  criteria(argStrings(req.Args, "validation")),
@@ -442,19 +447,30 @@ func hNotePromote(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 	if err != nil {
 		return nil, err
 	}
-	updated, err := d.Store.NoteTransition(req.Project, n.ID, req.BaseUpdatedAt, func(x *tasks.Note) (tasks.Event, error) {
-		return tasks.NotePromote(x, by, t.ID, d.Now())
-	})
-	if err != nil {
-		// The task exists but the note did not move: cancel the task rather
-		// than leave an orphan claiming to be a promotion.
-		d.Store.TaskTransition(t.Project, t.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
-			return tasks.Cancel(x, by, "promotion did not complete", d.Now())
-		})
-		return nil, err
-	}
 	d.emitted(n.Project, "note", n.ID)
+	// The task's created event lands on the TARGET project, which is a board
+	// nothing else in this call touches: without this, a cross-project promote
+	// is invisible to everyone watching the board that got the work.
+	d.emitted(t.Project, "task", t.ID)
 	return PromoteResult{Note: updated, Task: t}, nil
+}
+
+// promoteTarget is the board the task lands on: the note's own project unless
+// --to-project named another one. The door resolves the flag the way §4.2
+// resolves --project, because a relative path is relative to the CALLER's
+// working directory and the daemon's is somewhere else; what arrives here is
+// already canonical, and anything that is not is a caller that skipped that
+// step rather than a path to guess at.
+func promoteTarget(noteProject, to string) (string, error) {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return noteProject, nil
+	}
+	if !filepath.IsAbs(to) {
+		return "", codes.Errorf(codes.Usage,
+			"the target project must be a resolved absolute path, not %q", to)
+	}
+	return to, nil
 }
 
 func hNoteKeep(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {

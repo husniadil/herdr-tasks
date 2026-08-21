@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/testenv"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
@@ -1478,4 +1479,129 @@ func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
 			t.Errorf("%s with no subcommand printed no help:\n%s%s", parent, stdout, stderr)
 		}
 	}
+}
+
+// The mail-plugin case: the note lives on this board, the work belongs to
+// another repository. --to-project puts the task there and leaves the note
+// here, with the link intact in both directions.
+func TestNotePromoteCrossesProjects(t *testing.T) {
+	w := newWorld(t)
+	other := filepath.Join(filepath.Dir(w.project), "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "the mail plugin needs its own board")
+
+	doc := w.json(w.env(), "note", "promote", "1", "--to-project", other)
+	task, _ := doc["task"].(map[string]any)
+	note, _ := doc["note"].(map[string]any)
+	if task == nil || note == nil {
+		t.Fatalf("promote = %+v", doc)
+	}
+	wantProject := resolvedProject(t, other)
+	if task["project"] != wantProject {
+		t.Fatalf("the task landed on %v, want the target %s", task["project"], wantProject)
+	}
+	if note["project"] == wantProject {
+		t.Fatalf("the note moved with the task: %v", note["project"])
+	}
+	if note["status"] != "task" {
+		t.Fatalf("the note is %v, want task", note["status"])
+	}
+	// The task is on the OTHER board: this project's board must not show it.
+	here := w.json(w.env(), "task", "list")
+	if list, _ := here["tasks"].([]any); len(list) != 0 {
+		t.Fatalf("the task was created on the note's own board too: %+v", list)
+	}
+	there := w.json(w.env(), "task", "list", "--project", other)
+	if list, _ := there["tasks"].([]any); len(list) != 1 {
+		t.Fatalf("the target board has %d tasks, want 1", len(list))
+	}
+}
+
+// Criterion 1's other half: the note records the task's id AND its project,
+// so `note get` can point across, and the trail note → task survives.
+func TestNotePromoteKeepsProvenanceAcrossProjects(t *testing.T) {
+	w := newWorld(t)
+	other := filepath.Join(filepath.Dir(w.project), "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "belongs to the sibling repo")
+	promoted := w.json(w.env(), "note", "promote", "1", "--to-project", other)
+	task, _ := promoted["task"].(map[string]any)
+
+	got := w.json(w.env(), "note", "get", "1")
+	note, _ := got["note"].(map[string]any)
+	if note == nil {
+		t.Fatalf("note get = %+v", got)
+	}
+	if note["task_id"] != task["id"] {
+		t.Fatalf("task_id = %v, want %v", note["task_id"], task["id"])
+	}
+	if note["task_project"] != task["project"] {
+		t.Fatalf("task_project = %v, want %v", note["task_project"], task["project"])
+	}
+	// The task the note points at is really there, on the board it names.
+	back := w.json(w.env(), "task", "get", task["id"].(string), "--project", other)
+	if got, _ := back["task"].(map[string]any); got["id"] != task["id"] {
+		t.Fatalf("the task the note points at is not on the board it names: %+v", back)
+	}
+	// Human output says where the task went, not just that it went somewhere.
+	stdout, _, status := w.run(w.env(), "note", "get", "1")
+	if status != 0 || !strings.Contains(stdout, "other") {
+		t.Fatalf("note get does not name the target project: %q", stdout)
+	}
+}
+
+// An unresolvable target is USAGE, and nothing moves on either board.
+func TestNotePromoteRefusesAnUnresolvableTarget(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "somewhere that is not there")
+	missing := filepath.Join(filepath.Dir(w.project), "no-such-dir")
+
+	_, stderr, status := w.run(w.env(), "note", "promote", "1", "--to-project", missing)
+	if status != codes.Exit(codes.Usage) {
+		t.Fatalf("exit %d, want USAGE (%d): %s", status, codes.Exit(codes.Usage), stderr)
+	}
+	got := w.json(w.env(), "note", "get", "1")
+	note, _ := got["note"].(map[string]any)
+	if note["status"] != "inbox" || note["task_id"] != nil {
+		t.Fatalf("the note moved on a refused promote: %+v", note)
+	}
+	here := w.json(w.env(), "task", "list")
+	if list, _ := here["tasks"].([]any); len(list) != 0 {
+		t.Fatalf("a refused promote created a task: %+v", list)
+	}
+}
+
+// The default is unchanged: no flag, and the task is created on the note's own
+// board with no cross-project reference recorded at all.
+func TestNotePromoteWithoutTheFlagStaysOnTheSameProject(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "ordinary promotion")
+	doc := w.json(w.env(), "note", "promote", "1")
+	task, _ := doc["task"].(map[string]any)
+	note, _ := doc["note"].(map[string]any)
+	if task["project"] != note["project"] {
+		t.Fatalf("the task went to %v, the note is on %v", task["project"], note["project"])
+	}
+	if _, crossed := note["task_project"]; crossed {
+		t.Fatalf("a same-project promotion recorded a task_project: %+v", note["task_project"])
+	}
+	stdout, _, status := w.run(w.env(), "note", "get", "1")
+	if status != 0 || !strings.Contains(stdout, "Promoted to task ") || strings.Contains(stdout, " on ") {
+		t.Fatalf("same-project promote prints a cross-project line: %q", stdout)
+	}
+}
+
+// resolvedProject is what §4.2 makes of a path, which is what the daemon
+// stores: on macOS a temp dir is a symlink, so the literal path is not it.
+func resolvedProject(t *testing.T, dir string) string {
+	t.Helper()
+	p, err := project.Resolve(project.Options{Explicit: dir, Cwd: dir})
+	if err != nil {
+		t.Fatalf("resolve %s: %v", dir, err)
+	}
+	return p
 }

@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -1540,4 +1541,70 @@ func TestABoundedStreamEndsWithTheDoneSentinel(t *testing.T) {
 	if !strings.Contains(out.String(), `"done":true`) {
 		t.Fatalf("the sentinel is not spelled `\"done\":true`: %s", out.String())
 	}
+}
+
+// §8: a cross-project promotion writes the note's promoted event on the note's
+// project and the task's created event on the TARGET project, and neither
+// exists without the other — one SQLite file, one transaction, so a crash
+// between them is not a state this store can be in.
+func TestCrossProjectPromoteWritesBothEventsOnTheirOwnProjects(t *testing.T) {
+	d := newDaemon(t, nil)
+	other := "/tmp/project-b"
+	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj, Args: map[string]any{"body": "belongs elsewhere"}})
+	raw := mustCall(t, d, protocol.Request{Verb: "note.promote", Project: proj,
+		Args: map[string]any{"id": "1", "to-project": other}})
+	var res PromoteResult
+	json.Unmarshal(raw, &res)
+	if res.Task.Project != other || res.Note.Project != proj {
+		t.Fatalf("task on %q, note on %q", res.Task.Project, res.Note.Project)
+	}
+
+	if got := eventNames(t, d, proj); !slices.Contains(got, "tasks.note.promoted") {
+		t.Fatalf("the promoted event is not on the note's project: %v", got)
+	}
+	if got := eventNames(t, d, proj); slices.Contains(got, "tasks.task.created") {
+		t.Fatalf("the task's created event landed on the note's project: %v", got)
+	}
+	if got := eventNames(t, d, other); !slices.Contains(got, "tasks.task.created") {
+		t.Fatalf("the created event is not on the target project: %v", got)
+	}
+}
+
+// The other half of the atomicity claim: when the note refuses to move, the
+// task is not created either. Before this the handler created the task first
+// and cancelled it on failure, which left a cancelled task behind on a board
+// nobody had asked for one on.
+func TestARefusedPromoteLeavesNoTaskOnTheTargetBoard(t *testing.T) {
+	d := newDaemon(t, nil)
+	other := "/tmp/project-b"
+	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj, Args: map[string]any{"body": "promoted once"}})
+	mustCall(t, d, protocol.Request{Verb: "note.promote", Project: proj,
+		Args: map[string]any{"id": "1", "to-project": other}})
+
+	// A note already promoted is terminal, so the second promote refuses in
+	// the state machine — after the task row would have been written.
+	resp := call(t, d, protocol.Request{Verb: "note.promote", Project: proj,
+		Args: map[string]any{"id": "1", "to-project": other}})
+	if resp.Error == nil || resp.Error.Code != codes.Conflict {
+		t.Fatalf("second promote = %+v", resp)
+	}
+	raw := mustCall(t, d, protocol.Request{Verb: "task.list", Project: other})
+	var list TaskListResult
+	json.Unmarshal(raw, &list)
+	if len(list.Tasks) != 1 {
+		t.Fatalf("the target board has %d tasks, want the one that succeeded", len(list.Tasks))
+	}
+}
+
+// eventNames is every event name recorded on one project.
+func eventNames(t *testing.T, d *Daemon, project string) []string {
+	t.Helper()
+	raw := mustCall(t, d, protocol.Request{Verb: "events", Project: project})
+	var res EventsResult
+	json.Unmarshal(raw, &res)
+	out := []string{}
+	for _, e := range res.Events {
+		out = append(out, e.Name)
+	}
+	return out
 }
