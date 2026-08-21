@@ -281,7 +281,12 @@ func (s *Store) SweepLeases(now int64) ([]string, error) {
 // pane.exited event means for a lease (§11.5).
 func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
 	principal := "agent:" + paneID
-	rows, err := s.db.Query("SELECT id, project FROM tasks WHERE claimed_by = ?", principal)
+	// lease_until > 0 is the same reach the timer sweep has (SweepLeases): a
+	// dead pane gives back the lease it was holding, and submit already ended
+	// that lease. A row still carrying this pane in claimed_by with no lease
+	// left was handed off, not abandoned.
+	rows, err := s.db.Query(
+		"SELECT id, project FROM tasks WHERE claimed_by = ? AND lease_until > 0", principal)
 	if err != nil {
 		return nil, wrap(err)
 	}
@@ -303,10 +308,15 @@ func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
 		}
 		if _, err := s.TaskTransition(r.project, r.id, 0, func(t *tasks.Task) (tasks.Event, error) {
 			// Same window as SweepLeases: a task another pane claimed since
-			// the scan is not this pane's to give back.
+			// the scan is not this pane's to give back, and one this pane
+			// submitted since the scan no longer has a lease to give.
 			if t.ClaimedBy != tasks.Principal(principal) {
 				return tasks.Event{}, codes.Errorf(codes.Conflict,
 					"%s is claimed by %s, not the pane that exited", r.id, t.ClaimedBy)
+			}
+			if t.LeaseUntil == 0 {
+				return tasks.Event{}, codes.Errorf(codes.Conflict,
+					"the lease on %s ended after the scan", r.id)
 			}
 			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, "pane exited", now, tasks.KindSwept)
 		}); err == nil {

@@ -1415,3 +1415,43 @@ func TestSweepCannotReachASubmittedTask(t *testing.T) {
 		t.Fatalf("lease_until = %d on a submitted task, want 0", got.LeaseUntil)
 	}
 }
+
+// §11.5: the same guarantee as TestSweepCannotReachASubmittedTask, on the
+// other sweep path. `pane.exited` says the pane stopped, not that the work
+// was abandoned: the submit already handed it off and ended the lease, so
+// there is no lease left for the dead pane to give back. Seen live: event
+// 01M0HCFFY63VE0VJVTRQM6P3MR wrote kind=swept detail "pane exited" on a task
+// that was already in review and cleared its holder, which the timer sweep
+// has been unable to do since the lease ends at submit.
+func TestReleaseByPaneCannotReachASubmittedTask(t *testing.T) {
+	s := open(t)
+	a := peer("wF:p1", "claude")
+	task := create(t, s, "submitted, then the pane died")
+	for i, step := range []func(*tasks.Task) (tasks.Event, error){
+		func(x *tasks.Task) (tasks.Event, error) { return tasks.Claim(x, a, tick(t), 60_000) },
+		func(x *tasks.Task) (tasks.Event, error) { return tasks.Submit(x, a, "done", nil, nil, tick(t)) },
+	} {
+		if _, err := s.TaskTransition(proj, task.ID, 0, step); err != nil {
+			t.Fatalf("step %d: %v", i, err)
+		}
+	}
+	released, err := s.ReleaseByPane("wF:p1", tick(t))
+	if err != nil {
+		t.Fatalf("ReleaseByPane: %v", err)
+	}
+	if len(released) != 0 {
+		t.Fatalf("the pane sweep took back %d submitted task(s): %v", len(released), released)
+	}
+	// The absence has to be read from the trail too: releasing nothing and
+	// writing nothing are two claims, and only the second one is append-only.
+	if k := kinds(t, s, task.ID); contains(k, "swept") {
+		t.Fatalf("the trail says the submitted task was swept: %v", k)
+	}
+	got, err := s.GetTask(proj, task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Status != tasks.StatusReview || got.ClaimedBy != a.Principal {
+		t.Fatalf("the submitted task moved: status=%q claimed_by=%q", got.Status, got.ClaimedBy)
+	}
+}
