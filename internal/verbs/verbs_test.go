@@ -38,3 +38,23 @@ func TestEveryWritingVerbStatesItsRuleAndItsGate(t *testing.T) {
 		t.Errorf("%d writing verbs are outside the policy gate, was %d — if that is intended, say so here", ungated, want)
 	}
 }
+
+// §9.4: an Ungated reason has to say why THIS verb carries no gate. A reason
+// two verbs share is a reason about a class, and a class reason is disproved
+// the moment a sibling in the same class is gated: note.keep and note.drop
+// once both read "already the narrowest principal there is; a gate cannot
+// narrow it further", which is equally true of note.promote — gated, because
+// a deny-only policy can still hold a freeze over it.
+func TestEachUngatedReasonIsAboutItsOwnVerb(t *testing.T) {
+	seen := map[string]string{}
+	for _, v := range All {
+		if v.Ungated == "" {
+			continue
+		}
+		if first, dup := seen[v.Ungated]; dup {
+			t.Errorf("%s and %s give the same reason for carrying no gate (%q): a shared reason is about a class, and says nothing about why these two are outside the gate when a sibling is inside it", first, v.Name, v.Ungated)
+			continue
+		}
+		seen[v.Ungated] = v.Name
+	}
+}

@@ -298,7 +298,7 @@ var All = []Verb{
 		Name: "note.keep", CLI: []string{"note", "keep"},
 		Short:   "File a note as approved but not now (operator only)",
 		Who:     "The operator only.",
-		Ungated: "already the narrowest principal there is; a gate cannot narrow it further",
+		Ungated: "filing a note for later puts nothing on the board; note.promote is gated because it does create a task, which a freeze can usefully hold",
 		Mutates: true,
 		Args: []Arg{
 			idArg("The note id or number"),
@@ -309,7 +309,7 @@ var All = []Verb{
 		Name: "note.drop", CLI: []string{"note", "drop"},
 		Short:   "Reject a note (operator only)",
 		Who:     "The operator only.",
-		Ungated: "already the narrowest principal there is; a gate cannot narrow it further",
+		Ungated: "rejecting a note ends it where it stands and creates no work; note.promote is gated because it does create a task, which a freeze can usefully hold",
 		Mutates: true,
 		Args: []Arg{
 			idArg("The note id or number"),
