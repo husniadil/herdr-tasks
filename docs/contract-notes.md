@@ -368,11 +368,13 @@ sentence and the document's own Status line stop agreeing.
 
 Declaring a revision is a conformance claim, and no test can make it. What
 earns it is reading each change the contract's changelog lists against the code
-that answers it. Both listed revisions were derived from this plugin, so each
-delta has an implementation to point at:
+that answers it. Every delta but one was derived from this plugin, so it has an implementation
+to point at; the §2.1 amendment came from a peer plugin, and what it points at
+here is the half of the rule this plugin answers:
 
 | § | what the revision says | what answers it |
 |---|---|---|
+| §2.1 (0.4.0) | a TUI is owed only by a plugin whose concern includes an operator-facing view; one without a view names its human surface instead, and a status verb is enough | this plugin owns the operator's board, so it owes the view and ships it: `cmd/htask/tui.go` is `htask tui [<view>]`, `TestTheBoardOffersHumanVerbsOnly` holds it to human verbs, and the README names it in the first paragraph. The sentence was written when a board was the only plugin there was; a peer plugin whose operator surface is a read-only `status` verb could not declare §13.4 conformance against a MUST for a view it has no concern to draw |
 | §7.1 (0.4.0) | a tool is named by its verb alone, no plugin prefix, because the client's registration label already namespaces it | `internal/verbs/verbs.go` carries the bare `MCP` names; `pinnedTools` in `internal/mcpdoor/parity_test.go` pins them and `TestTheServerNameCarriesTheIdentityAndTheToolsDoNot` refuses any plugin lead; `daemon.Version` is `0.2.0` for the semver-bound list that moved |
 | §5.5 | an events table named after its entity table, written in the same transaction | `internal/store/schema.go:82` `tasks_events`, `:113` `notes_events`, with §5.5's columns; `internal/store/tasks.go:31-51` opens the transaction, appends the event, commits |
 | §5.9 | write-time text bounds with `USAGE`, and a render-time clamp that says what it dropped | `internal/tasks/bounds.go`; `TestEveryTaskFreeTextFieldIsBounded`, `TestEveryNoteFreeTextFieldIsBounded`; the clamp is `internal/daemon/goal.go`, with `TestGoalSaysWhenItDroppedCriteria` and `TestGoalClipsRatherThanOverflows` |
@@ -384,6 +386,14 @@ delta has an implementation to point at:
 | §11.5 | liveness from `pane_exited` / `pane_closed`, swept on those events and on a bounded timer, recorded in `_events` | `KindSwept` in `internal/tasks/task.go`; the timer in `internal/daemon/daemon.go`; `TestLeaseIsReleasedAfterTheClaimingPaneDies` |
 | §11.6 | the `./` command rule, popups needing an attached client, a plugin pane being `human` | `TestManifestCommandsInThePluginRootSayTheyAre`; both panes are `placement = "popup"` and nothing automated opens one, so no e2e depends on a pane appearing; `internal/project/project.go` reads `HERDR_PLUGIN_CONTEXT_JSON` and never a pane id, and `TestTheBoardOffersHumanVerbsOnly` holds the pane to human verbs |
 | §13.1 | the plugin id is the repository name and names no umbrella | `herdr-plugin.toml` `id = "herdr-tasks"`; `cmd/htask/manifest_test.go` |
+
+One gap the table does not close: §13.2 says the binary abbreviations are
+"listed in the glossary (§14)", and §14 lists none. Two are shipped and neither
+is written down there — `htask` for `tasks` here, and `hdis` for `dispatch` in
+the peer repository. §13.1 permits the abbreviation, so nothing is wrong with
+either name; the promise §13.2 makes about where to look for them is what is
+unkept. Recorded rather than fixed, because the glossary is normative content
+and this repository transcribes it rather than writing it.
 
 One observation the table does not settle: `Prompt` has no caller. It is the
 §11.4-conformant primitive and it is correct, but nothing in this plugin

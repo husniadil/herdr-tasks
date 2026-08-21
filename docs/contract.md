@@ -7,6 +7,11 @@ namespaces a server's tools under the label it wired the server in as, so a
 plugin prefix on the tool itself spends the agent's attention saying the same
 word twice.
 
+Also in 0.4.0-draft: §2.1 owes a TUI only where the plugin's concern includes
+an operator-facing view. A plugin without one names its human surface instead;
+a status verb is enough. The sentence was written when the only plugin was one
+that owns a board.
+
 Changes in 0.3.0-draft, from live testing of herdr-tasks' pane and delivery
 paths: §11.4 slash-command delivery rules (measured); §11.6 plugin-pane
 mechanics — the `./` command rule, the attached-client requirement, and the
@@ -65,8 +70,11 @@ module and the installer that composes the plugins).
 
 §2.1 Every plugin is written in Go and ships one statically linked binary named
 after the plugin's short name (§13.2). The same binary provides the daemon, the
-CLI, the MCP server, and the TUI: `<name> daemon`, `<name> mcp`,
-`<name> tui [<view>]`, and one subcommand per verb.
+CLI and the MCP server: `<name> daemon`, `<name> mcp`, and one subcommand per
+verb. A plugin whose concern includes an operator-facing view MUST also provide
+that view as `<name> tui [<view>]` in the same binary. A plugin with no such
+view MUST NOT ship an empty one; it names the human surface it does have
+instead, and a read-only status verb (`<name> status`) is enough.
 
 §2.2 The daemon is the only writer of the plugin's SQLite file. CLI and MCP
 talk to the daemon over a Unix socket at `<state_dir>/<name>.sock`. A CLI

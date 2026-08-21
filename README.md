@@ -6,8 +6,9 @@ Tasks move **todo → doing → review → done** behind a claim with a renewabl
 lease, carry evidence, and are reviewed by someone who is not the harness that
 wrote them. Notes are pre-decision ideas: agents propose, the operator decides.
 
-One statically linked Go binary, `htask`, is the daemon, the CLI and the MCP
-server. No browser, no web server, no PTYs, no second multiplexer.
+One statically linked Go binary, `htask`, is the daemon, the CLI, the MCP
+server and the board TUI — the operator-facing view a board owes (§2.1). No
+browser, no web server, no PTYs, no second multiplexer.
 
 ## Install
 
@@ -137,10 +138,11 @@ was empty all along. The detail panel says the same on its separator row.
 
 ## Driving htask from another program
 
-Everything above assumes a human at a terminal or an agent inside a Herdr pane.
-A separate program — a dispatcher, a monitor, anything that is neither — is a
-supported caller too. These are the facts it needs, which are otherwise spread
-across §3.2, §4.2 and §5.1.
+Everything above assumes a human at a terminal or an agent doing the work in a
+Herdr pane. A separate program — a dispatcher, a monitor — is a supported
+caller too, and it is not defined by being outside a pane: one that drives
+panes is usually running in one itself. These are the facts it needs, which are
+otherwise spread across §3.2, §4.2 and §5.1.
 
 **Shell out to the CLI rather than opening the socket.** `htask <verb> --json`
 is the surface with a compatibility promise: the `--json` shape and the
@@ -176,12 +178,16 @@ directory wants, and `--all-projects` opts out of scoping for one watching
 several repositories at once. `task list --ready` is the unblocked, unclaimed
 work.
 
-**Principal.** A program outside a pane has no `HERDR_PANE_ID`, so it is
-`human` (§3.2) — and `human` is exempt from recusal and is the only principal
-that may promote a note. A consumer that writes should say what it is with
-`--as plugin:<name>`. `--as agent:…` and `--as human` are refused, because
-those two are derived from the environment and never declared;
-`TestAsRefusesDerivedPrincipals` holds that.
+**Principal.** A principal is derived from the environment, so a consumer
+does not get to assume which one it will be: a program with no `HERDR_PANE_ID`
+is `human` (§3.2), and one started inside a Herdr pane inherits that pane id
+and is `agent:<pane id>` instead — which is the usual case, because a program
+that drives panes tends to be running in one. The two are not interchangeable:
+`human` is exempt from recusal and is the only principal that may promote a
+note. Rather than depend on either, a consumer says what it is with
+`--as plugin:<name>` on every call, reads as well as writes. `--as agent:…`
+and `--as human` are refused, because those two are derived from the
+environment and never declared; `TestAsRefusesDerivedPrincipals` holds that.
 
 **Watching the trail.** `htask events --json` answers the batch shape,
 `{"events":[…],"count":N}`. Adding `--follow` streams instead: one bare event
