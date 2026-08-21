@@ -149,6 +149,32 @@ func TestAsRefusesDerivedPrincipals(t *testing.T) {
 	mustCall(t, d, protocol.Request{Verb: "task.list", As: "cron:nightly"})
 }
 
+// §3.2 lets a plugin refuse `--as` for the principals it owns, and this plugin
+// owns exactly one: plugin:tasks is what the daemon itself writes with when it
+// sweeps a lease, so a caller declaring it would forge the board's own hand in
+// the event trail. Sibling plugins stay declarable — that is the §3.5 trust
+// boundary working as designed, and the dispatcher writes here as plugin:hdis
+// on every dispatch.
+func TestAsRefusesTheBoardsOwnPrincipal(t *testing.T) {
+	d := newDaemon(t, nil)
+	mustFail(t, d, protocol.Request{Verb: "task.list", As: "plugin:tasks"}, codes.Forbidden)
+	mustCall(t, d, protocol.Request{Verb: "task.list", As: "plugin:hdis"})
+}
+
+// A principal is written verbatim into the event trail and rendered into
+// single-line prose, so an id carrying whitespace or a control character is
+// refused for every declarable kind (§3.1).
+func TestAsRefusesUnprintablePrincipalIDs(t *testing.T) {
+	d := newDaemon(t, nil)
+	for _, as := range []string{
+		"plugin:x\nmalicious line",
+		"cron:daily job",
+		"trigger:\tt",
+	} {
+		mustFail(t, d, protocol.Request{Verb: "task.list", As: as}, codes.Usage)
+	}
+}
+
 // §6.6: recusal is by harness. The fake herdr gives wF:p1 claude and wF:p2
 // codex, so the same-harness reviewer is a different pane with the same model.
 func TestRecusalIsByHarnessAcrossPanes(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/config"
@@ -338,9 +339,23 @@ func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 	if req.As != "" {
 		kind, _, _ := strings.Cut(req.As, ":")
 		switch kind {
-		case "cron", "trigger":
-			return tasks.Actor{Principal: tasks.Principal(req.As)}, nil
-		case "plugin":
+		case "cron", "trigger", "plugin":
+			// plugin:tasks is the board's own hand: it is what this daemon
+			// writes with when it sweeps a lease, so a caller declaring it
+			// would forge the plugin's signature in the event trail. §3.2
+			// lets a plugin refuse the principals it owns, and this is the
+			// one it owns. Sibling plugins stay declarable (§3.5).
+			if tasks.Principal(req.As) == tasks.PrincipalPlugin {
+				return tasks.Actor{}, codes.Errorf(codes.Forbidden,
+					"--as %s is not accepted: that is this plugin's own principal (§3.2)", req.As)
+			}
+			// A principal is written verbatim into the event trail and
+			// rendered into single-line prose, so an id carrying whitespace
+			// or a control character is refused before it is recorded.
+			if strings.IndexFunc(req.As, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0 {
+				return tasks.Actor{}, codes.Errorf(codes.Usage,
+					"--as %q holds whitespace or control characters; a principal id is one printable word (§3.1)", req.As)
+			}
 			return tasks.Actor{Principal: tasks.Principal(req.As)}, nil
 		default:
 			return tasks.Actor{}, codes.Errorf(codes.Forbidden,

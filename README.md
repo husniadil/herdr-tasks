@@ -188,6 +188,9 @@ note. Rather than depend on either, a consumer says what it is with
 `--as plugin:<name>` on every call, reads as well as writes. `--as agent:…`
 and `--as human` are refused, because those two are derived from the
 environment and never declared; `TestAsRefusesDerivedPrincipals` holds that.
+So is `--as plugin:tasks`: that is the board's own hand in the trail, not a
+caller's to claim (§3.2), and so is any principal id carrying whitespace or a
+control character.
 
 **Watching the trail.** `htask events --json` answers the batch shape,
 `{"events":[…],"count":N}`. Adding `--follow` streams instead: one bare event

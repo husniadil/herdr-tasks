@@ -8,7 +8,7 @@ if [ ! -x bin/htask ]; then
   echo "tasks: bin/htask is missing; the [[build]] step did not run" >&2
   exit 1
 fi
-# Absolute path deliberately: stop.sh matches on it, and `pkill -f` sees the
-# argv this line writes, not the path the shell resolved it from.
+# Absolute path deliberately, so the daemon's argv says which binary it is when
+# an operator looks. stop.sh matches any `htask daemon`, path aside.
 nohup "$(pwd)/bin/htask" daemon >/dev/null 2>&1 &
 exit 0
