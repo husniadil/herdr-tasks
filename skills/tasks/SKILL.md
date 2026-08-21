@@ -81,9 +81,11 @@ htask task approve 12
 htask task reject 12 --feedback "no test cites the sweep path"
 ```
 
-You may not review work your own harness produced. Two panes running the same
-model are one model reading its own homework, and the plugin refuses it with
-FORBIDDEN. Ask for a different harness, or leave it for the operator.
+You may not review your own work: the pane that claimed or submitted a task,
+or any pane carrying the same agent session, is refused with FORBIDDEN
+(§6.6). A different session reviewing the same model's work is fine — two
+sessions are two reviewers. Ask a peer in another pane, or leave it for the
+operator.
 
 ## Notes: propose, do not decide
 

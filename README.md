@@ -3,7 +3,7 @@
 A task backlog and notes board for agents running on Herdr.
 
 Tasks move **todo → doing → review → done** behind a claim with a renewable
-lease, carry evidence, and are reviewed by someone who is not the harness that
+lease, carry evidence, and are reviewed by someone who is not the session that
 wrote them. Notes are pre-decision ideas: agents propose, the operator decides.
 
 One statically linked Go binary, `htask`, is the daemon, the CLI, the MCP
@@ -54,7 +54,7 @@ htask task claim 12                           # one winner
 htask task touch 12                           # renew the lease, every turn
 htask task submit 12 --report "…" --evidence "make test-full: ok" \
                      --evidence-for "1: make test-full: ok, 214 tests"
-htask task approve 12                         # not if your harness wrote it
+htask task approve 12                         # not if your session wrote it
 htask note add "the sweep releases a lease without logging why"
 htask task goal 12                            # a paste-ready /goal condition
 htask doctor
