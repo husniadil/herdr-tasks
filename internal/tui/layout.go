@@ -271,8 +271,12 @@ func frameOf(m Model, now int64) frame {
 	// come from this frame and are worked out nowhere else — a second copy of
 	// this arithmetic was once a click on a blank row opening a card nobody
 	// could see.
-	if m.View == ViewBoard && len(f.body) > 0 {
-		f.body[0] = boardHead(m, f.off, f.cards)
+	if len(f.body) > 0 {
+		if m.View == ViewBoard {
+			f.body[0] = boardHead(m, f.off, f.cards)
+		} else {
+			f.body[0] = notesHead(m, f.off, f.cards)
+		}
 	}
 	return f
 }
@@ -285,6 +289,16 @@ func boardHead(m Model, off, cards int) string {
 		head += pad(columnHead(string(c), len(m.Column(i)), off, cards, width-1), width)
 	}
 	return head
+}
+
+// notesHead is the notes view's two headings. Its panes are two lists of
+// different depths drawn on one shared offset, which is the board's problem
+// with two columns instead of four, so it is the board's answer: the same
+// columnHead, the same numbers off this frame.
+func notesHead(m Model, off, cards int) string {
+	half := m.Width / 2
+	return pad(columnHead("notes", len(m.Notes), off, cards, half-1), half) +
+		pad(columnHead("parked", len(m.Parked), off, cards, half-1), half)
 }
 
 // columnHead says how many cards a column has, and which of them are on the
@@ -737,11 +751,14 @@ func lease(t *tasks.Task, now int64) string {
 // notesLines is the notes list beside the parked gate actions.
 func notesLines(m Model) []string {
 	half := m.Width / 2
-	out := []string{pad("notes", half) + pad("parked", half)}
 	rows := len(m.Notes)
 	if len(m.Parked) > rows {
 		rows = len(m.Parked)
 	}
+	// The window has not been measured yet — its size comes from how many rows
+	// this returns — so this is the heading for a view with nothing off the
+	// screen. frameOf replaces it once the numbers exist.
+	out := []string{notesHead(m, 0, rows)}
 	if rows == 0 {
 		return append(out, emptyState(m.Project, m.NotesElsewhere, "note")...)
 	}

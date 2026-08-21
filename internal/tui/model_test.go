@@ -2477,3 +2477,105 @@ func TestViewportPositionIsOnTheDetailSeparator(t *testing.T) {
 		t.Fatalf("a panel with nothing off the screen gained chrome: %q", line)
 	}
 }
+
+// paneHead is one of the notes view's two heading halves, read at its own cell
+// offset the way colHead reads a board column.
+func paneHead(m Model, now int64, pane int) string {
+	half := m.Width / 2
+	r := []rune(screenAt(m, now, headingRow))
+	lo, hi := pane*half, (pane+1)*half
+	if lo > len(r) {
+		lo = len(r)
+	}
+	if hi > len(r) {
+		hi = len(r)
+	}
+	return strings.TrimRight(string(r[lo:hi]), " ")
+}
+
+func manyNotes(n int) []*tasks.Note {
+	out := make([]*tasks.Note, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, &tasks.Note{ID: fmt.Sprintf("N%d", i), Seq: int64(i),
+			Status: "inbox", Body: fmt.Sprintf("note %d", i)})
+	}
+	return out
+}
+
+func manyParked(n int) []store.Parked {
+	out := make([]store.Parked, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, store.Parked{ID: fmt.Sprintf("P%d", i),
+			Verb: "tasks.approve", Subject: "agent:wF:p1", State: "parked"})
+	}
+	return out
+}
+
+// The notes view scrolls on an offset shared by its two panes, exactly as the
+// board's four columns do, and its heading said nothing at all — not even how
+// many rows there were. It carries the count now, and where the window sits
+// when part of a pane is off the screen.
+func TestNotesViewportPositionIsInTheHeadings(t *testing.T) {
+	m := notesModel(t, manyNotes(40), manyParked(3))
+	m.Width, m.Height = 80, 24
+	f := frameOf(m, 0)
+	if f.cards >= 40 {
+		t.Fatalf("40 notes fit in the window, so this test proves nothing: %d rows", f.cards)
+	}
+
+	notes := paneHead(m, 0, 0)
+	if !strings.Contains(notes, "notes (40)") {
+		t.Fatalf("the notes heading does not carry its count: %q", notes)
+	}
+	if want := fmt.Sprintf("1-%d", f.cards); !strings.Contains(notes, want) {
+		t.Fatalf("the notes heading does not say which rows are drawn (want %q): %q", want, notes)
+	}
+	// The shorter pane is entirely on the screen, so it says only how many.
+	if parked := paneHead(m, 0, 1); parked != "parked (3)" {
+		t.Fatalf("a pane with nothing off the screen gained a range: %q", parked)
+	}
+
+	// Scrolled past the short pane: three exist and none is drawn, which is
+	// what tells exhausted from merely shorter.
+	at := m.setListOffset(f.listMax)
+	af := frameOf(at, 0)
+	if parked := paneHead(at, 0, 1); parked != "parked (3) none" {
+		t.Fatalf("scrolled past the parked pane, its heading reads %q", parked)
+	}
+	if want := fmt.Sprintf("%d-", af.off+1); !strings.Contains(paneHead(at, 0, 0), want) {
+		t.Fatalf("the notes range does not start at frame off+1 (%s): %q", want, paneHead(at, 0, 0))
+	}
+
+	// Nothing is cut: what columnHead built is what reached the screen.
+	budget := m.Width/2 - 1
+	for pane, want := range map[int]string{
+		0: columnHead("notes", 40, af.off, af.cards, budget),
+		1: columnHead("parked", 3, af.off, af.cards, budget),
+	} {
+		if got := paneHead(at, 0, pane); got != want {
+			t.Fatalf("pane %d: the renderer cut the heading: %q against %q", pane, got, want)
+		}
+	}
+}
+
+// A view that fits reads as a count and nothing else, and the range never
+// costs a row: it is written on a heading that was always drawn.
+func TestNotesViewportCostsNoRow(t *testing.T) {
+	small := notesModel(t, manyNotes(2), manyParked(1))
+	small.Width, small.Height = 80, 24
+	if got := paneHead(small, 0, 0); got != "notes (2)" {
+		t.Fatalf("a view that fits gained chrome: %q", got)
+	}
+	if got := paneHead(small, 0, 1); got != "parked (1)" {
+		t.Fatalf("a view that fits gained chrome: %q", got)
+	}
+
+	deep := notesModel(t, manyNotes(40), manyParked(3))
+	deep.Width, deep.Height = 80, 24
+	if !strings.Contains(paneHead(deep, 0, 0), "-") {
+		t.Fatal("the deep view has no range, so this comparison proves nothing")
+	}
+	if a, b := strings.Count(Render(small, 0), "\n"), strings.Count(Render(deep, 0), "\n"); a != b {
+		t.Fatalf("the range changed the document's height: %d lines against %d", b, a)
+	}
+}
