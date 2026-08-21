@@ -145,6 +145,7 @@ type Task struct {
 	EvidenceFor        []Citation `json:"evidence_for,omitempty"`
 	SubmittedBy        Principal  `json:"submitted_by,omitempty"`
 	SubmittedByHarness string     `json:"submitted_by_harness,omitempty"`
+	SubmittedBySession string     `json:"submitted_by_session,omitempty"`
 	SubmittedAt        int64      `json:"submitted_at,omitempty"`
 
 	Feedback   string    `json:"feedback,omitempty"`
@@ -240,7 +241,7 @@ func Claim(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 	t.ClaimedBy = by.Principal
 	t.ClaimedByName = by.Name
 	t.ClaimedByHarness = harnessOf(by)
-	t.ClaimedBySession = by.Session
+	t.ClaimedBySession = sessionOf(by)
 	t.ClaimedAt = now
 	t.LeaseUntil = now + leaseMS
 	t.EverClaimed = true
@@ -329,13 +330,14 @@ func Submit(t *Task, by Actor, report string, evidence, evidenceFor []string, no
 	// row inside the sweep's reach, so the daemon would eventually write a
 	// swept event — "the lease expired" — about work that was handed off
 	// rather than abandoned (§11.5). ClaimedBy stays, because it is the
-	// board's answer to who submitted this and §6.6 still needs a harness.
+	// board's answer to who submitted this and §6.6 still needs a session.
 	t.LeaseUntil = 0
 	t.Report = report
 	t.Evidence = evidence
 	t.EvidenceFor = cites
 	t.SubmittedBy = by.Principal
 	t.SubmittedByHarness = harnessOf(by)
+	t.SubmittedBySession = sessionOf(by)
 	t.SubmittedAt = now
 	t.Feedback = ""
 	t.UpdatedAt = now
@@ -459,27 +461,33 @@ func Reject(t *Task, by Actor, feedback string, now int64) (Event, error) {
 		Detail: map[string]any{"feedback": feedback}}, nil
 }
 
-// CheckRecusal enforces §6.6: a principal does not review work produced by its
-// own harness. The human is exempt.
+// CheckRecusal enforces §6.6: a principal does not review work produced by
+// itself, by its own pane, or by its own agent session. The human is exempt.
+// The harness does not recuse — two panes running the same model in different
+// sessions are two reviewers, which is the 0.6.0 amendment.
 func CheckRecusal(t *Task, by Actor) error {
 	if by.IsHuman() {
 		return nil
 	}
-	// Harness first, principal second. A harness Herdr could not resolve is
-	// recorded as "unknown" (§3.4), and two unknowns are not equal to a
-	// different known harness — so the harness check alone would let a pane
-	// that submitted during a Herdr blip approve its own work once Herdr was
-	// answering again. The principal check closes that without weakening §6.6.
+	// The principal is the pane: an agent principal is "agent:<pane_id>"
+	// (§3.2), so this one comparison covers both self-review and same-pane
+	// review.
 	if by.Principal != "" && (by.Principal == t.SubmittedBy || by.Principal == t.ClaimedBy) {
 		return codes.New(codes.Forbidden, "a principal may not review its own submission")
 	}
-	producer := t.SubmittedByHarness
+	// The session catches the resume case: a different pane carrying the same
+	// agent_session is the same conversation. A session Herdr could not
+	// resolve is "unknown" (§3.4), and unknown matches unknown on purpose —
+	// a pane that claimed during a Herdr blip and resumed elsewhere would
+	// otherwise approve its own work. Declared principals have no session at
+	// all (sessionOf returns ""), so they never match an unresolved one.
+	producer := t.SubmittedBySession
 	if producer == "" {
-		producer = t.ClaimedByHarness
+		producer = t.ClaimedBySession
 	}
-	if producer != "" && producer == harnessOf(by) {
+	if mine := sessionOf(by); mine != "" && producer == mine {
 		return codes.Errorf(codes.Forbidden,
-			"recusal (§6.6): %s may not review work produced by the same harness", producer)
+			"recusal (§6.6): %s may not review work produced by the same agent session", by.Principal)
 	}
 	return nil
 }
@@ -615,6 +623,22 @@ func CheckCycle(taskID string, deps []string, edges map[string][]string) error {
 		stack = append(stack, edges[cur]...)
 	}
 	return nil
+}
+
+// sessionOf is §3.4's "store unknown rather than guess" for the fact §6.6 now
+// turns on. Only an agent principal has an agent_session: a human and a
+// declared principal (cron, trigger, plugin) have no pane and no session, and
+// get "" so that CheckRecusal never compares them against an unresolved one.
+// An agent whose session Herdr could not report is "unknown", and unknown
+// matches unknown, which recuses.
+func sessionOf(a Actor) string {
+	if a.Principal.Kind() != "agent" {
+		return ""
+	}
+	if a.Session == "" {
+		return "unknown"
+	}
+	return a.Session
 }
 
 // harnessOf is §3.4's "store unknown rather than guess": an agent principal

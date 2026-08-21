@@ -1,6 +1,12 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.5.0. Date: 2026-08-21.
+Status: binding. Version: 0.6.0. Date: 2026-08-21.
+
+Changes in 0.6.0: §6.6 recuses by principal and by agent session, not by
+harness. Two panes running the same model in different sessions are two
+reviewers; the old rule made them one, and an operator who wanted one to
+review the other had to have it act as `human`, which recorded a delegated
+approval indistinguishably from the operator acting in person. §3.3 follows.
 
 Changes in 0.5.0: §5.1 and §10.1 stop resolving `state_dir` and `config_dir`
 from `HERDR_PLUGIN_STATE_DIR` / `HERDR_PLUGIN_CONFIG_DIR`, and forbid it.
@@ -124,7 +130,7 @@ plugin MAY refuse `--as` for principals it does not own.
 §3.3 Child processes inherit `HERDR_PANE_ID`. A subagent, a shell, or a second
 `claude` spawned from inside a pane is the same principal as the pane. This is
 the Herdr model (one pane, one seat) and is a feature: recusal (§6.6) is
-decided per harness, not per process.
+decided per pane and per agent session, not per process.
 
 §3.4 An `agent` principal carries three facts that a plugin MUST snapshot at
 the moment they matter (claim, submit, review, send) by calling
@@ -258,9 +264,17 @@ default.
 gate command) is a result, reported in the JSON, not the plugin's own failure.
 
 §6.6 Recusal, where a plugin has review semantics: a principal MUST NOT review
-work produced by the same `harness` as its own (§3.4). `human` is exempt. The
-check is by harness, not by pane or session, because two panes of the same
-model are one model reading its own homework.
+work produced by its own principal, by the same pane, or by the same
+`agent_session` (§3.4). `human` is exempt. The check is NOT by harness: two
+panes running the same model in different sessions are two reviewers, and an
+operator who mandates one to review the other's work is entitled to a ledger
+that records the reviewer under its own principal rather than under `human`.
+
+An `agent_session` the plugin could not resolve is stored as unknown (§3.4),
+and unknown matches unknown: a pane that claimed during a Herdr blip and
+resumed elsewhere does not approve its own work. A declared principal (`cron`,
+`trigger`, `plugin`, §3.2) has no pane and no session, so it recuses on its
+own principal alone and never against an unresolved agent session.
 
 ## §7 MCP
 
@@ -475,7 +489,8 @@ MUST be one of these or a plugin-local noun that does not collide with them.
 - **evidence** — what a submitter attaches to prove a task is done.
 - **review / verdict** — approve or reject on submitted work; reject carries
   feedback.
-- **recusal** — the rule that a harness does not review its own work.
+- **recusal** — the rule that a principal does not review its own work, nor
+  work from its own pane or agent session.
 - **goal** — a paste-ready `/goal` condition derived from a task (§16).
 - **formula** — a template that instantiates several tasks with dependencies.
 - **dispatch** — starting an agent in a pane with an argv and a prompt.

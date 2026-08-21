@@ -426,7 +426,7 @@ func TestNoteQueryReachesBothDoors(t *testing.T) {
 // refuse identically — same code, same words. The three verbs whose principal
 // rule this change tightened (note.delete, task.cancel, sweep --pane) are
 // CLI-only, so the property is pinned here on a verb that IS on both doors:
-// §6.6 recusal, where the same harness may not review its own submission.
+// §6.6 recusal, where a principal may not review its own submission.
 func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	d, call := inProcessDaemon(t)
@@ -437,7 +437,7 @@ func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	_ = d
 	project := canonProject(t, "/tmp/p")
 	if _, err := call(protocol.Request{Verb: "task.create", Project: project,
-		Args: map[string]any{"title": "reviewed by its own harness"}}); err != nil {
+		Args: map[string]any{"title": "reviewed by its own submitter"}}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
 	for _, req := range []protocol.Request{

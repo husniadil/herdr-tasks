@@ -1455,3 +1455,59 @@ func TestReleaseByPaneCannotReachASubmittedTask(t *testing.T) {
 		t.Fatalf("the submitted task moved: status=%q claimed_by=%q", got.Status, got.ClaimedBy)
 	}
 }
+
+// §5.2 with §6.6 (0.6.0): migration 5 adds submitted_by_session beside the
+// harness. A store written before it holds submitted rows with no session at
+// all, and those rows must read back exactly as they did, with an empty
+// session rather than a guessed one.
+func TestMigrationAddsSubmittedSessionAndKeepsOldRowsReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	for i := 0; i < 4; i++ { // migrations 1..4: schema version 4, which has no session column
+		if migrations[i].SQL == "" {
+			continue
+		}
+		if _, err := db.Exec(migrations[i].SQL); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO meta (schema_version, created_at) VALUES (4, 1)"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO tasks
+		(id, seq, project, title, status, priority, created_by, created_at, updated_at,
+		 claimed_by, claimed_by_harness, claimed_by_session, ever_claimed,
+		 report, submitted_by, submitted_by_harness, submitted_at)
+		VALUES ('01ARZ3NDEKTSV4RRFFQ69G5FAV', 1, '/p', 'old work', 'review', 0, 'human', 1, 2,
+		        'agent:wF:p1', 'claude', 'sess-old', 1, 'done', 'agent:wF:p1', 'claude', 3)`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (which migrates): %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.GetTask("/p", "1")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Title != "old work" || got.Report != "done" || got.SubmittedByHarness != "claude" {
+		t.Fatalf("the pre-migration row did not survive: %+v", got)
+	}
+	if got.SubmittedBySession != "" {
+		t.Fatalf("submitted_by_session = %q, want empty: the old row never had one", got.SubmittedBySession)
+	}
+	// And the column is writable now, on the same file.
+	if _, err := s.db.Exec("UPDATE tasks SET submitted_by_session = 'sess-new' WHERE seq = 1"); err != nil {
+		t.Fatalf("write the new column: %v", err)
+	}
+	if got, err = s.GetTask("/p", "1"); err != nil || got.SubmittedBySession != "sess-new" {
+		t.Fatalf("read back = %+v, %v", got, err)
+	}
+}

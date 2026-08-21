@@ -365,7 +365,7 @@ the ones this repository's own rules force — the umbrella project's name and
 the tools it replaces are not named (§13.1), and the revision tag reads "this
 revision" where the source wrote a version token.
 
-The vendored document states Version 0.5.0, and `ContractVersion` in
+The vendored document states Version 0.6.0, and `ContractVersion` in
 `internal/daemon/daemon.go` says the same. `htask version`, `htask doctor` and
 the README all read that one constant, and
 `TestTheDeclaredRevisionIsTheVendoredOne` fails when the constant, the README
@@ -394,6 +394,7 @@ here is the half of the rule this plugin answers:
 | §8.4 spelling | Herdr event names spelled as its schema prints them | `internal/herdrclient/client.go:173` matches either spelling, which is right for a document whose halves disagree; the manifest takes dots because Herdr validates it against dots — the entry above records which is which |
 | §8.4 reaction | `[[events]]` is usable; a reaction self-filters, is idempotent, and complements the sweep | `herdr-plugin.toml` declares `pane.closed` and `pane.exited`; `scripts/on-pane-gone.sh` sweeps by pane, which is both by construction; `TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` drives it against a real Herdr |
 | §11.2 | the schema document's shape, and the flat form too | `internal/herdrclient/client.go` reads `schemas.request.oneOf[].properties.method` and `schemas.event.$defs.EventKind`, and the flat `{requests, events}` form; the protocol number is read for `doctor` and never pinned; `TestSchemaListsCapabilities` |
+| §6.6 (0.6.0) | recusal is by principal and by agent session; the harness no longer recuses, and an unresolved session matches an unresolved session | `CheckRecusal` in `internal/tasks/task.go` compares the principal (which is the pane, §3.2) and then `sessionOf`; migration 5 in `internal/store/schema.go` adds `submitted_by_session` beside the harness. `TestApproveAllowsTheSameHarnessInADifferentSession` is the incident the amendment came from, with `TestApproveRecusesTheSamePane`, `TestApproveRecusesTheSameSessionInADifferentPane`, `TestApproveRecusesWhenBothSessionsAreUnknown`, `TestDeclaredPrincipalReviewsAcrossAnUnknownSession` and `TestRecusalIsBySessionNotByHarness` on the daemon door |
 | §11.4 (0.5.0) | delivery by `agent prompt` is best-effort with no receipt, and a plugin that delivers by prompt keeps an authoritative store the recipient can read having never seen the prompt | vacuously satisfied here: nothing in this plugin delivers text to an agent, and the board IS an authoritative store a claimant reads by `htask task get` without any prompt ever arriving |
 | §11.4 | delivery through `herdr agent prompt`, no type-verify-retype loop | `internal/herdrclient/client.go` `Prompt`. The slash-command paragraph binds a plugin that starts an agent under one; this plugin does not — `task goal` prints a paste-ready condition for a human (§16.2), which is the branch that paragraph ends on |
 | §11.5 | liveness from `pane_exited` / `pane_closed`, swept on those events and on a bounded timer, recorded in `_events` | `KindSwept` in `internal/tasks/task.go`; the timer in `internal/daemon/daemon.go`; `TestLeaseIsReleasedAfterTheClaimingPaneDies` |

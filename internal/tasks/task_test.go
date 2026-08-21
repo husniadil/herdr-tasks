@@ -18,6 +18,13 @@ func agent(pane, harness string) Actor {
 	return Actor{Principal: Principal("agent:" + pane), Name: "peer-" + pane, Harness: harness, Session: "s-" + pane}
 }
 
+// agentIn names the session explicitly, for the cases §6.6 now turns on.
+func agentIn(pane, harness, session string) Actor {
+	a := agent(pane, harness)
+	a.Session = session
+	return a
+}
+
 var human = Actor{Principal: PrincipalHuman}
 
 func newTask() *Task {
@@ -212,12 +219,70 @@ func TestApproveCompletesTask(t *testing.T) {
 	}
 }
 
-// §6.6: recusal is by harness, not by pane or session.
-func TestApproveRecusesSameHarness(t *testing.T) {
+// §6.6 (0.6.0), the incident this rule was rewritten for: an agent on the same
+// harness, in a different pane and a different session, reviews the work — and
+// is recorded under its own principal instead of borrowing the operator's.
+func TestApproveAllowsTheSameHarnessInADifferentSession(t *testing.T) {
 	task := submitted(t)
-	err := mustErr(Approve(task, agent("wF:p7", "claude"), t0+20))
+	reviewer := agent("wF:p7", "claude")
+	if _, err := Approve(task, reviewer, t0+20); err != nil {
+		t.Fatalf("same harness, different session: %v", err)
+	}
+	if task.ReviewedBy != reviewer.Principal {
+		t.Fatalf("reviewed_by = %q, want %q", task.ReviewedBy, reviewer.Principal)
+	}
+}
+
+// §6.6: the same pane is the same principal, and never reviews itself.
+func TestApproveRecusesTheSamePane(t *testing.T) {
+	task := submitted(t)
+	if got := codeOf(t, mustErr(Approve(task, agent("wF:p1", "claude"), t0+20))); got != codes.Forbidden {
+		t.Fatalf("code = %q, want FORBIDDEN", got)
+	}
+}
+
+// §6.6: the resume case. A different pane carrying the SAME agent_session is
+// the same conversation, so it is still the work's own author.
+func TestApproveRecusesTheSameSessionInADifferentPane(t *testing.T) {
+	task := newTask()
+	a := agentIn("wF:p1", "claude", "sess-7")
+	mustClaim(t, task, a)
+	mustSubmit(t, task, a)
+	resumed := agentIn("wF:p9", "claude", "sess-7")
+	err := mustErr(Approve(task, resumed, t0+20))
 	if got := codeOf(t, err); got != codes.Forbidden {
 		t.Fatalf("code = %q, want FORBIDDEN", got)
+	}
+	if !strings.Contains(err.Error(), "session") {
+		t.Fatalf("the refusal does not say what matched: %v", err)
+	}
+}
+
+// §6.6: the blip case, and the reason unknown matches unknown. A pane that
+// claimed while Herdr could not answer must not approve its own work later.
+func TestApproveRecusesWhenBothSessionsAreUnknown(t *testing.T) {
+	task := newTask()
+	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: "claude"}
+	mustClaim(t, task, blind)
+	mustSubmit(t, task, blind)
+	if task.SubmittedBySession != "unknown" {
+		t.Fatalf("precondition: submitted_by_session = %q", task.SubmittedBySession)
+	}
+	other := Actor{Principal: "agent:wF:p9", Name: "peer", Harness: "codex"}
+	if got := codeOf(t, mustErr(Approve(task, other, t0+20))); got != codes.Forbidden {
+		t.Fatalf("code = %q, want FORBIDDEN", got)
+	}
+}
+
+// §6.6: a declared principal has no pane and no session, so it recuses on its
+// own principal alone — an unresolved agent session is not its session.
+func TestDeclaredPrincipalReviewsAcrossAnUnknownSession(t *testing.T) {
+	task := newTask()
+	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: "claude"}
+	mustClaim(t, task, blind)
+	mustSubmit(t, task, blind)
+	if _, err := Approve(task, Actor{Principal: "cron:nightly"}, t0+20); err != nil {
+		t.Fatalf("cron approve: %v", err)
 	}
 }
 
@@ -232,8 +297,8 @@ func TestApproveByHumanAlwaysAllowed(t *testing.T) {
 // §6.6: reject is a review verdict too, and recuses identically.
 func TestRejectReturnsToDoingWithFeedback(t *testing.T) {
 	task := submitted(t)
-	if got := codeOf(t, mustErr(Reject(task, agent("wF:p8", "claude"), "no test", t0+20))); got != codes.Forbidden {
-		t.Fatalf("same-harness reject code = %q, want FORBIDDEN", got)
+	if got := codeOf(t, mustErr(Reject(task, agent("wF:p1", "claude"), "no test", t0+20))); got != codes.Forbidden {
+		t.Fatalf("self-review reject code = %q, want FORBIDDEN", got)
 	}
 	if _, err := Reject(task, agent("wF:p2", "codex"), "no test cited", t0+21); err != nil {
 		t.Fatalf("reject: %v", err)
@@ -413,9 +478,8 @@ func submitted(t *testing.T) *Task {
 
 func mustErr(_ Event, err error) error { return err }
 
-// §6.6, the hole the harness check alone leaves: a pane whose harness Herdr
-// could not resolve at submit time must still not approve its own work once
-// Herdr is answering again.
+// §6.6: a pane whose Herdr facts could not be resolved at submit time must
+// still not approve its own work once Herdr is answering again.
 func TestRecusalCatchesSelfReviewAcrossAnUnknownHarness(t *testing.T) {
 	task := newTask()
 	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: ""}
@@ -426,7 +490,7 @@ func TestRecusalCatchesSelfReviewAcrossAnUnknownHarness(t *testing.T) {
 	if task.SubmittedByHarness != "unknown" {
 		t.Fatalf("precondition: submitted_by_harness = %q", task.SubmittedByHarness)
 	}
-	// Same pane, same principal, but Herdr now names the harness.
+	// Same pane, same principal, but Herdr now names the facts.
 	seeing := agent("wF:p1", "claude")
 	if got := codeOf(t, mustErr(Approve(task, seeing, t0+20))); got != codes.Forbidden {
 		t.Fatalf("code = %q, want FORBIDDEN — this is the submitter approving itself", got)
@@ -764,15 +828,15 @@ func TestTouchRefusesOnceTheWorkIsSubmitted(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	// The lease ends; the attribution does not. The board still says who
-	// submitted this, and §6.6 still has a harness to recuse.
+	// submitted this, and §6.6 still has a session to recuse.
 	if task.LeaseUntil != 0 {
 		t.Fatalf("lease_until = %d after submit, want 0", task.LeaseUntil)
 	}
 	if task.ClaimedBy != a.Principal {
 		t.Fatalf("claimed_by = %q after submit, want %q", task.ClaimedBy, a.Principal)
 	}
-	if task.SubmittedByHarness != "claude" {
-		t.Fatalf("submitted_by_harness = %q, want claude", task.SubmittedByHarness)
+	if task.SubmittedByHarness != "claude" || task.SubmittedBySession != "s-wF:p1" {
+		t.Fatalf("submitted_by = %q/%q, want claude/s-wF:p1", task.SubmittedByHarness, task.SubmittedBySession)
 	}
 
 	err := mustErr(Touch(task, a, t0+11, lease))

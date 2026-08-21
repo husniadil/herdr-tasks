@@ -89,6 +89,15 @@ func mustFail(t *testing.T, d *Daemon, req protocol.Request, wantCode string) *p
 	return resp.Error
 }
 
+func unmarshalTask(t *testing.T, raw json.RawMessage) TaskResult {
+	t.Helper()
+	var res TaskResult
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	return res
+}
+
 func createTask(t *testing.T, d *Daemon, title string) TaskResult {
 	t.Helper()
 	raw := mustCall(t, d, protocol.Request{Verb: "task.create", Args: map[string]any{"title": title}})
@@ -175,19 +184,28 @@ func TestAsRefusesUnprintablePrincipalIDs(t *testing.T) {
 	}
 }
 
-// §6.6: recusal is by harness. The fake herdr gives wF:p1 claude and wF:p2
-// codex, so the same-harness reviewer is a different pane with the same model.
-func TestRecusalIsByHarnessAcrossPanes(t *testing.T) {
+// §6.6 (0.6.0): recusal is by principal and by agent session, end to end. The
+// fake herdr gives every pane the harness claude except wF:p2, and a distinct
+// agent_session per pane — so wF:p9 is the incident case: same model, its own
+// session, and it reviews under its own principal.
+func TestRecusalIsBySessionNotByHarness(t *testing.T) {
 	d := newDaemon(t, nil)
 	task := createTask(t, d, "reviewed work")
 	id := task.Task.ID
 	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
-	mustCall(t, d, protocol.Request{Verb: "task.submit", PaneID: "wF:p1",
-		Args: map[string]any{"id": id, "report": "done"}})
-	// A different pane, same harness: refused.
-	mustFail(t, d, protocol.Request{Verb: "task.approve", PaneID: "wF:p9", Args: map[string]any{"id": id}}, codes.Forbidden)
-	// A different harness: allowed.
-	mustCall(t, d, protocol.Request{Verb: "task.approve", PaneID: "wF:p2", Args: map[string]any{"id": id}})
+	sub := unmarshalTask(t, mustCall(t, d, protocol.Request{Verb: "task.submit", PaneID: "wF:p1",
+		Args: map[string]any{"id": id, "report": "done"}}))
+	if sub.Task.SubmittedBySession != "sess-wF:p1" {
+		t.Fatalf("submitted_by_session = %q: §3.4 snapshots it at submit", sub.Task.SubmittedBySession)
+	}
+	// The submitting pane itself: refused.
+	mustFail(t, d, protocol.Request{Verb: "task.approve", PaneID: "wF:p1", Args: map[string]any{"id": id}}, codes.Forbidden)
+	// A different pane and session on the SAME harness: allowed, and recorded
+	// under its own principal rather than the operator's.
+	res := unmarshalTask(t, mustCall(t, d, protocol.Request{Verb: "task.approve", PaneID: "wF:p9", Args: map[string]any{"id": id}}))
+	if res.Task.ReviewedBy != "agent:wF:p9" {
+		t.Fatalf("reviewed_by = %q, want agent:wF:p9", res.Task.ReviewedBy)
+	}
 }
 
 // §6.3: the error vocabulary, end to end through the envelope.

@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -154,4 +154,10 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// and a row written before this migration must read back exactly as it
 	// did, which is what TestEvidenceForFlatRows holds.
 	{SQL: `ALTER TABLE tasks ADD COLUMN evidence_for TEXT;`},
+	// 5 — the agent session that submitted the work, which §6.6 recuses on
+	// from contract revision 0.6.0. A NEW column beside submitted_by_harness,
+	// never a change to it: a row written before this migration has no
+	// session, reads back NULL, and CheckRecusal treats an absent producer
+	// session as no match rather than guessing one.
+	{SQL: `ALTER TABLE tasks ADD COLUMN submitted_by_session TEXT;`},
 }

@@ -190,9 +190,9 @@ func TestJSONEnvelopeAndExitStatuses(t *testing.T) {
 	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "1", "--json"); status != codes.Exit(codes.Conflict) {
 		t.Fatalf("exit = %d, want 6 for CONFLICT", status)
 	}
-	// FORBIDDEN / 8 for recusal by harness.
+	// FORBIDDEN / 8 for recusal: the submitter reviewing its own work.
 	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "submit", "1", "--report", "done")
-	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p9"), "task", "approve", "1", "--json"); status != codes.Exit(codes.Forbidden) {
+	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "task", "approve", "1", "--json"); status != codes.Exit(codes.Forbidden) {
 		t.Fatalf("exit = %d, want 8 for FORBIDDEN (§6.6)", status)
 	}
 }

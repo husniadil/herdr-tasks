@@ -92,11 +92,11 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 		t.Fatalf("submitted_by = %v", submitted["submitted_by"])
 	}
 
-	// Recusal (§6.6) is by harness, and the operator is exempt: the same
-	// approve from the claiming pane must be refused, and from a terminal must
-	// go through.
+	// Recusal (§6.6) is by principal and by agent session, and the operator is
+	// exempt: the same approve from the claiming pane must be refused, and
+	// from a terminal must go through.
 	if _, err := w.htInPane(pane, "task", "approve", id); err == nil {
-		t.Fatal("the claiming harness approved its own work (§6.6)")
+		t.Fatal("the claiming pane approved its own work (§6.6)")
 	} else if !strings.Contains(err.Error(), "FORBIDDEN") {
 		t.Fatalf("self-review was refused with %v, want FORBIDDEN (§6.3)", err)
 	}
