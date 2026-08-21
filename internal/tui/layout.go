@@ -243,7 +243,8 @@ func frameOf(m Model, now int64) frame {
 		f.detailMax = max(0, len(full)-shown)
 		f.detailOff = clampTo(m.DetailOffset, f.detailMax)
 		if shown > 0 {
-			f.detail = append([]string{""}, windowOf(full, f.detailOff, shown)...)
+			f.detail = append([]string{detailHead(f.detailOff, shown, f.detailMax, m.Width)},
+				windowOf(full, f.detailOff, shown)...)
 		}
 	}
 
@@ -263,7 +264,77 @@ func frameOf(m Model, now int64) frame {
 	if f.cards < 0 {
 		f.cards = 0
 	}
+	// The heading is row 0 of the body, and it is written twice on purpose:
+	// bodyLines builds it before the window exists, because the window's size
+	// is worked out from how many rows the body HAS. Once it does exist the
+	// row is replaced with one that says where the window sits. The numbers
+	// come from this frame and are worked out nowhere else — a second copy of
+	// this arithmetic was once a click on a blank row opening a card nobody
+	// could see.
+	if m.View == ViewBoard && len(f.body) > 0 {
+		f.body[0] = boardHead(m, f.off, f.cards)
+	}
 	return f
+}
+
+// boardHead is the column headings for the window the frame drew.
+func boardHead(m Model, off, cards int) string {
+	width := m.Width / len(Columns)
+	head := ""
+	for i, c := range Columns {
+		head += pad(columnHead(string(c), len(m.Column(i)), off, cards, width-1), width)
+	}
+	return head
+}
+
+// columnHead says how many cards a column has, and which of them are on the
+// screen when some of them are not. The count clause is exactly what it has
+// always been, so a column with nothing off the screen prints what it printed
+// before and the range is only ever added to it.
+//
+// The board has ONE offset across four columns of different depths, so a
+// window that is full of one column's cards can be past the end of another's.
+// "none" is that case said out loud: it is what tells a column the operator
+// has scrolled past from a column that has run out.
+//
+// budget is what pad() will let through. A heading wider than that is cut
+// mid-number by the renderer, so the range is dropped rather than shown in
+// half — the count is the half that is always true.
+func columnHead(name string, total, off, cards, budget int) string {
+	plain := fmt.Sprintf("%s (%d)", name, total)
+	if total == 0 || (off == 0 && total <= cards) {
+		return plain
+	}
+	shown := cards
+	if off >= total {
+		shown = 0
+	} else if off+cards > total {
+		shown = total - off
+	}
+	long := plain + " none"
+	if shown > 0 {
+		long = fmt.Sprintf("%s %d-%d", plain, off+1, off+shown)
+	}
+	if cells(long) > budget {
+		return plain
+	}
+	return long
+}
+
+// detailHead is the panel's separator row, which was blank. It is the one row
+// the panel already spends on itself, so the position goes there and the text
+// keeps every row it had. Blank while the whole panel is on the screen: a
+// position nobody can be lost in is noise.
+func detailHead(off, shown, max, width int) string {
+	if max == 0 {
+		return ""
+	}
+	total := max + shown
+	last := off + shown
+	if last > total {
+		last = total
+	}
+	return clampWidth(fmt.Sprintf("  lines %d-%d of %d", off+1, last, total), width)
 }
 
 // freeRows is what the header and the fixed bottom leave for everything else.

@@ -2278,3 +2278,202 @@ func TestReviewAgeIsOnTheCardAndInTheDetail(t *testing.T) {
 		t.Fatalf("the detail panel does not say how long it has waited:\n%s", d)
 	}
 }
+
+// colHead is one column's slice of the board's heading row, which is row 1 of
+// the screen. The columns are padded to a fixed cell width and laid side by
+// side, so a column is read at its own offset rather than by searching the
+// line.
+func colHead(m Model, now int64, col int) string {
+	w := m.Width / len(Columns)
+	r := []rune(screenAt(m, now, headingRow))
+	lo, hi := col*w, (col+1)*w
+	if lo > len(r) {
+		lo = len(r)
+	}
+	if hi > len(r) {
+		hi = len(r)
+	}
+	return strings.TrimRight(string(r[lo:hi]), " ")
+}
+
+func screenAt(m Model, now int64, row int) string {
+	lines := strings.Split(Render(m, now), "\n")
+	if row >= len(lines) {
+		return ""
+	}
+	return lines[row]
+}
+
+func deepColumn(n int, status tasks.Status, prefix string) []*tasks.Task {
+	out := make([]*tasks.Task, 0, n)
+	for i := 1; i <= n; i++ {
+		out = append(out, task(int64(i), status, fmt.Sprintf("%s%d", prefix, i)))
+	}
+	return out
+}
+
+// §11.6: the panels scroll, and until now nothing said how much was off the
+// screen or where the window sat. The heading is the chrome that is already
+// there — it survives clamping, it already carries the count, and click()
+// already ignores it — so the position goes in it and costs no row and no
+// column.
+func TestViewportPositionIsInTheColumnHeadings(t *testing.T) {
+	all := append(deepColumn(40, tasks.StatusTodo, "t"), deepColumn(3, tasks.StatusDone, "d")...)
+	m := board(t, all...)
+	m.Width, m.Height = 80, 24
+	f := frameOf(m, 0)
+
+	todo := colHead(m, 0, 0)
+	// The count clause is untouched, so what a board that fits prints today
+	// is a prefix of what a deep one prints now.
+	if !strings.Contains(todo, "todo (40)") {
+		t.Fatalf("the heading no longer reports the true total: %q", todo)
+	}
+	want := fmt.Sprintf("1-%d", f.cards)
+	if !strings.Contains(todo, want) {
+		t.Fatalf("the todo heading does not say which cards are drawn (want %q): %q", want, todo)
+	}
+	// The range is the cards ACTUALLY drawn, not the window's capacity.
+	if n := strings.Count(Render(m, 0), "\nt1 ") + strings.Count(Render(m, 0), " t1 "); n == 0 {
+		t.Fatalf("card t1 is not on the screen, so the range starting at 1 is a lie")
+	}
+	if strings.Contains(Render(m, 0), fmt.Sprintf("t%d ", f.cards+1)) {
+		t.Fatalf("card t%d was drawn, so the range must not end at %d", f.cards+1, f.cards)
+	}
+
+	// A column that fits entirely reads exactly as it does today.
+	if done := colHead(m, 0, 3); done != "done (3)" {
+		t.Fatalf("a column with nothing off the screen gained chrome: %q", done)
+	}
+
+	// Scrolled past a short column, the heading says so: three cards exist and
+	// none of them is on the screen, which is what tells exhausted from merely
+	// shorter.
+	m = m.setListOffset(f.listMax)
+	if done := colHead(m, 0, 3); done == "done (3)" {
+		t.Fatalf("scrolled past the done column, its heading still reads as if it were visible: %q", done)
+	}
+	if done := colHead(m, 0, 3); !strings.Contains(done, "(3)") {
+		t.Fatalf("the heading lost the true total while scrolled past it: %q", done)
+	}
+}
+
+// pad() gives a column its width minus one cell of gap and truncates anything
+// longer, so a heading that does not fit is a heading the operator reads half
+// of. It is measured in cells, the same way the renderer measures it.
+func TestViewportPositionNeverOverflowsItsColumn(t *testing.T) {
+	all := append(deepColumn(40, tasks.StatusTodo, "t"), deepColumn(40, tasks.StatusReview, "r")...)
+	for _, width := range []int{60, 80, 120} {
+		m := board(t, all...)
+		m.Width, m.Height = width, 24
+		budget := width/len(Columns) - 1
+		for _, off := range []int{0, 5, frameOf(m, 0).listMax} {
+			at := m.setListOffset(off)
+			f := frameOf(at, 0)
+			for i, c := range Columns {
+				// What the heading is BEFORE pad() sees it. Measuring the
+				// drawn row instead would measure pad()'s own truncation and
+				// pass whatever it was given.
+				built := columnHead(string(c), len(at.Column(i)), f.off, f.cards, budget)
+				if cells(built) > budget {
+					t.Fatalf("w=%d off=%d %s: heading is %d cells against a budget of %d: %q",
+						width, off, c, cells(built), budget, built)
+				}
+				// And what reached the screen is that, whole: a heading pad()
+				// had to cut is a number the operator reads half of.
+				if drawn := colHead(at, 0, i); drawn != built {
+					t.Fatalf("w=%d off=%d %s: the renderer cut the heading: %q against %q",
+						width, off, c, drawn, built)
+				}
+			}
+		}
+	}
+}
+
+// frame is the single source of the layout arithmetic (a second copy of it was
+// once a click on a blank row opening a card nobody could see). The heading
+// reads frame's offset; it does not work it out again.
+func TestViewportPositionTracksTheFrameOffset(t *testing.T) {
+	all := deepColumn(40, tasks.StatusTodo, "t")
+	m := board(t, all...)
+	m.Width, m.Height = 80, 24
+
+	check := func(what string, m Model) {
+		t.Helper()
+		f := frameOf(m, 0)
+		head := colHead(m, 0, 0)
+		want := fmt.Sprintf("%d-", f.off+1)
+		if f.cards == 0 {
+			return
+		}
+		if !strings.Contains(head, want) {
+			t.Fatalf("%s: heading %q does not start at frame off+1 (%s)", what, head, want)
+		}
+	}
+	check("at rest", m)
+
+	// The wheel, over the body.
+	wheeled := m
+	for i := 0; i < 4; i++ {
+		wheeled, _ = Update(wheeled, WheelMsg{X: 2, Y: 3, At: 0})
+	}
+	if frameOf(wheeled, 0).off == 0 {
+		t.Fatal("the wheel did not move the body")
+	}
+	check("after the wheel", wheeled)
+
+	// Cursor-follow, which drives the same offset from the keyboard.
+	walked := m
+	for i := 0; i < 30; i++ {
+		walked, _ = Update(walked, KeyMsg{Key: "down"})
+	}
+	if frameOf(walked, 0).off == 0 {
+		t.Fatal("walking the cursor past the window did not move the body")
+	}
+	check("after cursor-follow", walked)
+}
+
+// The detail panel's first row is a blank separator that carried nothing. It
+// carries the panel's position now, so the panel gains no row for it.
+func TestViewportPositionIsOnTheDetailSeparator(t *testing.T) {
+	long := task(1, tasks.StatusReview, "a long report")
+	long.Report = strings.TrimSpace(strings.Repeat("a line of the report that the panel has to scroll through\n", 60))
+	m := board(t, long)
+	m.Width, m.Height = 80, 24
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	if !m.Detail {
+		t.Fatal("enter did not open the detail panel")
+	}
+	f := frameOf(m, 0)
+	if f.detailMax == 0 {
+		t.Fatalf("the detail fits, so this test proves nothing: %d rows", len(f.detail))
+	}
+
+	sep := 1 + len(f.body) + len(f.prompt)
+	row := screenAt(m, 0, sep)
+	shown := len(f.detail) - 1
+	total := f.detailMax + shown
+	for _, want := range []string{fmt.Sprintf("%d", f.detailOff+1), fmt.Sprintf("%d", f.detailOff+shown), fmt.Sprintf("%d", total)} {
+		if !strings.Contains(row, want) {
+			t.Fatalf("the separator row does not carry %s of the panel's position: %q", want, row)
+		}
+	}
+
+	// The row was already there, so the document is exactly as tall as it was
+	// with the row blank.
+	was := strings.Count(Render(m, 0), "\n")
+	short := board(t, task(1, tasks.StatusReview, "a short one"))
+	short.Width, short.Height = 80, 24
+	short, _ = Update(short, KeyMsg{Key: "enter"})
+	if got := strings.Count(Render(short, 0), "\n"); got != was {
+		t.Fatalf("the indicator changed the document's height: %d lines against %d", got, was)
+	}
+	// And a panel with nothing off the screen keeps the row blank.
+	sf := frameOf(short, 0)
+	if sf.detailMax != 0 {
+		t.Fatalf("the short detail scrolls after all: max %d", sf.detailMax)
+	}
+	if line := screenAt(short, 0, 1+len(sf.body)+len(sf.prompt)); strings.TrimSpace(line) != "" {
+		t.Fatalf("a panel with nothing off the screen gained chrome: %q", line)
+	}
+}
