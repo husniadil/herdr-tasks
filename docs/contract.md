@@ -458,6 +458,8 @@ Binary abbreviations (§13.2), the names a developer types:
 
 - **htask** — the binary of the `tasks` plugin.
 - **hdis** — the binary of the `dispatch` plugin.
+- **hmail** — the binary of the `mail` plugin. `mail` itself is a common Unix
+  command, which §13.1 forbids as a binary name.
 
 Forbidden in APIs and schemas: `sidebar`, `card`, `row`, `widget`, `seat`,
 `instance`, `session` (except Herdr's own `agent_session`).
