@@ -31,7 +31,8 @@ storage rules, MCP naming, events, the policy gate, and the testing layers.
 Tests cite the contract section they enforce (`// §5.6`) in a name or comment.
 If implementation shows a contract rule is wrong or unimplementable as written,
 do not silently diverge: record the gap in `docs/contract-notes.md` and follow
-the contract until it is amended upstream.
+the contract until `docs/contract.md` is amended, with the § it changes cited
+in the amendment the same way a test cites the § it enforces.
 
 ## Non-negotiables
 

@@ -35,7 +35,7 @@ const Version = "0.1.0"
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in
 // `doctor` output, which is what a reader compares a binary against.
-const ContractVersion = "0.1.0-draft"
+const ContractVersion = "0.3.0-draft"
 
 // Daemon holds everything a verb needs to answer.
 type Daemon struct {

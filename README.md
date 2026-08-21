@@ -137,25 +137,33 @@ was empty all along. The detail panel says the same on its separator row.
 
 ## The shared plugin contract
 
-This plugin conforms to the **shared plugin contract**, revision 0.1.0-draft,
+This plugin conforms to the **shared plugin contract**, revision 0.3.0-draft,
 which §13.4 requires it to declare here and in `doctor` output — `htask version`
 and `htask doctor` both print it. The contract is vendored at
 [`docs/contract.md`](docs/contract.md), so every § this repository cites
-resolves inside it; `TestContractCitationsResolve` fails on one that does not.
-The vendored copy is revision 0.3.0-draft, two revisions ahead of what this
-plugin declares — see [`docs/contract-notes.md`](docs/contract-notes.md).
-Where implementation found
-the contract underspecified, the gap is recorded in
-[`docs/contract-notes.md`](docs/contract-notes.md) rather than silently worked
-around.
+resolves inside it; `TestContractCitationsResolve` fails on one that does not,
+and `TestTheDeclaredRevisionIsTheVendoredOne` fails when this sentence and that
+document name different revisions. Each change the contract's own changelog
+lists is checked against the code that answers it, and the checks are written
+down in [`docs/contract-notes.md`](docs/contract-notes.md). Where implementation
+finds the contract underspecified, the gap is recorded there too rather than
+silently worked around.
 
 Deviations worth naming up front:
 
 - **§6.1 / §7.3** — every verb is a CLI subcommand; a pinned subset of 15 is
   also an MCP tool. Both doors are generated from one registry, and a parity
   test fails on any drift between them. See the contract note.
-- **§8.4** — no manifest `[[events]]` reaction. Leases are freed by the §11.5
-  timer, by the reconciliation sweep at daemon start, and by `htask sweep`.
+- **§8.4** — the manifest reacts to `pane.closed` and `pane.exited`, both
+  running `scripts/on-pane-gone.sh`, which sweeps the leases of the pane the
+  event names. It self-filters by construction rather than by a check:
+  `htask sweep --pane <id>` releases what that one pane holds, which is nothing
+  for a pane holding none and nothing again on a second firing. The reaction
+  complements the other two paths and replaces neither, because a hook is
+  missed while the daemon or Herdr is down — leases are still freed by the
+  §11.5 timer, by the reconciliation sweep at daemon start, and by
+  `htask sweep`. Herdr's manifest spells these hook names with dots while its
+  event schema spells them with underscores; see the contract note.
 
 ## Trust boundary
 

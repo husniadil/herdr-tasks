@@ -2,8 +2,10 @@
 
 Gaps found while implementing the shared plugin contract. The rule is in
 `CLAUDE.md`: where implementation shows a contract rule is wrong or
-unimplementable as written, record it here and follow the contract until it is
-amended upstream. Nothing here is a licence to diverge quietly.
+unimplementable as written, record it here and follow the contract until
+`docs/contract.md` is amended. The contract is in this repository, so an
+amendment is a change to that file, citing the § it changes and bumping the
+revision its Status line states. Nothing here is a licence to diverge quietly.
 
 ## §5.1 / §10.1 — the store is resolved without Herdr's injected dirs
 
@@ -250,7 +252,7 @@ resolves to. That key collides across every submodule of one superproject and
 is reachable from neither the submodule nor the superproject, so it is not one
 anything could have relied on.
 
-Suggested amendment upstream: define `project` as the working tree of the
+Suggested amendment to §4.1: define `project` as the working tree of the
 repository containing the directory — `--show-toplevel` — with the common dir
 consulted only to make linked worktrees resolve to the main working tree.
 
@@ -350,24 +352,40 @@ direction, and because a single constant is the natural way to write this: a
 plugin whose short name and plugin id happen to match cannot tell the two
 apart.
 
-## §13.3 — the vendored contract is two revisions ahead of the declared one
+## §13.3 — what the declared revision is checked against
 
-`docs/contract.md` is the contract itself, brought into this repository so a
-reader who has only this repository can resolve the 63 distinct `§` citations
-its code and docs make. It is a transcription: normative content is unchanged,
-and the only edits are the ones this repository's own rules force — the
-umbrella project's name and the tools it replaces are not named (§13.1), and
-the revision tag reads "this revision" where the source wrote a version token.
+`docs/contract.md` is the contract itself, in this repository so a reader who
+has only this repository can resolve the `§` citations its code and docs make.
+It is a transcription: normative content is unchanged, and the only edits are
+the ones this repository's own rules force — the umbrella project's name and
+the tools it replaces are not named (§13.1), and the revision tag reads "this
+revision" where the source wrote a version token.
 
-The transcribed document states Version 0.3.0-draft. This plugin declares
-revision 0.1.0-draft, in the README and in `htask version` and `htask doctor`
-(§13.4). The two disagree, and the vendored file is the newer one.
+The vendored document states Version 0.3.0-draft, and `ContractVersion` in
+`internal/daemon/daemon.go` says the same. `htask version`, `htask doctor` and
+the README all read that one constant, and
+`TestTheDeclaredRevisionIsTheVendoredOne` fails when the constant, the README
+sentence and the document's own Status line stop agreeing.
 
-Nothing here reconciles them, on purpose. Moving the declared revision is a
-conformance claim: it says this plugin has been read against 0.2.0-draft and
-0.3.0-draft and still holds. The changes those revisions list — §11.4
-slash-command delivery, §11.6 plugin-pane mechanics, §8.4's rewritten event
-contract, §5.9 write-time text bounds, §6.1 reconciled with §7.3 — each need
-checking against what is built here before anyone says so. Until that is done,
-the honest state is a declared revision that is behind the vendored text, said
-out loud in both places rather than papered over by editing either number.
+Declaring a revision is a conformance claim, and no test can make it. What
+earns it is reading each change the contract's changelog lists against the code
+that answers it. Both listed revisions were derived from this plugin, so each
+delta has an implementation to point at:
+
+| § | what the revision says | what answers it |
+|---|---|---|
+| §5.5 | an events table named after its entity table, written in the same transaction | `internal/store/schema.go:82` `tasks_events`, `:113` `notes_events`, with §5.5's columns; `internal/store/tasks.go:31-51` opens the transaction, appends the event, commits |
+| §5.9 | write-time text bounds with `USAGE`, and a render-time clamp that says what it dropped | `internal/tasks/bounds.go`; `TestEveryTaskFreeTextFieldIsBounded`, `TestEveryNoteFreeTextFieldIsBounded`; the clamp is `internal/daemon/goal.go`, with `TestGoalSaysWhenItDroppedCriteria` and `TestGoalClipsRatherThanOverflows` |
+| §6.1 / §7.3 | CLI total, MCP a pinned subset of roughly 8–16, one registry, a parity test | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestMCPToolCountStaysSmall`; 15 tools today |
+| §8.4 spelling | Herdr event names spelled as its schema prints them | `internal/herdrclient/client.go:173` matches either spelling, which is right for a document whose halves disagree; the manifest takes dots because Herdr validates it against dots — the entry above records which is which |
+| §8.4 reaction | `[[events]]` is usable; a reaction self-filters, is idempotent, and complements the sweep | `herdr-plugin.toml` declares `pane.closed` and `pane.exited`; `scripts/on-pane-gone.sh` sweeps by pane, which is both by construction; `TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` drives it against a real Herdr |
+| §11.2 | the schema document's shape, and the flat form too | `internal/herdrclient/client.go` reads `schemas.request.oneOf[].properties.method` and `schemas.event.$defs.EventKind`, and the flat `{requests, events}` form; the protocol number is read for `doctor` and never pinned; `TestSchemaListsCapabilities` |
+| §11.4 | delivery through `herdr agent prompt`, no type-verify-retype loop | `internal/herdrclient/client.go` `Prompt`. The slash-command paragraph binds a plugin that starts an agent under one; this plugin does not — `task goal` prints a paste-ready condition for a human (§16.2), which is the branch that paragraph ends on |
+| §11.5 | liveness from `pane_exited` / `pane_closed`, swept on those events and on a bounded timer, recorded in `_events` | `KindSwept` in `internal/tasks/task.go`; the timer in `internal/daemon/daemon.go`; `TestLeaseIsReleasedAfterTheClaimingPaneDies` |
+| §11.6 | the `./` command rule, popups needing an attached client, a plugin pane being `human` | `TestManifestCommandsInThePluginRootSayTheyAre`; both panes are `placement = "popup"` and nothing automated opens one, so no e2e depends on a pane appearing; `internal/project/project.go` reads `HERDR_PLUGIN_CONTEXT_JSON` and never a pane id, and `TestTheBoardOffersHumanVerbsOnly` holds the pane to human verbs |
+| §13.1 | the plugin id is the repository name and names no umbrella | `herdr-plugin.toml` `id = "herdr-tasks"`; `cmd/htask/manifest_test.go` |
+
+One observation the table does not settle: `Prompt` has no caller. It is the
+§11.4-conformant primitive and it is correct, but nothing in this plugin
+delivers text to an agent today, so §11.4 is satisfied by a path that is not
+exercised outside its own package.
