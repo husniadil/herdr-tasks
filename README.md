@@ -135,6 +135,78 @@ when part of that column is off the screen, which of its rows are drawn —
 `done (3) none`, which is what tells a column you have gone by from one that
 was empty all along. The detail panel says the same on its separator row.
 
+## Driving htask from another program
+
+Everything above assumes a human at a terminal or an agent inside a Herdr pane.
+A separate program — a dispatcher, a monitor, anything that is neither — is a
+supported caller too. These are the facts it needs, which are otherwise spread
+across §3.2, §4.2 and §5.1.
+
+**Shell out to the CLI rather than opening the socket.** `htask <verb> --json`
+is the surface with a compatibility promise: the `--json` shape and the
+error-code vocabulary are semver-bound, so a shipped field is never removed or
+repurposed and only new ones are added. The socket's wire format carries no
+such promise and is free to change between builds. The daemon starts on first
+use, so a consumer does not manage its lifetime either.
+
+**Discovery.** `htask doctor --json` orients a consumer in one call:
+`socket_path` and `state_dir` say where this installation keeps itself,
+`project` and `principal` say what the call just made resolved to, and
+`contract` and `build` say which revision and binary answered.
+
+```sh
+htask doctor --json
+htask task list --ready --all-projects --json
+htask task get 12 --json
+htask task goal 12
+```
+
+**Scope.** Every verb resolves a project per call (§4.2). `--project <path>`
+sets it explicitly, which is what a consumer running from its own working
+directory wants, and `--all-projects` opts out of scoping for one watching
+several repositories at once. `task list --ready` is the unblocked, unclaimed
+work.
+
+**Principal.** A program outside a pane has no `HERDR_PANE_ID`, so it is
+`human` (§3.2) — and `human` is exempt from recusal and is the only principal
+that may promote a note. A consumer that writes should say what it is with
+`--as plugin:<name>`. `--as agent:…` and `--as human` are refused, because
+those two are derived from the environment and never declared;
+`TestAsRefusesDerivedPrincipals` holds that.
+
+**Watching the trail.** `htask events --json` answers the batch shape,
+`{"events":[…],"count":N}`. Adding `--follow` streams instead: one bare event
+object per line, no envelope around it. Both carry the same §8.1 payload and
+both are semver-bound.
+
+Without `--since`, both start at the BEGINNING. A follower is handed the whole
+trail, oldest event first, and waits for something new only once that backlog
+is drained — so a consumer that restarts without passing `--since <event id>`
+sees every event it has already handled, again. Resume from the last id
+processed.
+
+The two doors end a stream differently. At the socket the daemon sends a final
+`{"done":true}` document, which is the only thing separating a stream that
+ended on purpose from a daemon that died: otherwise both are just a closed
+connection. The CLI consumes that sentinel and reports the same fact by exiting
+0 with nothing further on stdout, while a daemon that died leaves the CLI
+exiting `UNAVAILABLE` with one error envelope as its last document.
+
+```sh
+htask events --follow --since 01K7Q0S8R4V6WZJH8M2NQ3XYZ0 --json
+htask events --follow --limit 3 --json
+```
+
+**Leases are not a consumer's to manage.** When a pane dies its claims come
+back with no help from anyone. The manifest reacts to `pane.closed` and
+`pane.exited` by running `scripts/on-pane-gone.sh`, which sweeps the leases
+that one pane holds; the §11.5 timer releases anything that lapses; and a
+reconciliation sweep runs at daemon start. An external program must not
+reimplement any of it — the daemon is the only writer (§2.2), and a second one
+racing it is exactly the bug the single-writer rule exists to prevent. Use
+`htask sweep --pane <pane id>` when something should be released now rather
+than when its lease runs out.
+
 ## The shared plugin contract
 
 This plugin conforms to the **shared plugin contract**, revision 0.3.0-draft,

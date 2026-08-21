@@ -3,10 +3,12 @@ package main_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
+	"github.com/husniadil/herdr-tasks/internal/daemon"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
@@ -200,9 +202,7 @@ var untaught = map[string]string{
 	"task.list --archived":      "a filter; the default is the one the docs describe",
 	"task.list --limit":         "a filter; the default is the one the docs describe",
 	"note.list --limit":         "a filter; the default is the one the docs describe",
-	"events --since":            "the events verb is shown as a shape, and §8.2 documents its arguments",
 	"events --entity":           "the events verb is shown as a shape, and §8.2 documents its arguments",
-	"events --limit":            "a filter; the default is the one the docs describe",
 	"task.create --description": "the docs teach create through --validation, which is the part a reader gets wrong",
 	"task.create --priority":    "an ordering hint; a task created without it is still a correct task",
 	// The skill's "Everything else" block points at a verb in one line rather
@@ -277,5 +277,92 @@ func TestDocsTeachEveryFlagOfTheVerbsTheyShow(t *testing.T) {
 		if shown[name][flag] {
 			t.Errorf("untaught still excuses %s --%s, but the docs now teach it; drop the entry", name, flag)
 		}
+	}
+}
+
+// consumerSection is README's section for a program that is not Herdr and not
+// an agent in a pane — everything from its heading to the next one.
+var consumerSection = regexp.MustCompile(`(?s)\n## Driving htask from another program\n(.*?)\n## `)
+
+// doctorFields is every json tag DoctorReport actually ships, read from the
+// struct so a renamed field fails here rather than in the consumer that had
+// been reading the old name out of this README.
+func doctorFields(t *testing.T) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	rt := reflect.TypeOf(daemon.DoctorReport{})
+	for i := 0; i < rt.NumField(); i++ {
+		tag, _, _ := strings.Cut(rt.Field(i).Tag.Get("json"), ",")
+		if tag != "" && tag != "-" {
+			out[tag] = true
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("DoctorReport has no json tags; the reflection is reading nothing")
+	}
+	return out
+}
+
+// The section exists because a second binary now reads this plugin, and the
+// three things it needs — where the store is, what scope it gets, which
+// principal it may declare — are facts spread across §3.2, §4.2 and §5.1 that
+// nothing gathered in one place. A section is only worth having if it cannot
+// quietly go stale, so this reads its claims back against the code: the doctor
+// fields against the struct that ships them, the pane-gone claim against the
+// manifest and the script it names.
+func TestTheExternalConsumerSectionStaysTrue(t *testing.T) {
+	readme := docFiles(t)["README.md"]
+	m := consumerSection.FindStringSubmatch(readme)
+	if m == nil {
+		t.Fatal("README has no `## Driving htask from another program` section, which is where an external consumer is taught")
+	}
+	section := m[1]
+
+	// Discovery: the fields it tells a consumer to read are fields doctor has.
+	fields := doctorFields(t)
+	for _, want := range []string{"socket_path", "state_dir"} {
+		if !fields[want] {
+			t.Errorf("the section teaches doctor's %q and DoctorReport no longer ships it", want)
+		}
+		if !strings.Contains(section, want) {
+			t.Errorf("the section does not name doctor's %q, which is how a consumer finds the store", want)
+		}
+	}
+
+	// Scoping, principal, resume, completion, and the on-demand sweep. Each is
+	// a claim a consumer acts on, so each has to be present in words.
+	for _, want := range []string{
+		"--project", "--all-projects", // §4.2 scope
+		"--as plugin:", // §3.2, and TestAsRefusesDerivedPrincipals holds the refusal
+		"--json",       // the semver-bound envelope, rather than the socket
+		"--since",      // the replay, and the way out of it
+		`"done":true`,  // completion at the socket
+		"sweep --pane", // the on-demand form of the pane-gone release
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("the section never mentions %q", want)
+		}
+	}
+
+	// The pane-gone claim, checked against what actually implements it. A
+	// consumer told not to reimplement this is owed a plugin that still does.
+	manifest, err := os.ReadFile(filepath.Join("..", "..", "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read herdr-plugin.toml: %v", err)
+	}
+	for _, event := range []string{"pane.closed", "pane.exited"} {
+		if !strings.Contains(string(manifest), `on = "`+event+`"`) {
+			t.Errorf("the section says the manifest reacts to %s and it no longer declares it", event)
+		}
+	}
+	script := "scripts/on-pane-gone.sh"
+	if !strings.Contains(string(manifest), script) {
+		t.Errorf("the manifest no longer runs %s, which the section names as the reaction", script)
+	}
+	if !strings.Contains(section, script) {
+		t.Errorf("the section does not name %s, so a reader cannot check the claim", script)
+	}
+	if _, err := os.Stat(filepath.Join("..", "..", script)); err != nil {
+		t.Errorf("%s is named by the section and the manifest and is not in the repository: %v", script, err)
 	}
 }
