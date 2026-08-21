@@ -166,7 +166,15 @@ var All = []Verb{
 	{
 		Name: "task.goal", CLI: []string{"task", "goal"}, MCP: "tasks_goal",
 		Short: "Print a paste-ready /goal condition for a task",
-		Args:  []Arg{idArg("The task id or number")},
+		Long: "The document form is for a human to paste. --one-line renders the same condition with no " +
+			"newline in it, for the argv of `herdr agent start`, which refuses a newline outright. A line " +
+			"break costs four characters there instead of one, so the one-line form has less room under the " +
+			"same 4,000-character ceiling: it gives up context and criteria in the same order the document " +
+			"does, and says how many criteria it dropped, rather than going over.",
+		Args: []Arg{
+			idArg("The task id or number"),
+			{Name: "one-line", Type: Bool, Desc: "Render it as one line, for an argv that refuses newlines"},
+		},
 	},
 	{
 		Name: "task.cancel", CLI: []string{"task", "cancel"},

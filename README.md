@@ -158,8 +158,17 @@ use, so a consumer does not manage its lifetime either.
 htask doctor --json
 htask task list --ready --all-projects --json
 htask task get 12 --json
-htask task goal 12
+htask task goal 12 --one-line
 ```
+
+**Handing a task to an agent.** `htask task goal <id>` prints the condition a
+human pastes. A program that starts the agent itself wants `--one-line`: Herdr
+refuses a newline in agent argv outright, so the document form cannot be
+delivered as the initial prompt of `herdr agent start` at all, while the same
+condition rendered as one line goes through whole. The 4,000-character ceiling
+holds on whichever form is printed. A break costs four characters as a
+separator instead of one, so the one-line form gives up context and criteria
+sooner, and says how many criteria it dropped.
 
 **Scope.** Every verb resolves a project per call (§4.2). `--project <path>`
 sets it explicitly, which is what a consumer running from its own working

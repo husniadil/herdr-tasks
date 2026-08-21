@@ -338,6 +338,7 @@ func TestTheExternalConsumerSectionStaysTrue(t *testing.T) {
 		"--since",      // the replay, and the way out of it
 		`"done":true`,  // completion at the socket
 		"sweep --pane", // the on-demand form of the pane-gone release
+		"--one-line",   // §16.2 through an argv that refuses a newline
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("the section never mentions %q", want)

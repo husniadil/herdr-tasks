@@ -141,6 +141,10 @@ prints a paste-ready `/goal` condition: the directive, the context, the "Done
 when" including the obligation to run `htask task submit` and show its output, and
 a stop clause that releases the claim rather than pushing past the scope.
 
+`htask task goal 12 --one-line` renders the same condition with no newline in
+it, for the argv of `herdr agent start`, which refuses one. It fits the same
+ceiling, so it gives up context and criteria sooner and says what it dropped.
+
 ## Everything else
 
 ```sh

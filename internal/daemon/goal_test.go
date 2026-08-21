@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -213,6 +214,102 @@ func TestTheGoalNamesTheBinaryThatExists(t *testing.T) {
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the goal does not teach %q:\n%s", want, got)
+		}
+	}
+}
+
+// §16.2's "paste-ready" has to hold for the channel §11.4 points a plugin at.
+// Herdr refuses any newline in agent argv outright, so a condition with one in
+// it cannot be delivered as the initial prompt of `herdr agent start` at all.
+func TestTheOneLineGoalHasNoNewlineAnywhere(t *testing.T) {
+	paragraphs := "First line.\n\nSecond line, after a blank one.\r\nThird, after a CRLF."
+	cases := map[string]func(*tasks.Task){
+		"an ordinary task":            func(*tasks.Task) {},
+		"a title written over lines":  func(x *tasks.Task) { x.Title = paragraphs },
+		"a description in paragraphs": func(x *tasks.Task) { x.Description = paragraphs },
+		"feedback in paragraphs":      func(x *tasks.Task) { x.Feedback = paragraphs },
+		"a release note over lines":   func(x *tasks.Task) { x.ReleaseNote = paragraphs },
+		"a body broken with bare carriage returns": func(x *tasks.Task) {
+			x.Description = "First line.\rSecond line."
+		},
+		"a criterion over lines": func(x *tasks.Task) {
+			x.Validation = append(x.Validation, tasks.Criterion{Text: paragraphs, Required: true})
+		},
+		"everything long and broken": func(x *tasks.Task) {
+			x.Description = strings.Repeat(paragraphs+" ", 40)
+			x.Feedback, x.ReleaseNote = paragraphs, paragraphs
+			for i := 0; i < 40; i++ {
+				x.Validation = append(x.Validation, tasks.Criterion{Text: paragraphs, Required: true})
+			}
+		},
+	}
+	for name, mangle := range cases {
+		t.Run(name, func(t *testing.T) {
+			task := goalTask()
+			mangle(task)
+			got := BuildGoalOneLine(task)
+			if got == "" {
+				t.Fatal("one-line goal is empty")
+			}
+			if i := strings.IndexAny(got, "\n\r"); i >= 0 {
+				t.Fatalf("one-line goal carries a line break at byte %d:\n%q", i, got)
+			}
+			if len(got) > GoalLimit {
+				t.Fatalf("one-line goal is %d characters, past the %d the contract fixes", len(got), GoalLimit)
+			}
+		})
+	}
+}
+
+// The one-line form is a rendering of the same condition, not a shorter and
+// different one: with room to spare, putting the line breaks back gives the
+// document `task goal` already printed.
+func TestTheOneLineGoalSaysWhatTheMultiLineGoalSays(t *testing.T) {
+	task := goalTask()
+	task.Feedback = "The sweep event is there but it does not say which lease it released."
+	multi, one := BuildGoal(task), BuildGoalOneLine(task)
+	if back := strings.ReplaceAll(one, oneLineSep, "\n"); back != strings.TrimSuffix(multi, "\n") {
+		t.Fatalf("one-line goal is not the multi-line one flattened.\nwant:\n%q\ngot:\n%q", strings.TrimSuffix(multi, "\n"), back)
+	}
+	for _, want := range []string{task.Title, "Context: ", "The reviewer said: ", "Done when:", "htask task touch 7", "htask task submit 7", "htask task release 7 --note"} {
+		if !strings.Contains(one, want) {
+			t.Fatalf("one-line goal is missing %q:\n%s", want, one)
+		}
+	}
+	for _, c := range task.Validation {
+		if !strings.Contains(one, c.Text) {
+			t.Fatalf("one-line goal is missing the criterion %q:\n%s", c.Text, one)
+		}
+	}
+}
+
+// A line break costs one byte on the way out and four on the argv path, so a
+// condition that fits as a document can cross the ceiling as a line. The
+// budget is spent on what is printed: the one-line form drops what it cannot
+// afford, by the same order of sacrifice, and says it dropped criteria.
+func TestTheOneLineGoalIsBudgetedOnWhatItPrints(t *testing.T) {
+	task := goalTask()
+	task.Description = strings.Repeat("the sweep says nothing about the lease it released. ", 6)
+	for i := 0; i < 80; i++ {
+		task.Validation = append(task.Validation, tasks.Criterion{
+			Text: fmt.Sprintf("criterion %d: the trail names the lease it released", i), Required: true,
+		})
+	}
+	multi := BuildGoal(task)
+	if len(multi) > GoalLimit {
+		t.Fatalf("the multi-line form is already %d characters; this case proves nothing", len(multi))
+	}
+	naive := strings.ReplaceAll(multi, "\n", oneLineSep)
+	if len(naive) <= GoalLimit {
+		t.Fatalf("flattening this goal costs %d characters, which still fits; this case proves nothing", len(naive))
+	}
+	one := BuildGoalOneLine(task)
+	if len(one) > GoalLimit {
+		t.Fatalf("one-line goal is %d characters, past the %d the contract fixes", len(one), GoalLimit)
+	}
+	for _, want := range []string{task.Title, "Done when:", "htask task submit 7", "htask task release 7 --note", "did not fit here"} {
+		if !strings.Contains(one, want) {
+			t.Fatalf("one-line goal dropped %q, which never gives way:\n%s", want, one)
 		}
 	}
 }

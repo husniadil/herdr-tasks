@@ -307,6 +307,9 @@ func hTaskGoal(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
 		return nil, err
 	}
 	text := BuildGoal(t)
+	if argBool(req.Args, "one-line") {
+		text = BuildGoalOneLine(t)
+	}
 	return GoalResult{TaskID: t.ID, Seq: t.Seq, Goal: text, Length: len(text)}, nil
 }
 

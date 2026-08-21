@@ -296,6 +296,34 @@ func TestTaskGoalPrintsAPasteReadyCondition(t *testing.T) {
 	}
 }
 
+// §16.2 through the door §11.4 points a plugin at: `herdr agent start` refuses
+// a newline in agent argv, so the paste-ready condition has to be available as
+// one line for a program to deliver it at all.
+func TestTaskGoalOneLineFitsAnArgvThatRefusesNewlines(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "Teach the sweep to speak",
+		"--description", "The sweep releases a lease silently.\n\nNobody reading the trail can tell.",
+		"--validation", "`make test-full` passes and its output is shown")
+	stdout, _, status := w.run(w.env(), "task", "goal", "1", "--one-line")
+	if status != 0 {
+		t.Fatalf("exit = %d", status)
+	}
+	if strings.ContainsAny(stdout, "\n\r") {
+		t.Fatalf("one-line goal carries a line break:\n%q", stdout)
+	}
+	if len(stdout) >= 4000 {
+		t.Fatalf("one-line goal is %d characters", len(stdout))
+	}
+	// Including both halves of a description written over two paragraphs: the
+	// break is what has to go, not the sentence after it.
+	for _, want := range []string{"Teach the sweep to speak", "Done when:", "htask task submit 1", "htask task touch 1",
+		"The sweep releases a lease silently.", "Nobody reading the trail can tell."} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("one-line goal is missing %q:\n%s", want, stdout)
+		}
+	}
+}
+
 // §8.2: the event trail streams, and every state change is in it.
 func TestEventsCarryEveryStateChange(t *testing.T) {
 	w := newWorld(t)
