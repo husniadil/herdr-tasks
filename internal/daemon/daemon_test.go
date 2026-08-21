@@ -1452,3 +1452,48 @@ func TestAPromotedTitleIsValidUTF8(t *testing.T) {
 		t.Fatalf("nothing was truncated: %d runes", len([]rune(title)))
 	}
 }
+
+// §6.2 and §8.2: a bounded stream that reaches its limit says so, with a
+// `done` document, and that sentinel is the ONLY thing separating a stream
+// that finished from a daemon that died — at the socket both are a closed
+// connection. The CLI consumes it and reports the same fact by exiting 0
+// silently (TestAStreamThatEndsOnPurposeExitsZero, cmd/htask), so the two
+// doors signal completion differently and an external consumer has to be told
+// which one it is reading. The CLI half was pinned and this one was not.
+func TestABoundedStreamEndsWithTheDoneSentinel(t *testing.T) {
+	d := newDaemon(t, nil)
+	for _, title := range []string{"first", "second"} {
+		createTask(t, d, title)
+	}
+	var out bytes.Buffer
+	d.streamEvents(context.Background(), protocol.Request{
+		Verb: "events", Project: proj, Follow: true,
+		Args: map[string]any{"limit": int64(1)},
+	}, json.NewEncoder(&out))
+
+	docs := []protocol.Response{}
+	dec := json.NewDecoder(bytes.NewReader(out.Bytes()))
+	for {
+		var resp protocol.Response
+		if err := dec.Decode(&resp); err != nil {
+			break
+		}
+		docs = append(docs, resp)
+	}
+	if len(docs) != 2 {
+		t.Fatalf("%d documents for --limit 1, want the event and the sentinel: %s", len(docs), out.String())
+	}
+	if docs[0].Done || len(docs[0].Result) == 0 {
+		t.Fatalf("the first document is not the event: %s", out.String())
+	}
+	if !docs[1].Done {
+		t.Fatalf("a stream that reached its limit did not say it was done: %s", out.String())
+	}
+	if docs[1].Error != nil {
+		t.Fatalf("the sentinel carries an error: %s", out.String())
+	}
+	// Verbatim, because a consumer matches on the field and not on the type.
+	if !strings.Contains(out.String(), `"done":true`) {
+		t.Fatalf("the sentinel is not spelled `\"done\":true`: %s", out.String())
+	}
+}
