@@ -1304,6 +1304,78 @@ func TestAFollowWithNoSinceReplaysTheWholeTrail(t *testing.T) {
 	}
 }
 
+// eventFields is the §8.1 payload every event carries on both doors. `detail`
+// is omitempty and so is checked only where the event has one.
+var eventFields = []string{"id", "entity", "entity_id", "project", "at", "actor", "kind", "name"}
+
+// §8.1 and non-negotiable 2: `events` answers in TWO shapes, and an external
+// consumer parses both. The batch answer wraps a list in {"events":…,"count":…};
+// a follower is sent one bare event per line with no envelope around it at all.
+// Only one of those reads like a declared surface, and both are semver-bound,
+// so both are pinned here.
+//
+// Presence, never closure: non-negotiable 2 permits a NEW field and forbids
+// removing or repurposing a shipped one. A test demanding an exact key set
+// would fail the change the rule allows, so this asserts the shipped fields
+// are there and — for the follow form — that no envelope key is.
+func TestBothJSONShapesOfEventsArePublic(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env(), "task", "create", "an event with a detail")
+
+	batch := w.json(w.env(), "events")
+	list, ok := batch["events"].([]any)
+	if !ok {
+		t.Fatalf("the batch answer has no \"events\" list: %v", batch)
+	}
+	count, ok := batch["count"].(float64)
+	if !ok || int(count) != len(list) {
+		t.Fatalf("the batch answer's count is %v for %d events", batch["count"], len(list))
+	}
+	if len(list) != 1 {
+		t.Fatalf("%d events, want the 1 this test wrote", len(list))
+	}
+	batched, _ := list[0].(map[string]any)
+	for _, f := range eventFields {
+		if _, has := batched[f]; !has {
+			t.Errorf("the batched event has no %q; §8.1 ships it and non-negotiable 2 binds it", f)
+		}
+	}
+	if _, has := batched["detail"]; !has {
+		t.Errorf("a `created` event carries a detail, and the batched one has none: %v", batched)
+	}
+
+	f := startFollower(t, w, "--limit", "1")
+	if status := f.wait(t, 15*time.Second); status != 0 {
+		t.Fatalf("the follower exited %d: %s%s", status, f.out, f.errOut)
+	}
+	docs := f.documents()
+	if len(docs) != 1 {
+		t.Fatalf("%d streamed documents, want 1:\n%s", len(docs), f.out)
+	}
+	var streamed map[string]any
+	if err := json.Unmarshal([]byte(docs[0]), &streamed); err != nil {
+		t.Fatalf("a streamed document is not one JSON object: %q", docs[0])
+	}
+	for _, field := range eventFields {
+		if _, has := streamed[field]; !has {
+			t.Errorf("the streamed event has no %q; the follow form ships the same §8.1 payload", field)
+		}
+	}
+	// The bare-object half of the claim. An envelope key here would mean the
+	// stream had started wrapping, which is exactly the drift a consumer
+	// written against today's shape would break on.
+	for _, envelope := range []string{"result", "error", "events", "count", "done"} {
+		if _, has := streamed[envelope]; has {
+			t.Errorf("the streamed event carries the envelope key %q; the follow form is one BARE event per line", envelope)
+		}
+	}
+	// The two shapes describe the same event, which is what makes them two
+	// renderings rather than two payloads.
+	if streamed["id"] != batched["id"] {
+		t.Fatalf("the streamed event is %v and the batched one %v", streamed["id"], batched["id"])
+	}
+}
+
 // parentCommands are the CLI's grouping commands — the first word of every
 // multi-word verb path. Read from the registry rather than listed here, so a
 // group added later is covered without anyone remembering to add a line.
