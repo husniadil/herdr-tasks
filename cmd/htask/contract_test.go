@@ -119,9 +119,11 @@ func contains(all []string, s string) bool {
 	return false
 }
 
-// anyRevision matches a semver-with-tag token, so a page naming a revision
-// other than the declared one is caught.
-var anyRevision = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+-draft`)
+// anyRevision matches a named revision, tagged or not, so a page naming a
+// revision other than the declared one is caught. It reads "revision <token>"
+// rather than a bare semver because the same page states the binary version,
+// which is a different number and moves on its own.
+var anyRevision = regexp.MustCompile(`revision ([0-9]+\.[0-9]+\.[0-9]+(?:-[a-z]+)?)`)
 
 // contractVersion matches the revision the vendored contract states for itself.
 var contractVersion = regexp.MustCompile(`(?m)^Status:.*\bVersion: ([0-9][^.\s]*(?:\.[^.\s]*)*?)\. `)
@@ -161,8 +163,8 @@ func TestTheDeclaredRevisionIsTheVendoredOne(t *testing.T) {
 	}
 	// And no second revision is named anywhere, because a page that declares
 	// one revision and mentions another is the drift this task closed.
-	for _, other := range anyRevision.FindAllString(string(readme), -1) {
-		if other != daemon.ContractVersion {
+	for _, m := range anyRevision.FindAllStringSubmatch(string(readme), -1) {
+		if other := m[1]; other != daemon.ContractVersion {
 			t.Errorf("README names revision %s as well as the declared %s", other, daemon.ContractVersion)
 		}
 	}

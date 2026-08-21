@@ -360,11 +360,18 @@ the ones this repository's own rules force — the umbrella project's name and
 the tools it replaces are not named (§13.1), and the revision tag reads "this
 revision" where the source wrote a version token.
 
-The vendored document states Version 0.4.0-draft, and `ContractVersion` in
+The vendored document states Version 0.4.0, and `ContractVersion` in
 `internal/daemon/daemon.go` says the same. `htask version`, `htask doctor` and
 the README all read that one constant, and
 `TestTheDeclaredRevisionIsTheVendoredOne` fails when the constant, the README
 sentence and the document's own Status line stop agreeing.
+
+0.4.0 carried the `-draft` tag through its three amendments and lost it when a
+second plugin shipped against it. A draft is a revision only one implementation
+has read; a second conforming plugin is what turns the text into something two
+callers agree on, and the Status line says binding from that point. The
+amendments themselves did not move, and the rows below that name what each one
+points at were written while the tag was still there.
 
 Declaring a revision is a conformance claim, and no test can make it. What
 earns it is reading each change the contract's changelog lists against the code

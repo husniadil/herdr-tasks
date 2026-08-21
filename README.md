@@ -224,7 +224,7 @@ than when its lease runs out.
 
 ## The shared plugin contract
 
-This plugin conforms to the **shared plugin contract**, revision 0.4.0-draft,
+This plugin conforms to the **shared plugin contract**, revision 0.4.0,
 which §13.4 requires it to declare here and in `doctor` output — `htask version`
 and `htask doctor` both print it. The contract is vendored at
 [`docs/contract.md`](docs/contract.md), so every § this repository cites

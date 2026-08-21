@@ -1,13 +1,13 @@
 # The shared plugin contract
 
-Status: draft, not yet binding. Version: 0.4.0-draft. Date: 2026-08-21.
+Status: binding. Version: 0.4.0. Date: 2026-08-21.
 
-Changes in 0.4.0-draft: §7.1 names a tool by its verb alone. An MCP client
+Changes in 0.4.0: §7.1 names a tool by its verb alone. An MCP client
 namespaces a server's tools under the label it wired the server in as, so a
 plugin prefix on the tool itself spends the agent's attention saying the same
 word twice.
 
-Also in 0.4.0-draft: §2.1 owes a TUI only where the plugin's concern includes
+Also in 0.4.0: §2.1 owes a TUI only where the plugin's concern includes
 an operator-facing view. A plugin without one names its human surface instead;
 a status verb is enough. The sentence was written when the only plugin was one
 that owns a board.
