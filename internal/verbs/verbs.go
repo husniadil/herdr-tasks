@@ -35,7 +35,8 @@ type Verb struct {
 	Name string
 	// CLI is the subcommand path, e.g. {"task", "claim"}.
 	CLI []string
-	// MCP is the tool name, `tasks_<verb>` (§7.1). Empty means CLI-only: §7.3
+	// MCP is the tool name: the verb alone, with dots as underscores
+	// (§7.1). Empty means CLI-only: §7.3
 	// says keep the tool count small and let the skill teach the rest.
 	MCP string
 	// Short is the one-line help both doors show.
@@ -71,7 +72,7 @@ func idArg(desc string) Arg {
 // All is the registry. Order is the order the CLI lists them in.
 var All = []Verb{
 	{
-		Name: "task.create", CLI: []string{"task", "create"}, MCP: "tasks_create",
+		Name: "task.create", CLI: []string{"task", "create"}, MCP: "create",
 		Short:   "File a task in the backlog",
 		Gated:   "tasks.create",
 		Who:     "Anyone: filing work is not destructive, and §3.5 trusts the local user.",
@@ -86,7 +87,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.list", CLI: []string{"task", "list"}, MCP: "tasks_list",
+		Name: "task.list", CLI: []string{"task", "list"}, MCP: "list",
 		Short: "List tasks in this project",
 		Args: []Arg{
 			{Name: "status", Type: String, Desc: "todo, doing, review, done or cancelled"},
@@ -98,12 +99,12 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.get", CLI: []string{"task", "get"}, MCP: "tasks_get",
+		Name: "task.get", CLI: []string{"task", "get"}, MCP: "get",
 		Short: "Read one task in full",
 		Args:  []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.claim", CLI: []string{"task", "claim"}, MCP: "tasks_claim",
+		Name: "task.claim", CLI: []string{"task", "claim"}, MCP: "claim",
 		Short:   "Take a task and its lease",
 		Gated:   "tasks.claim",
 		Who:     "Anyone, for an unclaimed and unblocked task; the holder, to renew.",
@@ -111,7 +112,7 @@ var All = []Verb{
 		Args:    []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.touch", CLI: []string{"task", "touch"}, MCP: "tasks_touch",
+		Name: "task.touch", CLI: []string{"task", "touch"}, MCP: "touch",
 		Short:   "Renew the lease on a task you hold",
 		Long:    "Run this at the start of each turn: a lease that lapses is swept and the task returns to the queue.",
 		Who:     "The holder only.",
@@ -120,7 +121,7 @@ var All = []Verb{
 		Args:    []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.release", CLI: []string{"task", "release"}, MCP: "tasks_release",
+		Name: "task.release", CLI: []string{"task", "release"}, MCP: "release",
 		Short:   "Hand a task back with a note saying what is left",
 		Who:     "The holder, or the operator.",
 		Ungated: "handing work back is the safe direction; a gate that could park it would strand the task",
@@ -131,7 +132,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.submit", CLI: []string{"task", "submit"}, MCP: "tasks_submit",
+		Name: "task.submit", CLI: []string{"task", "submit"}, MCP: "submit",
 		Short:   "Send a task to review with a report and its evidence",
 		Gated:   "tasks.submit",
 		Who:     "The holder, or the operator.",
@@ -144,7 +145,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.approve", CLI: []string{"task", "approve"}, MCP: "tasks_approve",
+		Name: "task.approve", CLI: []string{"task", "approve"}, MCP: "approve",
 		Short:   "Accept submitted work",
 		Long:    "A harness may not approve work its own harness produced (§6.6). The operator is exempt.",
 		Gated:   "tasks.approve",
@@ -153,7 +154,7 @@ var All = []Verb{
 		Args:    []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.reject", CLI: []string{"task", "reject"}, MCP: "tasks_reject",
+		Name: "task.reject", CLI: []string{"task", "reject"}, MCP: "reject",
 		Short:   "Send submitted work back with feedback",
 		Gated:   "tasks.reject",
 		Who:     "Anyone but the submitting harness (§6.6); the operator is exempt.",
@@ -164,7 +165,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.goal", CLI: []string{"task", "goal"}, MCP: "tasks_goal",
+		Name: "task.goal", CLI: []string{"task", "goal"}, MCP: "goal",
 		Short: "Print a paste-ready /goal condition for a task",
 		Long: "The document form is for a human to paste. --one-line renders the same condition with no " +
 			"newline in it, for the argv of `herdr agent start`, which refuses a newline outright. A line " +
@@ -220,7 +221,7 @@ var All = []Verb{
 		Args:    []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "note.add", CLI: []string{"note", "add"}, MCP: "tasks_note_add",
+		Name: "note.add", CLI: []string{"note", "add"}, MCP: "note_add",
 		Short:   "File a pre-decision idea on the board",
 		Gated:   "tasks.note_add",
 		Who:     "Anyone.",
@@ -230,7 +231,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.list", CLI: []string{"note", "list"}, MCP: "tasks_note_list",
+		Name: "note.list", CLI: []string{"note", "list"}, MCP: "note_list",
 		Short: "List notes in this project",
 		Args: []Arg{
 			{Name: "status", Type: String, Desc: "inbox, discussing, needs_input, proposed, keep, task or dropped"},
@@ -269,7 +270,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.verdict", CLI: []string{"note", "verdict"}, MCP: "tasks_note_verdict",
+		Name: "note.verdict", CLI: []string{"note", "verdict"}, MCP: "note_verdict",
 		Short:   "End a discussion with a proposal: task, keep or drop",
 		Long:    "A verdict is a proposal, never the decision. Only the operator promotes, keeps or drops a note.",
 		Who:     "Anyone, amendable until the operator acts.",
@@ -340,7 +341,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "events", CLI: []string{"events"}, MCP: "tasks_events",
+		Name: "events", CLI: []string{"events"}, MCP: "events",
 		Short: "Stream the append-only event trail",
 		Long: "Without --since this reads from the BEGINNING: the answer, and a\n" +
 			"--follow stream alike, start with the whole trail, oldest event first.\n" +
@@ -354,7 +355,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "doctor", CLI: []string{"doctor"}, MCP: "tasks_doctor",
+		Name: "doctor", CLI: []string{"doctor"}, MCP: "doctor",
 		Short: "Report version, dirs, socket, Herdr, hooks, gate and anything degraded",
 	},
 	{

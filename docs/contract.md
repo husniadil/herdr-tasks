@@ -1,6 +1,11 @@
 # The shared plugin contract
 
-Status: draft, not yet binding. Version: 0.3.0-draft. Date: 2026-08-20.
+Status: draft, not yet binding. Version: 0.4.0-draft. Date: 2026-08-21.
+
+Changes in 0.4.0-draft: §7.1 names a tool by its verb alone. An MCP client
+namespaces a server's tools under the label it wired the server in as, so a
+plugin prefix on the tool itself spends the agent's attention saying the same
+word twice.
 
 Changes in 0.3.0-draft, from live testing of herdr-tasks' pane and delivery
 paths: §11.4 slash-command delivery rules (measured); §11.6 plugin-pane
@@ -235,9 +240,12 @@ model are one model reading its own homework.
 
 ## §7 MCP
 
-§7.1 `<name> mcp` serves MCP over stdio. Tool names are `<name>_<verb>` with
-underscores (`tasks_claim`, `tasks_submit`). The tool list is pinned by a test
-and is semver-bound once released.
+§7.1 `<name> mcp` serves MCP over stdio. A tool is named by its verb alone,
+with dots as underscores and no plugin prefix (`claim`, `submit`,
+`note_add`): an MCP client already namespaces a server's tools under the name
+it registers, so the plugin's identity belongs in that registration and not in
+every tool. The tool list is pinned by a test and is semver-bound once
+released.
 
 §7.2 MCP is a thin door over the same daemon calls as the CLI; it holds no
 state of its own. The server's `instructions` string MUST say, in one

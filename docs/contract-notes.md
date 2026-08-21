@@ -337,20 +337,19 @@ missing.
 **Upstream amendment to propose:** §13.2 says binary abbreviations are "listed
 in the glossary (§14)". The glossary entry for this plugin should read `htask`.
 
-## §7.1 — the tool prefix is not the server's registration name
+## §7.1 — the registration name is the namespace, so the tools are bare
 
-§7.1 fixes tool names as `<name>_<verb>` and says nothing about the name an
-MCP server registers itself under. They are two different names here and are
-two constants: `ServerName` is `herdr-tasks`, so a client wiring the server in
-sees the plugin's identity; `ToolPrefix` is `tasks`, the short name §7.1
-binds. The §7.1 assertion checks the prefix, and the fifteen pinned tool names
-are `tasks_*`, which is what §7.1 requires and what its "semver-bound once
-released" protects.
+§7.1 names a tool by its verb alone and says nothing about the name an MCP
+server registers itself under. Both are settled here, and they are two
+different things: `ServerName` is `herdr-tasks`, the plugin id a client wires
+in and labels the tools with, while the fifteen pinned tool names are
+`claim`, `submit`, `list`, `note_add` and the rest. `task` is the board's
+default entity and drops out of a task verb's name; `note_` stays, because it
+separates two verbs rather than repeating the subject.
 
-Recorded because the contract is silent here rather than violated in either
-direction, and because a single constant is the natural way to write this: a
-plugin whose short name and plugin id happen to match cannot tell the two
-apart.
+Recorded because "the tool list is semver-bound once released" made this a
+version event rather than a rename: the binary is 0.2.0 and a client holding
+the older names calls tools this server does not serve.
 
 ## §13.3 — what the declared revision is checked against
 
@@ -361,7 +360,7 @@ the ones this repository's own rules force — the umbrella project's name and
 the tools it replaces are not named (§13.1), and the revision tag reads "this
 revision" where the source wrote a version token.
 
-The vendored document states Version 0.3.0-draft, and `ContractVersion` in
+The vendored document states Version 0.4.0-draft, and `ContractVersion` in
 `internal/daemon/daemon.go` says the same. `htask version`, `htask doctor` and
 the README all read that one constant, and
 `TestTheDeclaredRevisionIsTheVendoredOne` fails when the constant, the README
@@ -374,6 +373,7 @@ delta has an implementation to point at:
 
 | § | what the revision says | what answers it |
 |---|---|---|
+| §7.1 (0.4.0) | a tool is named by its verb alone, no plugin prefix, because the client's registration label already namespaces it | `internal/verbs/verbs.go` carries the bare `MCP` names; `pinnedTools` in `internal/mcpdoor/parity_test.go` pins them and `TestTheServerNameCarriesTheIdentityAndTheToolsDoNot` refuses any plugin lead; `daemon.Version` is `0.2.0` for the semver-bound list that moved |
 | §5.5 | an events table named after its entity table, written in the same transaction | `internal/store/schema.go:82` `tasks_events`, `:113` `notes_events`, with §5.5's columns; `internal/store/tasks.go:31-51` opens the transaction, appends the event, commits |
 | §5.9 | write-time text bounds with `USAGE`, and a render-time clamp that says what it dropped | `internal/tasks/bounds.go`; `TestEveryTaskFreeTextFieldIsBounded`, `TestEveryNoteFreeTextFieldIsBounded`; the clamp is `internal/daemon/goal.go`, with `TestGoalSaysWhenItDroppedCriteria` and `TestGoalClipsRatherThanOverflows` |
 | §6.1 / §7.3 | CLI total, MCP a pinned subset of roughly 8–16, one registry, a parity test | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestMCPToolCountStaysSmall`; 15 tools today |

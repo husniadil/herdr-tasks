@@ -30,12 +30,16 @@ import (
 )
 
 // Version is the plugin version `htask version` and doctor print (§13.3).
-const Version = "0.1.0"
+// The MCP tool list is semver-bound (§7.1) and 0.2.0 is the first release
+// whose tools are named by the verb alone, which a client with the old names
+// wired in cannot call — a major-shaped change carried in the minor, as a
+// 0.x version is allowed to.
+const Version = "0.2.0"
 
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in
 // `doctor` output, which is what a reader compares a binary against.
-const ContractVersion = "0.3.0-draft"
+const ContractVersion = "0.4.0-draft"
 
 // Daemon holds everything a verb needs to answer.
 type Daemon struct {

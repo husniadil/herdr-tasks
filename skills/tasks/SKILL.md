@@ -65,6 +65,15 @@ citation or the submit is refused with `USAGE` naming the ones you left. A
 citation whose number is not in the list is refused the same way, and nothing
 is written: the task is still yours, still `doing`.
 
+## Through MCP instead of the CLI
+
+The same verbs are MCP tools on the `herdr-tasks` server, named by the verb
+alone: `list`, `get`, `claim`, `touch`, `release`, `submit`, `approve`,
+`reject`, `goal`, `note_add`, `note_list`, `note_verdict`, `create`, `events`,
+`doctor`. Your client shows them under the server's own label, which is what
+tells you whose `claim` you are calling. Every other verb is on the CLI, which
+carries all of them.
+
 ## Reviewing
 
 ```sh

@@ -24,18 +24,10 @@ import (
 
 // ServerName is how this server registers itself. It carries the plugin's
 // identity — the manifest id — because that is what an operator wiring it into
-// a client sees and names.
-//
-// It is NOT the tool prefix. §7.1 fixes tool names as <short name>_<verb> and
-// says nothing about the registration name, so the two are separate constants:
-// a server named for the plugin and tools named for the short name have to
-// coexist, and ToolPrefix is the one §7.1 binds.
+// a client sees and names, and because it is the label a client namespaces
+// this server's tools under. §7.1 names the tools themselves after the verb
+// alone for that reason: the identity is already said once, here.
 const ServerName = "herdr-tasks"
-
-// ToolPrefix is the §7.1 tool-name prefix: the plugin's SHORT name (§13.2),
-// which is also config.Name, the socket and the store. The fifteen tool names
-// are semver-bound (§7.1) and do not move when the registration name does.
-const ToolPrefix = "tasks"
 
 // Title is the display name.
 const Title = "Herdr Tasks"
@@ -48,8 +40,8 @@ const Instructions = "herdr-tasks is the task backlog and notes board for agents
 	"scoped to a project, the git root of the directory you are working in. `pane`, `agent`, " +
 	"`harness`, `workspace` and `agent_status` mean what Herdr says they mean, and your principal is " +
 	"derived from the pane you run in — you never declare who you are. The usual entry points are " +
-	"tasks_list to find ready work, tasks_claim to take it, tasks_touch at the start of every turn to " +
-	"renew the lease, and tasks_submit with a report and evidence when it is done. tasks_goal prints a " +
+	"`list` to find ready work, `claim` to take it, `touch` at the start of every turn to " +
+	"renew the lease, and `submit` with a report and evidence when it is done. `goal` prints a " +
 	"paste-ready /goal condition for a task. The CLI (`htask`) carries every verb, including the ones " +
 	"missing here; `htask --help` lists them."
 

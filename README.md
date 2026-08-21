@@ -218,7 +218,7 @@ than when its lease runs out.
 
 ## The shared plugin contract
 
-This plugin conforms to the **shared plugin contract**, revision 0.3.0-draft,
+This plugin conforms to the **shared plugin contract**, revision 0.4.0-draft,
 which §13.4 requires it to declare here and in `doctor` output — `htask version`
 and `htask doctor` both print it. The contract is vendored at
 [`docs/contract.md`](docs/contract.md), so every § this repository cites
@@ -235,6 +235,12 @@ Deviations worth naming up front:
 - **§6.1 / §7.3** — every verb is a CLI subcommand; a pinned subset of 15 is
   also an MCP tool. Both doors are generated from one registry, and a parity
   test fails on any drift between them. See the contract note.
+- **§7.1 / §13.3** — an MCP tool is named by its verb alone: `claim`, `submit`,
+  `list`, `note_add`. The server registers as `herdr-tasks`, and a client
+  namespaces the tools under that label, so the plugin's identity is said once
+  where a client reads it. That tool list is semver-bound, so this binary is
+  **0.2.0** — `htask version` and `htask doctor` print it, and a client with
+  the older tool names wired in calls names this server no longer answers to.
 - **§8.4** — the manifest reacts to `pane.closed` and `pane.exited`, both
   running `scripts/on-pane-gone.sh`, which sweeps the leases of the pane the
   event names. It self-filters by construction rather than by a check:

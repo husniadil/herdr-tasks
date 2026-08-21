@@ -26,21 +26,29 @@ import (
 // to a semver-bound surface: it changes this list in the same commit, and
 // removing or renaming one is a breaking change.
 var pinnedTools = []string{
-	"tasks_create",
-	"tasks_list",
-	"tasks_get",
-	"tasks_claim",
-	"tasks_touch",
-	"tasks_release",
-	"tasks_submit",
-	"tasks_approve",
-	"tasks_reject",
-	"tasks_goal",
-	"tasks_note_add",
-	"tasks_note_list",
-	"tasks_note_verdict",
-	"tasks_events",
-	"tasks_doctor",
+	"create",
+	"list",
+	"get",
+	"claim",
+	"touch",
+	"release",
+	"submit",
+	"approve",
+	"reject",
+	"goal",
+	"note_add",
+	"note_list",
+	"note_verdict",
+	"events",
+	"doctor",
+}
+
+// bareName is the §7.1 name for a registry verb: the verb alone, with dots as
+// underscores. `task` is the board's default entity and drops out, so
+// `task.claim` is `claim` and `note.add` stays `note_add` — the qualifier is
+// there when it separates two verbs and absent when it repeats the subject.
+func bareName(verb string) string {
+	return strings.ReplaceAll(strings.TrimPrefix(verb, "task."), ".", "_")
 }
 
 // §7.1: the tool list is pinned by a test and is semver-bound once released.
@@ -84,11 +92,11 @@ func TestCLIAndMCPSurfacesDoNotDrift(t *testing.T) {
 			t.Errorf("MCP tool %q is declared twice", tl.MCP)
 		}
 		seen[tl.MCP] = true
-		// §7.1 binds the TOOL prefix, which is the plugin's short name — not
-		// the registration name, which carries the plugin id. The two were one
-		// constant and this assertion is the reason they had to come apart.
-		if !strings.HasPrefix(tl.MCP, ToolPrefix+"_") {
-			t.Errorf("tool %q is not named %s_<verb> (§7.1)", tl.MCP, ToolPrefix)
+		// §7.1: the tool name is the verb alone, dots turned into
+		// underscores. The client's server label carries the plugin's
+		// identity, so a prefix here would say it twice.
+		if want := bareName(tl.Name); tl.MCP != want {
+			t.Errorf("tool %q is not the bare verb %q (§7.1)", tl.MCP, want)
 		}
 		// Same arguments: the tool schema is built from the same Args the CLI
 		// builds its flags from, so this compares the rendered surfaces.
@@ -171,7 +179,7 @@ func TestCLIAndMCPReturnTheSameDocument(t *testing.T) {
 	}
 
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "tasks_get",
+		Name:      "get",
 		Arguments: map[string]any{"id": "1", "project": canonProject(t, "/tmp/p")},
 	})
 	if err != nil {
@@ -210,7 +218,7 @@ func TestMCPErrorsCarryTheContractCode(t *testing.T) {
 	defer sess.Close()
 
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "tasks_get",
+		Name:      "get",
 		Arguments: map[string]any{"id": "404", "project": canonProject(t, "/tmp/p")},
 	})
 	if err != nil {
@@ -227,7 +235,7 @@ func TestMCPErrorsCarryTheContractCode(t *testing.T) {
 // §7.2: the instructions say what the plugin is, that pane/agent/workspace are
 // Herdr's, and which verbs are the usual entry points.
 func TestInstructionsCoverTheRequiredGround(t *testing.T) {
-	for _, want := range []string{"Herdr", "pane", "agent", "workspace", "tasks_claim", "tasks_submit", "project"} {
+	for _, want := range []string{"Herdr", "pane", "agent", "workspace", "claim", "submit", "project"} {
 		if !strings.Contains(Instructions, want) {
 			t.Errorf("instructions do not mention %q (§7.2)", want)
 		}
@@ -290,7 +298,7 @@ func createThroughMCP(t *testing.T, call Caller, project, title string) map[stri
 	}
 	defer sess.Close()
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
-		Name: "tasks_create", Arguments: map[string]any{"title": title, "project": project},
+		Name: "create", Arguments: map[string]any{"title": title, "project": project},
 	})
 	if err != nil || res.IsError {
 		t.Fatalf("create through the MCP door: %v %s", err, text(res))
@@ -410,7 +418,7 @@ func TestNoteQueryReachesBothDoors(t *testing.T) {
 		t.Fatalf("read the tool schema: %v", err)
 	}
 	if _, ok := got.Properties["query"]; !ok {
-		t.Fatalf("tasks_note_list's input schema has no query property: %s", schema)
+		t.Fatalf("note_list's input schema has no query property: %s", schema)
 	}
 }
 
@@ -462,7 +470,7 @@ func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	defer sess.Close()
 
 	res, err := sess.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "tasks_approve",
+		Name:      "approve",
 		Arguments: map[string]any{"id": "1", "project": project},
 	})
 	if err != nil {
@@ -522,10 +530,10 @@ func TestTheMCPDoorRefusesArgumentsItsSchemaForbids(t *testing.T) {
 		args map[string]any
 		arg  string
 	}{
-		"a word where an integer is declared":     {"tasks_list", map[string]any{"limit": "nope", "project": canonProject(t, "/tmp/p")}, "limit"},
-		"a fraction where an integer is declared": {"tasks_create", map[string]any{"title": "t", "priority": 2.9, "project": canonProject(t, "/tmp/p")}, "priority"},
-		"a number where a string is declared":     {"tasks_get", map[string]any{"id": 12, "project": canonProject(t, "/tmp/p")}, "id"},
-		"a string where a list is declared":       {"tasks_submit", map[string]any{"id": "1", "report": "r", "evidence": "one", "project": canonProject(t, "/tmp/p")}, "evidence"},
+		"a word where an integer is declared":     {"list", map[string]any{"limit": "nope", "project": canonProject(t, "/tmp/p")}, "limit"},
+		"a fraction where an integer is declared": {"create", map[string]any{"title": "t", "priority": 2.9, "project": canonProject(t, "/tmp/p")}, "priority"},
+		"a number where a string is declared":     {"get", map[string]any{"id": 12, "project": canonProject(t, "/tmp/p")}, "id"},
+		"a string where a list is declared":       {"submit", map[string]any{"id": "1", "report": "r", "evidence": "one", "project": canonProject(t, "/tmp/p")}, "evidence"},
 	} {
 		res := callTool(t, sess, tc.tool, tc.args)
 		if !res.IsError {
@@ -580,7 +588,7 @@ func TestBaseUpdatedAtIsReachableThroughMCP(t *testing.T) {
 		t.Fatalf("update: %v", err)
 	}
 
-	res := callTool(t, sess, "tasks_claim", map[string]any{
+	res := callTool(t, sess, "claim", map[string]any{
 		"id": made.Task.ID, "project": project, "base_updated_at": stale})
 	if !res.IsError {
 		t.Fatalf("the §5.6 guard did not fire through MCP: %s", text(res))
@@ -605,7 +613,7 @@ func TestBaseUpdatedAtIsReachableThroughMCP(t *testing.T) {
 	if err := json.Unmarshal(fresh.Result, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	res = callTool(t, sess, "tasks_claim", map[string]any{
+	res = callTool(t, sess, "claim", map[string]any{
 		"id": made.Task.ID, "project": project, "base_updated_at": got.Task.UpdatedAt})
 	if res.IsError {
 		t.Fatalf("a current base_updated_at was refused: %s", text(res))
@@ -625,7 +633,7 @@ func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
 		}
 	}
 
-	scoped := callTool(t, sess, "tasks_list", map[string]any{"project": canonProject(t, "/tmp/one")})
+	scoped := callTool(t, sess, "list", map[string]any{"project": canonProject(t, "/tmp/one")})
 	if scoped.IsError {
 		t.Fatalf("scoped list: %s", text(scoped))
 	}
@@ -637,7 +645,7 @@ func TestAllProjectsIsReachableThroughMCP(t *testing.T) {
 		t.Fatalf("scoped list found %d, want 1: %s", one.Count, text(scoped))
 	}
 
-	all := callTool(t, sess, "tasks_list", map[string]any{"project": canonProject(t, "/tmp/one"), "all_projects": true})
+	all := callTool(t, sess, "list", map[string]any{"project": canonProject(t, "/tmp/one"), "all_projects": true})
 	if all.IsError {
 		t.Fatalf("all-projects list: %s", text(all))
 	}
@@ -749,11 +757,11 @@ func TestBothDoorsGuardAMutationTheSameWay(t *testing.T) {
 	if cliResp.Error != nil {
 		t.Fatalf("the CLI door refused a current base_updated_at: %+v", cliResp.Error)
 	}
-	res := callTool(t, sess, "tasks_create", map[string]any{"title": "ignored", "project": project})
+	res := callTool(t, sess, "create", map[string]any{"title": "ignored", "project": project})
 	if res.IsError {
 		t.Fatalf("setup: %s", text(res))
 	}
-	mcpRes := callTool(t, sess, "tasks_claim", map[string]any{
+	mcpRes := callTool(t, sess, "claim", map[string]any{
 		"id": viaMCP, "project": project, "base_updated_at": mcpBase})
 	if mcpRes.IsError {
 		t.Fatalf("the MCP door refused a current base_updated_at: %s", text(mcpRes))
@@ -762,7 +770,7 @@ func TestBothDoorsGuardAMutationTheSameWay(t *testing.T) {
 	// And a stale one is refused identically on both.
 	cliStale := d.Answer(protocol.Request{Verb: "task.update", Project: project, BaseUpdatedAt: cliBase,
 		Args: map[string]any{"id": viaCLI, "title": "again"}})
-	mcpStale := callTool(t, sess, "tasks_claim", map[string]any{
+	mcpStale := callTool(t, sess, "claim", map[string]any{
 		"id": viaMCP, "project": project, "base_updated_at": mcpBase})
 	if cliStale.Error == nil || !mcpStale.IsError {
 		t.Fatalf("a stale guard was not refused on both doors: cli=%+v mcp=%s", cliStale.Error, text(mcpStale))
@@ -793,25 +801,22 @@ func canonProject(t *testing.T, dir string) string {
 }
 
 // §7.1 with §13.1: the server registers under the plugin's identity and its
-// tools keep the short name. They were one constant, so setting the server
-// name would have renamed all fifteen tools — which are semver-bound.
-func TestTheServerNameAndTheToolPrefixAreDifferentThings(t *testing.T) {
+// tools are bare verbs. The registration name is what namespaces them in a
+// client, which is why the tool names carry no plugin prefix of their own.
+func TestTheServerNameCarriesTheIdentityAndTheToolsDoNot(t *testing.T) {
 	if ServerName != "herdr-tasks" {
 		t.Errorf("ServerName = %q, want the plugin id", ServerName)
 	}
-	if ToolPrefix != "tasks" {
-		t.Errorf("ToolPrefix = %q, want the short name (§13.2)", ToolPrefix)
-	}
-	if ServerName == ToolPrefix {
-		t.Fatal("the registration name and the tool prefix are the same constant again")
-	}
-	// The pinned fifteen are untouched by the registration name.
+	// The pinned fifteen are bare verbs, and no plugin name of any spelling
+	// leads them: the label the client shows already says which plugin this is.
 	for _, v := range verbs.MCPTools() {
-		if !strings.HasPrefix(v.MCP, ToolPrefix+"_") {
-			t.Errorf("tool %q lost its §7.1 prefix", v.MCP)
+		if want := bareName(v.Name); v.MCP != want {
+			t.Errorf("tool %q is not the bare verb %q (§7.1)", v.MCP, want)
 		}
-		if strings.HasPrefix(v.MCP, ServerName+"_") {
-			t.Errorf("tool %q was renamed after the server", v.MCP)
+		for _, lead := range []string{"tasks_", ServerName + "_", config.Name + "_"} {
+			if strings.HasPrefix(v.MCP, lead) {
+				t.Errorf("tool %q is prefixed with %q, which the server label already says", v.MCP, lead)
+			}
 		}
 	}
 	if n := len(verbs.MCPTools()); n != len(pinnedTools) {
@@ -835,9 +840,13 @@ func TestTheServedServerRegistersUnderThePluginIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
+	served := map[string]bool{}
 	for _, tl := range tools.Tools {
-		if !strings.HasPrefix(tl.Name, ToolPrefix+"_") {
-			t.Errorf("served tool %q is not %s_<verb>", tl.Name, ToolPrefix)
+		served[tl.Name] = true
+	}
+	for _, want := range pinnedTools {
+		if !served[want] {
+			t.Errorf("the server does not serve the pinned tool %q", want)
 		}
 	}
 }
