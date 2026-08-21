@@ -33,9 +33,10 @@ const (
 // One plugin, one store. Herdr injects HERDR_PLUGIN_STATE_DIR and
 // HERDR_PLUGIN_CONFIG_DIR into what IT spawns — startup, actions, popup panes —
 // and injects neither into a managed pane, where the agents and MCP servers
-// run. Honouring them, which is what §5.1 and §10.1 say to do, therefore gives
-// one plugin two stores that never see each other's rows. We deliberately do
-// not read them; docs/contract-notes.md records the divergence.
+// run. Honouring them therefore gives one plugin two stores that never see
+// each other's rows, which is why §5.1 and §10.1 forbid reading them as of
+// contract revision 0.5.0; docs/contract-notes.md keeps the measurement that
+// amendment rests on.
 //
 // TASKS_STATE_DIR and TASKS_CONFIG_DIR are the plugin-owned overrides (§10.1's
 // TASKS_ prefix). They are how tests isolate, and how an operator asks for a

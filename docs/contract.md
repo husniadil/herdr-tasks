@@ -1,6 +1,15 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.4.0. Date: 2026-08-21.
+Status: binding. Version: 0.5.0. Date: 2026-08-21.
+
+Changes in 0.5.0: §5.1 and §10.1 stop resolving `state_dir` and `config_dir`
+from `HERDR_PLUGIN_STATE_DIR` / `HERDR_PLUGIN_CONFIG_DIR`, and forbid it.
+Herdr injects those only into what Herdr itself spawns, so the old text gave
+one plugin two stores; both store-carrying plugins written against it had
+already diverged the same way, independently. §11.4 states what delivery by
+`agent prompt` guarantees — best-effort, no receipt — and requires a plugin
+that delivers by prompt to keep an authoritative store the recipient can read
+having never seen the prompt.
 
 Changes in 0.4.0: §7.1 names a tool by its verb alone. An MCP client
 namespaces a server's tools under the label it wired the server in as, so a
@@ -165,7 +174,14 @@ are an error unless a verb explicitly documents otherwise.
 
 §5.1 One SQLite file per plugin at `<state_dir>/<name>.db`, WAL mode,
 `busy_timeout` 3000 ms, foreign keys on. `state_dir` is
-`HERDR_PLUGIN_STATE_DIR` when set, else `${XDG_STATE_HOME:-~/.local/state}/<name>`.
+`${XDG_STATE_HOME:-~/.local/state}/<name>`, overridden only by the plugin's own
+`<NAME>_STATE_DIR` (§10.1). A plugin MUST NOT resolve `state_dir` from
+`HERDR_PLUGIN_STATE_DIR`. Herdr injects that variable into the processes it
+spawns itself — the manifest's `[[startup]]`, `[[actions]]` and `[[panes]]` —
+and into no others; a managed pane, where the agents and the MCP servers run,
+never carries it. A plugin that honours it therefore holds two stores that
+never see each other's rows, one per spawn path, which reaches the operator as
+data loss. One plugin, one store, whoever started the process.
 
 §5.2 A `meta` table with at least `schema_version INTEGER` and
 `created_at INTEGER`. Migrations are numbered, append-only, and run at daemon
@@ -324,8 +340,12 @@ them.
 ## §10 Configuration
 
 §10.1 Config is TOML at `<config_dir>/<name>.toml`, where `config_dir` is
-`HERDR_PLUGIN_CONFIG_DIR` when set, else `${XDG_CONFIG_HOME:-~/.config}/<name>`.
-Environment overrides use the prefix `<NAME>_` (uppercase short name). A plugin
+`${XDG_CONFIG_HOME:-~/.config}/<name>`. Environment overrides use the prefix
+`<NAME>_` (uppercase short name), and `<NAME>_CONFIG_DIR` is the only override
+of `config_dir`. A plugin MUST NOT resolve `config_dir` from
+`HERDR_PLUGIN_CONFIG_DIR`, for the reason §5.1 gives: Herdr injects it only
+into what Herdr spawns, so honouring it splits one plugin's configuration
+along the same seam that splits its store. A plugin
 reads config at daemon start and on SIGHUP; the CLI reads only what it needs to
 find the socket.
 
@@ -369,6 +389,16 @@ as the initial-prompt argv of `agent start` (argv bypasses the composer; a
 3.2k one-liner registers; Herdr rejects argv containing newlines). For an
 agent already running there is no reliable programmatic path for a long slash
 command — hand it to the human.
+
+Delivery by `agent prompt` is best-effort and carries no receipt. A successful
+call says Herdr accepted the text, never that the agent read it or acted on
+it; the collapse rule above is one way accepted text reaches nothing, and a
+pane that exits between the call and the agent's next turn is another. A
+plugin that delivers by prompt MUST keep an authoritative store the recipient
+can read having never seen the prompt, and the prompt MUST be a hint pointing
+at that store rather than the only copy of what it carries. A plugin MUST NOT
+treat a successful `agent prompt` as delivery, and MUST NOT wait on a receipt
+Herdr does not offer.
 
 §11.5 Liveness of an `agent` principal is `herdr agent get` plus the
 `pane_exited` / `pane_closed` events. A plugin with leases (claims) sweeps them

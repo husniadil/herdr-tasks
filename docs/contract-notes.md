@@ -9,10 +9,13 @@ revision its Status line states. Nothing here is a licence to diverge quietly.
 
 ## §5.1 / §10.1 — the store is resolved without Herdr's injected dirs
 
-§5.1 says `state_dir` is `HERDR_PLUGIN_STATE_DIR` when set, else
-`${XDG_STATE_HOME:-~/.local/state}/<name>`, and §10.1 says the same for
-`HERDR_PLUGIN_CONFIG_DIR`. Followed literally, that gives one plugin two
-stores.
+**Closed in contract revision 0.5.0.** This was a recorded divergence against
+0.4.0 and earlier, where §5.1 said `state_dir` is `HERDR_PLUGIN_STATE_DIR`
+when set, else `${XDG_STATE_HOME:-~/.local/state}/<name>`, and §10.1 said the
+same for `HERDR_PLUGIN_CONFIG_DIR`. Followed literally, that gave one plugin
+two stores. 0.5.0 amends both sections to forbid reading those variables, so
+what this plugin does IS the contract now and nothing below is a deviation.
+The measurement is kept because it is the evidence the amendment rests on.
 
 Herdr injects those variables into the processes IT spawns — the manifest's
 `[[startup]]`, `[[actions]]` and `[[panes]]` — and injects neither into a
@@ -36,7 +39,9 @@ so a second or sandboxed Herdr does not get a separate store for free
 (`TASKS_STATE_DIR` buys one deliberately), and if Herdr ever cleans up
 `~/.local/state/herdr/plugins/<id>` on uninstall, this plugin's data will
 outlive that. Both were weighed against a failure that looks like data loss to
-the operator, and the operator chose this.
+the operator, and the operator chose this — and 0.5.0 makes that choice the
+rule for every plugin, on the evidence that the second store-carrying plugin
+written against the old text reached the same answer on its own.
 
 `doctor` names a `tasks.db` left at the old path as a second store not in use,
 and says whether it holds rows. It never deletes one.
@@ -360,7 +365,7 @@ the ones this repository's own rules force — the umbrella project's name and
 the tools it replaces are not named (§13.1), and the revision tag reads "this
 revision" where the source wrote a version token.
 
-The vendored document states Version 0.4.0, and `ContractVersion` in
+The vendored document states Version 0.5.0, and `ContractVersion` in
 `internal/daemon/daemon.go` says the same. `htask version`, `htask doctor` and
 the README all read that one constant, and
 `TestTheDeclaredRevisionIsTheVendoredOne` fails when the constant, the README
@@ -389,6 +394,7 @@ here is the half of the rule this plugin answers:
 | §8.4 spelling | Herdr event names spelled as its schema prints them | `internal/herdrclient/client.go:173` matches either spelling, which is right for a document whose halves disagree; the manifest takes dots because Herdr validates it against dots — the entry above records which is which |
 | §8.4 reaction | `[[events]]` is usable; a reaction self-filters, is idempotent, and complements the sweep | `herdr-plugin.toml` declares `pane.closed` and `pane.exited`; `scripts/on-pane-gone.sh` sweeps by pane, which is both by construction; `TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` drives it against a real Herdr |
 | §11.2 | the schema document's shape, and the flat form too | `internal/herdrclient/client.go` reads `schemas.request.oneOf[].properties.method` and `schemas.event.$defs.EventKind`, and the flat `{requests, events}` form; the protocol number is read for `doctor` and never pinned; `TestSchemaListsCapabilities` |
+| §11.4 (0.5.0) | delivery by `agent prompt` is best-effort with no receipt, and a plugin that delivers by prompt keeps an authoritative store the recipient can read having never seen the prompt | vacuously satisfied here: nothing in this plugin delivers text to an agent, and the board IS an authoritative store a claimant reads by `htask task get` without any prompt ever arriving |
 | §11.4 | delivery through `herdr agent prompt`, no type-verify-retype loop | `internal/herdrclient/client.go` `Prompt`. The slash-command paragraph binds a plugin that starts an agent under one; this plugin does not — `task goal` prints a paste-ready condition for a human (§16.2), which is the branch that paragraph ends on |
 | §11.5 | liveness from `pane_exited` / `pane_closed`, swept on those events and on a bounded timer, recorded in `_events` | `KindSwept` in `internal/tasks/task.go`; the timer in `internal/daemon/daemon.go`; `TestLeaseIsReleasedAfterTheClaimingPaneDies` |
 | §11.6 | the `./` command rule, popups needing an attached client, a plugin pane being `human` | `TestManifestCommandsInThePluginRootSayTheyAre`; both panes are `placement = "popup"` and nothing automated opens one, so no e2e depends on a pane appearing; `internal/project/project.go` reads `HERDR_PLUGIN_CONTEXT_JSON` and never a pane id, and `TestTheBoardOffersHumanVerbsOnly` holds the pane to human verbs |
