@@ -454,6 +454,11 @@ MUST be one of these or a plugin-local noun that does not collide with them.
 - **gate / parked** — the policy check and its deferred result (§9).
 - **event** — an append-only record of a state change (§8).
 
+Binary abbreviations (§13.2), the names a developer types:
+
+- **htask** — the binary of the `tasks` plugin.
+- **hdis** — the binary of the `dispatch` plugin.
+
 Forbidden in APIs and schemas: `sidebar`, `card`, `row`, `widget`, `seat`,
 `instance`, `session` (except Herdr's own `agent_session`).
 

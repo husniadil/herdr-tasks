@@ -386,14 +386,7 @@ here is the half of the rule this plugin answers:
 | §11.5 | liveness from `pane_exited` / `pane_closed`, swept on those events and on a bounded timer, recorded in `_events` | `KindSwept` in `internal/tasks/task.go`; the timer in `internal/daemon/daemon.go`; `TestLeaseIsReleasedAfterTheClaimingPaneDies` |
 | §11.6 | the `./` command rule, popups needing an attached client, a plugin pane being `human` | `TestManifestCommandsInThePluginRootSayTheyAre`; both panes are `placement = "popup"` and nothing automated opens one, so no e2e depends on a pane appearing; `internal/project/project.go` reads `HERDR_PLUGIN_CONTEXT_JSON` and never a pane id, and `TestTheBoardOffersHumanVerbsOnly` holds the pane to human verbs |
 | §13.1 | the plugin id is the repository name and names no umbrella | `herdr-plugin.toml` `id = "herdr-tasks"`; `cmd/htask/manifest_test.go` |
-
-One gap the table does not close: §13.2 says the binary abbreviations are
-"listed in the glossary (§14)", and §14 lists none. Two are shipped and neither
-is written down there — `htask` for `tasks` here, and `hdis` for `dispatch` in
-the peer repository. §13.1 permits the abbreviation, so nothing is wrong with
-either name; the promise §13.2 makes about where to look for them is what is
-unkept. Recorded rather than fixed, because the glossary is normative content
-and this repository transcribes it rather than writing it.
+| §14 (0.4.0) | the glossary lists the binary abbreviations §13.2 says it lists: `htask` for `tasks`, `hdis` for `dispatch` | this plugin ships the first of the two: `cmd/htask` builds `htask`, `herdr-plugin.toml` names it in `[[build]]`, and `CHANGELOG.md` is written for callers of that binary. The list was empty while two abbreviations were in use, so §13.2 pointed at a place that answered nothing; adding them keeps a promise the contract already made rather than adding an obligation, which is why the revision does not move |
 
 One observation the table does not settle: `Prompt` has no caller. It is the
 §11.4-conformant primitive and it is correct, but nothing in this plugin
