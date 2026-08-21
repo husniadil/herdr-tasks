@@ -334,6 +334,11 @@ var All = []Verb{
 	{
 		Name: "events", CLI: []string{"events"}, MCP: "tasks_events",
 		Short: "Stream the append-only event trail",
+		Long: "Without --since this reads from the BEGINNING: the answer, and a\n" +
+			"--follow stream alike, start with the whole trail, oldest event first.\n" +
+			"--follow only waits for something new once that backlog is drained, so a\n" +
+			"consumer that resumes has to pass --since <event id or unix ms> or it\n" +
+			"sees every event again on every restart.",
 		Args: []Arg{
 			{Name: "since", Type: String, Desc: "An event id or a Unix-millisecond timestamp to resume from"},
 			{Name: "entity", Type: String, Desc: "task or note"},

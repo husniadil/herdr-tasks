@@ -1255,6 +1255,55 @@ func TestAStreamThatEndsOnPurposeExitsZero(t *testing.T) {
 	}
 }
 
+// §8.2, and the first thing an external consumer gets wrong: `events --follow`
+// with no --since does not mean "from now on". The stream reads the trail
+// through the caller's filter BEFORE it waits for anything, so a follower that
+// names no resume point is handed the whole history, oldest event first, and
+// only then starts waiting. A second binary that assumed otherwise would act
+// on every task the board has ever moved, every time it restarted.
+func TestAFollowWithNoSinceReplaysTheWholeTrail(t *testing.T) {
+	w := newWorld(t)
+	for _, title := range []string{"oldest", "middle", "newest"} {
+		w.json(w.env(), "task", "create", title)
+	}
+	trail, _ := w.json(w.env(), "events")["events"].([]any)
+	if len(trail) != 3 {
+		t.Fatalf("the trail holds %d events, want the 3 this test wrote", len(trail))
+	}
+	oldest, _ := trail[0].(map[string]any)
+
+	// --limit bounds the WHOLE stream, so the one document this follower
+	// prints is whatever it was handed FIRST.
+	f := startFollower(t, w, "--limit", "1")
+	if status := f.wait(t, 15*time.Second); status != 0 {
+		t.Fatalf("exit %d, want 0: %s%s", status, f.out, f.errOut)
+	}
+	docs := f.documents()
+	if len(docs) != 1 {
+		t.Fatalf("%d documents, want 1:\n%s", len(docs), f.out)
+	}
+	var got map[string]any
+	if err := json.Unmarshal([]byte(docs[0]), &got); err != nil {
+		t.Fatalf("the follower printed something that is not one event: %q", docs[0])
+	}
+	if got["id"] != oldest["id"] {
+		t.Fatalf("a follower with no --since received %v first, want the oldest event %v",
+			got["id"], oldest["id"])
+	}
+
+	// And the help says so. The behaviour is surprising, and the CLI's own
+	// help is where a consumer reads before it writes a resume loop.
+	help, _, status := w.run(w.env(), "events", "--help")
+	if status != 0 {
+		t.Fatalf("events --help exited %d: %s", status, help)
+	}
+	for _, want := range []string{"--since", "the whole trail"} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("events --help does not mention %q, so the replay is undocumented:\n%s", want, help)
+		}
+	}
+}
+
 // parentCommands are the CLI's grouping commands — the first word of every
 // multi-word verb path. Read from the registry rather than listed here, so a
 // group added later is covered without anyone remembering to add a line.
