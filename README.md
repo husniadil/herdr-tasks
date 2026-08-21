@@ -19,6 +19,19 @@ The manifest's `[[build]]` step compiles `bin/htask` on install, and `[[startup]
 starts the daemon. Herdr has no shutdown hook, so the **Stop the tasks daemon**
 workspace action is the way to turn it off.
 
+Then link the agent skill, which the install does not place for you:
+
+```sh
+root=$(herdr plugin list --plugin herdr-tasks --json | jq -r '.result.plugins[0].plugin_root')
+ln -s "$root/skills/tasks" ~/.claude/skills/tasks
+```
+
+Herdr keeps an installed plugin under `~/.config/herdr/plugins/github/`, in a
+directory named for the plugin id and a hash of where it came from — ask for
+`plugin_root` rather than writing that path out, because the hash is not
+something you can predict. `herdr plugin config-dir herdr-tasks` is a
+different directory: the plugin's config, not its checkout.
+
 To develop against a checkout:
 
 ```sh
@@ -109,6 +122,18 @@ is also clickable — the footer draws each verb where the mouse can reach it.
 | `/` | either board | filter it — the search runs in the daemon, like `--query` |
 | `tab` | either board | switch between the tasks board and the notes board |
 | `esc` | either board | close the detail, then clear the filter, then leave |
+
+The boards scroll. The wheel moves the region under the pointer and only that
+one, so a long report scrolls under the pointer while the list behind it stays
+where you left it, and the cursor keys drag the window along with the
+selection. The detail panel is a bounded bottom panel rather than a cover: it
+takes at most half of what is left, and its own text scrolls inside that.
+
+Nothing scrolls out of sight silently. Each heading carries its count and,
+when part of that column is off the screen, which of its rows are drawn —
+`todo (40) 6-14`. A column the shared offset has scrolled clean past reads
+`done (3) none`, which is what tells a column you have gone by from one that
+was empty all along. The detail panel says the same on its separator row.
 
 ## The shared plugin contract
 
@@ -240,9 +265,27 @@ Tests never touch your live Herdr, config or state: state and config dirs are
 temp dirs and `herdr` is a fake on PATH (§12.3). Every test cites the contract
 section it enforces.
 
-Three dependencies, deliberately: [cobra](https://github.com/spf13/cobra),
-[modernc.org/sqlite](https://modernc.org/sqlite) (pure Go, no cgo), and the
-official [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).
+Five dependencies, deliberately, each with a reason:
+
+- [`github.com/spf13/cobra`](https://github.com/spf13/cobra) — the CLI, whose
+  subcommands are generated from the one verb registry both doors read.
+- [`modernc.org/sqlite`](https://modernc.org/sqlite) — the store, in pure Go,
+  so the binary builds and ships without cgo.
+- [`github.com/modelcontextprotocol/go-sdk`](https://github.com/modelcontextprotocol/go-sdk)
+  — the MCP door, on the official SDK rather than a hand-rolled protocol.
+- [`github.com/charmbracelet/bubbletea`](https://github.com/charmbracelet/bubbletea)
+  — the board pane. §11.6 asks for a mouse-first surface and the alternative
+  is our own terminal input parser; the model and update logic stay pure, so
+  the tests never start a terminal.
+- [`github.com/charmbracelet/x/ansi`](https://github.com/charmbracelet/x/ansi)
+  — measuring text in display cells. Bubbletea's renderer truncates every line
+  it writes with `ansi.Truncate` at the terminal width, so a width function
+  that disagreed with `ansi.StringWidth` would let the layout believe a line
+  fits while the renderer cut it. Agreement with the renderer is the
+  requirement, so the layout uses the renderer's own function.
+
+`TestDependenciesAreDeclaredInTheReadme` reads go.mod's direct requires and
+fails on one this list does not name.
 
 ## Licence
 
