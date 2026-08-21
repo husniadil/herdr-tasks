@@ -36,7 +36,8 @@ in the amendment the same way a test cites the § it enforces.
 
 ## Non-negotiables
 
-1. **Dependency budget: five libraries** — cobra, modernc.org/sqlite, the
+1. **Dependency budget: five libraries** (six `go.mod` lines) — cobra,
+   modernc.org/sqlite, the
    official MCP go-sdk (`github.com/modelcontextprotocol/go-sdk`, pinned
    v1.7.0), bubbletea (`github.com/charmbracelet/bubbletea`) for the TUI, and
    `github.com/charmbracelet/x/ansi` for measuring text in terminal cells.
@@ -58,6 +59,16 @@ in the amendment the same way a test cites the § it enforces.
    runes where the renderer measures graphemes, and reports a regional-
    indicator flag as one cell against the renderer's two. Nothing else from
    the charm family is imported directly.
+
+   `github.com/spf13/pflag` is the sixth `go.mod` line and not a sixth
+   library: it is cobra's own flag package, already compiled in through
+   cobra, named directly by one test. `Command.Flags()` hands back a
+   `*pflag.FlagSet` whose only complete enumeration is
+   `VisitAll(func(*pflag.Flag))`, and Go infers no parameter type for a
+   function literal, so calling it means writing the type. The one
+   alternative that avoids it, `FlagUsages()`, skips hidden flags, which
+   would leave the CLI-to-MCP flag drift check blind to a whole class of
+   flag. Declaring it beats a test that quietly stops checking.
 
 2. **The `--json` shape and the error-code vocabulary are semver-bound.** A
    shipped field or code is never repurposed or removed; only new ones are

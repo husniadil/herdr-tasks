@@ -46,20 +46,53 @@ func TestManifestCommandsExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read the manifest: %v", err)
 	}
+	built := buildArtifact(t, string(body))
 	for _, m := range commandLine.FindAllStringSubmatch(string(body), -1) {
 		argv0 := m[1]
 		if !strings.Contains(argv0, "/") {
 			continue
 		}
-		// bin/htask is built by the manifest's own [[build]] step, so its absence
-		// in a fresh checkout is not a broken manifest.
-		if strings.HasSuffix(argv0, "/ht") {
+		// The artifact the manifest's own [[build]] step declares producing is
+		// absent from a fresh clone until that step runs, which is not a
+		// broken manifest. Read from [[build]] rather than matched by name:
+		// the name it was matched by outlived the binary it named, and the
+		// only place that could not happen is the manifest itself.
+		if argv0 == built {
 			continue
 		}
 		if _, err := os.Stat(filepath.Join(root, argv0)); err != nil {
 			t.Errorf("manifest command %q is not in the plugin root: %v", argv0, err)
 		}
 	}
+}
+
+// buildCommand matches the `[[build]]` section's whole command array, so the
+// artifact can be read out of it.
+var buildCommand = regexp.MustCompile(`(?ms)^\[\[build\]\].*?^command\s*=\s*\[([^\]]*)\]`)
+
+// buildArtifact is the file the manifest's [[build]] step says it writes: the
+// element after `-o` in its command. Failing loudly rather than returning ""
+// matters — an empty answer would exempt nothing and the caller would report
+// the artifact as a missing file, which reads as a broken manifest.
+func buildArtifact(t *testing.T, manifest string) string {
+	t.Helper()
+	m := buildCommand.FindStringSubmatch(manifest)
+	if m == nil {
+		t.Fatal("the manifest declares no [[build]] command, so nothing says what a fresh clone still has to build")
+	}
+	parts := []string{}
+	for _, raw := range strings.Split(m[1], ",") {
+		if v := strings.Trim(strings.TrimSpace(raw), `"`); v != "" {
+			parts = append(parts, v)
+		}
+	}
+	for i, p := range parts {
+		if p == "-o" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	t.Fatalf("the [[build]] command %v names no -o output, so what it produces cannot be read from it", parts)
+	return ""
 }
 
 // eventBlock matches one `[[events]]` section's `on` and `command` argv0.

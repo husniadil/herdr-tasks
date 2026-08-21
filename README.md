@@ -273,7 +273,7 @@ Tests never touch your live Herdr, config or state: state and config dirs are
 temp dirs and `herdr` is a fake on PATH (§12.3). Every test cites the contract
 section it enforces.
 
-Five dependencies, deliberately, each with a reason:
+Six `go.mod` lines, five libraries, each with a reason:
 
 - [`github.com/spf13/cobra`](https://github.com/spf13/cobra) — the CLI, whose
   subcommands are generated from the one verb registry both doors read.
@@ -291,6 +291,16 @@ Five dependencies, deliberately, each with a reason:
   that disagreed with `ansi.StringWidth` would let the layout believe a line
   fits while the renderer cut it. Agreement with the renderer is the
   requirement, so the layout uses the renderer's own function.
+
+- [`github.com/spf13/pflag`](https://github.com/spf13/pflag) — cobra's own
+  flag library, named directly by one test. `Command.Flags()` returns a
+  `*pflag.FlagSet`, and the only complete enumeration it offers is
+  `VisitAll(func(*pflag.Flag))`; Go infers no parameter type for a function
+  literal, so the type has to be written to call it. `FlagUsages()` is the one
+  name source that avoids the type and it skips hidden flags, which would
+  leave `TestEveryCLIGlobalIsAccountedForOnTheMCPDoor` silently blind to
+  exactly the flags it exists to catch. This is a `go.mod` line and no new
+  supply-chain surface: pflag is already compiled in through cobra.
 
 `TestDependenciesAreDeclaredInTheReadme` reads go.mod's direct requires and
 fails on one this list does not name.
