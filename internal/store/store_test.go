@@ -1558,3 +1558,32 @@ func TestMigrationAddsTaskProjectAndKeepsOldNotesReadable(t *testing.T) {
 		t.Fatalf("task_project = %q, want empty: the old row was promoted at home", got.TaskProject)
 	}
 }
+
+// §4.4: a ULID is the cross-board address, so an --all-projects get finds a
+// task filed anywhere; a number is only unique inside a project, so it is
+// refused rather than resolved against a board the caller did not name.
+func TestGetAnyProjectResolvesULIDAndRefusesNumber(t *testing.T) {
+	s := open(t)
+	create(t, s, "here")
+	there, err := s.CreateTask(tasks.NewTaskInput{Project: "/tmp/project-b", Title: "there"}, operator, tick(t))
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := s.GetTask(proj, there.ID); codeOf(t, err) != codes.NotFound {
+		t.Fatalf("scoped get of a task on another board = %v, want NOT_FOUND", err)
+	}
+	got, err := s.GetTaskAnyProject(there.ID)
+	if err != nil {
+		t.Fatalf("GetTaskAnyProject: %v", err)
+	}
+	if got.ID != there.ID || got.Project != "/tmp/project-b" {
+		t.Fatalf("GetTaskAnyProject = %s in %s, want %s in /tmp/project-b", got.ID, got.Project, there.ID)
+	}
+	_, err = s.GetTaskAnyProject("1")
+	if codeOf(t, err) != codes.Usage {
+		t.Fatalf("GetTaskAnyProject by number = %v, want USAGE", err)
+	}
+	if !strings.Contains(err.Error(), "only unique inside a project") {
+		t.Fatalf("refusal does not say why: %v", err)
+	}
+}

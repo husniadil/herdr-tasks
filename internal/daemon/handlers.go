@@ -178,7 +178,15 @@ func hTaskList(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 }
 
 func hTaskGet(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
-	t, err := d.Store.GetTask(req.Project, argString(req.Args, "id"))
+	ref := argString(req.Args, "id")
+	get := func() (*tasks.Task, error) { return d.Store.GetTask(req.Project, ref) }
+	if req.AllProjects {
+		// §4.4: the caller asked past their own board, so the id is resolved
+		// against every project. The task carries the project it was found in,
+		// which is the only place that answer can come from.
+		get = func() (*tasks.Task, error) { return d.Store.GetTaskAnyProject(ref) }
+	}
+	t, err := get()
 	if err != nil {
 		return nil, err
 	}

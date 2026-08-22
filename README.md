@@ -191,6 +191,16 @@ directory wants, and `--all-projects` opts out of scoping for one watching
 several repositories at once. `task list --ready` is the unblocked, unclaimed
 work.
 
+A task's 26-character id is its address across boards: it is minted once and
+names one task anywhere, so `task get <id> --all-projects` reads a task filed
+on any project's board and the answer names the project it was found in. The
+`#<n>` number is not an address across boards — it is minted per project, so
+`#24` exists on as many boards as have filed 24 tasks. `task get <n>
+--all-projects` is refused with USAGE for that reason; pass the id instead, or
+scope the number to its board with `--project`. Without `--all-projects`
+nothing changes: an id filed elsewhere is NOT_FOUND, naming the project that
+was searched.
+
 **Principal.** A principal is derived from the environment, so a consumer
 does not get to assume which one it will be: a program with no `HERDR_PANE_ID`
 is `human` (§3.2), and one started inside a Herdr pane inherits that pane id

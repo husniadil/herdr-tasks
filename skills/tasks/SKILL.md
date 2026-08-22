@@ -11,6 +11,11 @@ description: The task backlog and notes board for this Herdr fleet. Use when pic
 says which project it searched and how many rows match elsewhere; read that
 line before concluding there is no work.
 
+A task's 26-character id is the cross-board address: `htask task get <id>
+--all-projects` finds it whichever board it was filed on, and says which. The
+`#<n>` number is per project — `#24` exists on every board that has filed 24
+tasks — so a number with `--all-projects` is refused rather than guessed at.
+
 You never say who you are. Your principal is derived from the Herdr pane you
 run in, and the harness is read from Herdr, not from you.
 

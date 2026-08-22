@@ -1605,3 +1605,67 @@ func resolvedProject(t *testing.T, dir string) string {
 	}
 	return p
 }
+
+// §4.4: a ULID is minted once and names one task anywhere, so a caller that
+// asks for the whole store gets it back with the board it lives on named. A
+// seq is minted per project, so the same number sits on several boards at
+// once: asking for one across projects is refused rather than answered with a
+// guess. Without the flag nothing changes — a task on another board is still
+// NOT_FOUND for the project the caller is in.
+func TestGetAcrossProjectsTakesAULIDAndRefusesANumber(t *testing.T) {
+	w := newWorld(t)
+	other := filepath.Join(filepath.Dir(w.project), "elsewhere")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	canonical, err := filepath.EvalSymlinks(other)
+	if err != nil {
+		t.Fatalf("canonical path: %v", err)
+	}
+	created := w.json(w.env(), "task", "create", "filed on another board", "--project", other)
+	id, _ := created["task"].(map[string]any)["id"].(string)
+	if id == "" {
+		t.Fatalf("no id in %v", created)
+	}
+
+	// Without the flag: the caller's own board, and the refusal names it.
+	stdout, stderr, status := w.run(w.env(), "task", "get", id, "--project", w.project)
+	if status == 0 {
+		t.Fatalf("a task on another board resolved without the flag: %q", stdout)
+	}
+	if !strings.Contains(stderr, "NOT_FOUND") {
+		t.Fatalf("scoped get did not answer NOT_FOUND: %q", stderr)
+	}
+	if want, _ := filepath.EvalSymlinks(w.project); !strings.Contains(stderr, want) {
+		t.Fatalf("the refusal does not name the caller's project: %q", stderr)
+	}
+
+	// With it: found, and the answer says which board it was found on.
+	doc := w.json(w.env(), "task", "get", id, "--project", w.project, "--all-projects")
+	task, _ := doc["task"].(map[string]any)
+	if task == nil || task["id"] != id {
+		t.Fatalf("--all-projects get did not return the task: %v", doc)
+	}
+	if task["project"] != canonical {
+		t.Fatalf(`--json task.project = %v, want %q`, task["project"], canonical)
+	}
+	stdout, _, status = w.run(w.env(), "task", "get", id, "--project", w.project, "--all-projects")
+	if status != 0 {
+		t.Fatalf("prose get exit %d: %q", status, stdout)
+	}
+	if !strings.Contains(stdout, canonical) {
+		t.Fatalf("the prose answer does not name the project it was found in: %q", stdout)
+	}
+
+	// A number is not an address across boards: #1 exists on both of these.
+	stdout, stderr, status = w.run(w.env(), "task", "get", "1", "--project", w.project, "--all-projects")
+	if status == 0 {
+		t.Fatalf("a number resolved across projects: %q", stdout)
+	}
+	if !strings.Contains(stderr, "USAGE") || !strings.Contains(stderr, "only unique inside a project") {
+		t.Fatalf("the refusal does not say why a number cannot cross boards: %q", stderr)
+	}
+	if strings.Contains(stdout, "\"task\"") || strings.Contains(stdout, "#") {
+		t.Fatalf("a refused get still returned a task: %q", stdout)
+	}
+}

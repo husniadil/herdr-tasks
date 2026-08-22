@@ -850,3 +850,54 @@ func TestTheServedServerRegistersUnderThePluginIdentity(t *testing.T) {
 		}
 	}
 }
+
+// §4.4 / §6.1: get carries all_projects with the same two behaviours the CLI
+// flag has — a ULID resolves against every board and the document names the
+// one it was found in, and a number is refused because it is only unique
+// inside a project.
+func TestGetAcrossProjectsThroughMCP(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	_, call := inProcessDaemon(t)
+	sess := mcpSession(t, call)
+	here, there := canonProject(t, "/tmp/here"), canonProject(t, "/tmp/there")
+	made, err := call(protocol.Request{Verb: "task.create", Project: there,
+		Args: map[string]any{"title": "filed over there"}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var created struct {
+		Task struct{ ID string } `json:"task"`
+	}
+	if err := json.Unmarshal(made, &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if scoped := callTool(t, sess, "get", map[string]any{"id": created.Task.ID, "project": here}); !scoped.IsError {
+		t.Fatalf("without the flag a task on another board resolved: %s", text(scoped))
+	} else if !strings.Contains(text(scoped), here) {
+		t.Fatalf("the refusal does not name the caller's project: %s", text(scoped))
+	}
+
+	res := callTool(t, sess, "get", map[string]any{"id": created.Task.ID, "project": here, "all_projects": true})
+	if res.IsError {
+		t.Fatalf("all_projects get: %s", text(res))
+	}
+	var got struct {
+		Task struct{ ID, Project string } `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Task.ID != created.Task.ID || got.Task.Project != there {
+		t.Fatalf("all_projects get = %s in %q, want %s in %q",
+			got.Task.ID, got.Task.Project, created.Task.ID, there)
+	}
+
+	num := callTool(t, sess, "get", map[string]any{"id": "1", "project": here, "all_projects": true})
+	if !num.IsError {
+		t.Fatalf("a number resolved across projects: %s", text(num))
+	}
+	if !strings.Contains(text(num), "only unique inside a project") {
+		t.Fatalf("the refusal does not say why: %s", text(num))
+	}
+}

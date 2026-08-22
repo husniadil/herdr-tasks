@@ -108,6 +108,41 @@ func (s *Store) GetTask(project, ref string) (*tasks.Task, error) {
 	return readTask(tx, project, ref)
 }
 
+// GetTaskAnyProject reads one task by ULID, whichever board it was filed on
+// (§4.4). Only a ULID addresses a task across boards: a seq is minted per
+// project, so the same number exists on several boards at once and resolving
+// one of them would be a guess.
+func (s *Store) GetTaskAnyProject(ref string) (*tasks.Task, error) {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil, codes.New(codes.Usage, "an id is required")
+	}
+	if !ids.Valid(ref) {
+		return nil, codes.Errorf(codes.Usage,
+			"%q is not a 26-character id: a number is only unique inside a project, so it cannot address a task across projects", ref)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, wrap(err)
+	}
+	defer tx.Rollback()
+	row := tx.QueryRow("SELECT "+taskColumns+" FROM tasks WHERE id = ?", ref)
+	t, err := scanTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, codes.Errorf(codes.NotFound, "no task %s in any project", ref)
+	}
+	if err != nil {
+		return nil, wrap(err)
+	}
+	if t.Deps, err = readDeps(tx, t.ID); err != nil {
+		return nil, wrap(err)
+	}
+	if t.Blocked, t.Abandoned, err = blockedBy(tx, t.ID); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
 // TaskFilter is what list verbs accept. Project is the default scope;
 // AllProjects is §4.4's opt-out.
 type TaskFilter struct {

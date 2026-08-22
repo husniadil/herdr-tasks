@@ -158,6 +158,9 @@ func printTask(t *tasks.Task, now int64) {
 		fmt.Print(reviewWait(t, now))
 	}
 	fmt.Printf("\n     id %s\n", t.ID)
+	// A task read across boards is only useful with the board named, and a
+	// task read on your own board loses nothing by saying which one it is.
+	fmt.Printf("     in %s\n", t.Project)
 	if t.Description != "" {
 		fmt.Printf("\n%s\n", t.Description)
 	}
