@@ -144,10 +144,28 @@ func TestTheDeclaredRevisionIsTheVendoredOne(t *testing.T) {
 		t.Fatalf("%s states no Version on its Status line", contractFile)
 	}
 	stated := string(m[1])
+	// The declaration may LAG the vendored document, and only that way: an
+	// amendment lands in the text before any plugin has been brought to it,
+	// and a plugin that declared the new revision on the day it was written
+	// would be claiming conformance it has not done the work for. What is
+	// never allowed is a silent lag — that is the drift this test was
+	// written for — so a lag is legal only while docs/contract-notes.md
+	// names BOTH revisions, which is where §12's gap record lives.
 	if stated != daemon.ContractVersion {
-		t.Errorf("%s is revision %s and this binary declares %s; doctor, version and README "+
-			"all read that constant, so they are claiming conformance to a text that is not here",
-			contractFile, stated, daemon.ContractVersion)
+		notes, err := os.ReadFile(filepath.Join("..", "..", "docs", "contract-notes.md"))
+		if err != nil {
+			t.Fatalf("read docs/contract-notes.md: %v", err)
+		}
+		switch {
+		case !strings.Contains(string(notes), stated) || !strings.Contains(string(notes), daemon.ContractVersion):
+			t.Errorf("%s is revision %s and this binary declares %s; doctor, version and README "+
+				"all read that constant, so they are claiming conformance to a text that is not "+
+				"here, and docs/contract-notes.md names no open gap between the two",
+				contractFile, stated, daemon.ContractVersion)
+		default:
+			t.Logf("declared revision %s lags the vendored %s; docs/contract-notes.md records the gap",
+				daemon.ContractVersion, stated)
+		}
 	}
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {

@@ -406,3 +406,34 @@ One observation the table does not settle: `Prompt` has no caller. It is the
 §11.4-conformant primitive and it is correct, but nothing in this plugin
 delivers text to an agent today, so §11.4 is satisfied by a path that is not
 exercised outside its own package.
+
+## 0.7.0 opens a parity gap in every plugin, this one included
+
+The 0.7.0 amendment to §7.3 requires a plugin's MCP door to serve every verb
+its CLI serves. Nothing served that when it was written. This plugin serves 13
+of its 30 verbs, and every operator verb is off the door, so a harness with no
+shell can approve a task and cannot promote a note. That is the gap the
+amendment names and it is open here from the moment the text landed.
+
+The declaration therefore lags on purpose: `daemon.ContractVersion` and the
+README stay at **0.6.0** while `docs/contract.md` states **0.7.0**. Declaring a
+revision is a conformance claim and no test can make it; declaring 0.7.0 on the
+day the text was written would claim a door that does not exist yet.
+`TestTheDeclaredRevisionIsTheVendoredOne` was taught this one shape and no
+other: the declaration may lag the vendored document only while this file names
+both revisions, so a silent lag — the drift the test was written for — still
+fails. Bringing the door to parity and moving the declaration to 0.7.0 is its
+own task, and it is what closes this entry.
+
+Two things that survive the amendment and should not be read as oversights.
+`TestMCPToolCountStaysSmall` still asserts 8–16 tools and still passes at 15;
+it enforces a §7.3 sentence that no longer exists, and it is the door task's
+job to delete it, not this one's — a passing test is not evidence of a rule.
+And `TestAsStaysOffTheMCPDoor` is KEPT: §7.3 now says in its own words that
+parity is over verbs and that `--as` is not one, so the pin went from a local
+choice to something the contract asks for.
+
+§7.1's `serves MCP over stdio` was read and deliberately left alone. A door
+being first-class is a statement about which verbs it serves, not about how
+bytes reach it; the transport question a first-class surface raises is recorded
+separately and is not answered by anything in 0.7.0.

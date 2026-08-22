@@ -1,6 +1,14 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.6.0. Date: 2026-08-21.
+Status: binding. Version: 0.7.0. Date: 2026-08-23.
+
+Changes in 0.7.0: §7.3 makes MCP and the CLI both first-class and requires a
+plugin's door to serve every verb its CLI serves; the tool-count guidance is
+removed rather than softened. §6.1 follows, and its parity test now fails in
+both directions. Parity is over verbs: `--as` stays CLI-only, because the
+no-new-authority argument rests on the caller being able to run the CLI, and
+the shell-less harness parity exists for cannot. §7.1's stdio-only sentence is
+unchanged; transport is a separate question.
 
 Changes in 0.6.0: §6.6 recuses by principal and by agent session, not by
 harness. Two panes running the same model in different sessions are two
@@ -227,11 +235,11 @@ regardless, and say what it dropped.
 
 ## §6 Verbs, CLI, and error envelope
 
-§6.1 Every verb is a CLI subcommand with `--json`. A pinned subset of verbs is
-also exposed as MCP tools (§7.3); where a verb is on both surfaces its name,
-arguments, and result shape are identical — generate both doors from one verb
-registry rather than maintaining two. A parity test MUST enumerate both
-surfaces and fail when they drift.
+§6.1 Every verb is a CLI subcommand with `--json` and an MCP tool (§7.3). A
+verb's name, arguments, and result shape are identical on both doors —
+generate both from one verb registry rather than maintaining two. A parity
+test MUST enumerate both surfaces and fail when they drift, in both
+directions: a tool with no subcommand, and a subcommand with no tool.
 
 §6.2 With `--json`, stdout carries exactly one JSON document: the result on
 success, or `{"error":{"code":"<CODE>","message":"<text>"}}` on failure.
@@ -290,9 +298,27 @@ state of its own. The server's `instructions` string MUST say, in one
 paragraph, what the plugin is, that pane/agent/workspace refer to Herdr, and
 which verbs are the usual entry points.
 
-§7.3 A plugin SHOULD keep its MCP tool count small (roughly 8–16) and push
-rarely used verbs to the CLI, which the skill teaches. The CLI is the primary
-agent surface; MCP exists for discoverability and namespace grounding.
+§7.3 MCP and the CLI are both first-class surfaces. A plugin's MCP door MUST
+serve every verb its CLI serves; there is no tool budget and no class of verb
+that belongs on one door and not the other. A verb reachable only by shell is
+unreachable to a harness that has no shell, and which verbs those were was an
+accident of a tool count rather than a decision anyone made about authority.
+
+Parity grants no authority the CLI does not already grant. Both doors are the
+same binary, run by the same user, against the same daemon, and §3.2 derives
+the principal identically for either. Anything a caller can do through a new
+tool, it could already do by running the CLI subcommand of the same name. A
+verb the plugin means to withhold from agents is withheld by the §9 policy
+gate, which both doors pass through, never by leaving it off one door.
+
+Parity is over VERBS, not over the CLI's global flags. `--as` (§3.2) stays
+CLI-only, and the reason is the caller parity exists for: the no-new-authority
+argument holds only because the same caller could already run the CLI, and a
+harness with no shell cannot. Serving `--as` on the door would hand exactly
+that caller an identity claim it has no other way to make, which is new
+authority rather than the same authority through a second door. A plugin that
+pins `--as` off its door — herdr-tasks does, in
+`TestAsStaysOffTheMCPDoor` — keeps that pin under this revision.
 
 §7.4 Tool results are the same JSON as `--json` CLI output. Errors are tool
 errors carrying the §6.3 code, never JSON-RPC protocol errors.
