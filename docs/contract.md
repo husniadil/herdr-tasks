@@ -7,8 +7,9 @@ plugin's door to serve every verb its CLI serves; the tool-count guidance is
 removed rather than softened. §6.1 follows, and its parity test now fails in
 both directions. Parity is over verbs: `--as` stays CLI-only, because the
 no-new-authority argument rests on the caller being able to run the CLI, and
-the shell-less harness parity exists for cannot. §7.1's stdio-only sentence is
-unchanged; transport is a separate question.
+the shell-less harness parity exists for cannot; a door that excludes it MUST
+pin the exclusion with a test rather than only recording the reason. §7.1's
+stdio-only sentence is unchanged; transport is a separate question.
 
 Changes in 0.6.0: §6.6 recuses by principal and by agent session, not by
 harness. Two panes running the same model in different sessions are two
@@ -316,9 +317,14 @@ CLI-only, and the reason is the caller parity exists for: the no-new-authority
 argument holds only because the same caller could already run the CLI, and a
 harness with no shell cannot. Serving `--as` on the door would hand exactly
 that caller an identity claim it has no other way to make, which is new
-authority rather than the same authority through a second door. A plugin that
-pins `--as` off its door — herdr-tasks does, in
-`TestAsStaysOffTheMCPDoor` — keeps that pin under this revision.
+authority rather than the same authority through a second door.
+
+A plugin whose door excludes `--as` MUST pin that exclusion with a test.
+Recording the reason in a table beside the other globals says what was
+intended, and nothing fails when a later edit maps the flag instead. This
+revision grandfathers no one: herdr-tasks records the exclusion and its reason
+and has no such pin today, and adding one is part of bringing its door to
+parity.
 
 §7.4 Tool results are the same JSON as `--json` CLI output. Errors are tool
 errors carrying the §6.3 code, never JSON-RPC protocol errors.

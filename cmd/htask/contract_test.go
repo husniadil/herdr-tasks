@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -147,25 +148,28 @@ func TestTheDeclaredRevisionIsTheVendoredOne(t *testing.T) {
 	// The declaration may LAG the vendored document, and only that way: an
 	// amendment lands in the text before any plugin has been brought to it,
 	// and a plugin that declared the new revision on the day it was written
-	// would be claiming conformance it has not done the work for. What is
-	// never allowed is a silent lag — that is the drift this test was
-	// written for — so a lag is legal only while docs/contract-notes.md
-	// names BOTH revisions, which is where §12's gap record lives.
+	// would be claiming conformance it has not done the work for. Every
+	// other shape is the drift this test was written for, so both halves of
+	// that sentence are enforced rather than described. Declaring a revision
+	// HIGHER than the vendored one is conformance to a text that is not in
+	// this repository at all, which is worse than the lag it looks like.
+	// And the gap must be a RECORDED one: the two revisions named together
+	// in a single entry of docs/contract-notes.md, not merely both present
+	// somewhere in a file that already names six of them.
 	if stated != daemon.ContractVersion {
-		notes, err := os.ReadFile(filepath.Join("..", "..", "docs", "contract-notes.md"))
-		if err != nil {
-			t.Fatalf("read docs/contract-notes.md: %v", err)
+		if !revisionLower(daemon.ContractVersion, stated) {
+			t.Fatalf("this binary declares revision %s against a contract vendored at %s; a "+
+				"declaration may only lag the document, never lead it, and %s is not in this "+
+				"repository for anyone to read", daemon.ContractVersion, stated, daemon.ContractVersion)
 		}
-		switch {
-		case !strings.Contains(string(notes), stated) || !strings.Contains(string(notes), daemon.ContractVersion):
-			t.Errorf("%s is revision %s and this binary declares %s; doctor, version and README "+
-				"all read that constant, so they are claiming conformance to a text that is not "+
-				"here, and docs/contract-notes.md names no open gap between the two",
-				contractFile, stated, daemon.ContractVersion)
-		default:
-			t.Logf("declared revision %s lags the vendored %s; docs/contract-notes.md records the gap",
+		if !gapRecorded(t, daemon.ContractVersion, stated) {
+			t.Fatalf("this binary declares revision %s against a contract vendored at %s and "+
+				"docs/contract-notes.md has no single entry naming both; a lag nobody wrote "+
+				"down is the silent drift this test exists to catch",
 				daemon.ContractVersion, stated)
 		}
+		t.Logf("declared revision %s lags the vendored %s; docs/contract-notes.md records the gap",
+			daemon.ContractVersion, stated)
 	}
 	readme, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
 	if err != nil {
@@ -186,4 +190,61 @@ func TestTheDeclaredRevisionIsTheVendoredOne(t *testing.T) {
 			t.Errorf("README names revision %s as well as the declared %s", other, daemon.ContractVersion)
 		}
 	}
+}
+
+// revisionNumbers turns "0.7.0" or "0.4.0-draft" into its numeric fields. A
+// pre-release suffix orders BELOW the release it leads to, which is the order
+// this repository's own history used when 0.4.0-draft became 0.4.0.
+func revisionNumbers(v string) ([]int, bool, bool) {
+	pre := false
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		v, pre = v[:i], true
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return nil, false, false
+	}
+	out := make([]int, 3)
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil, false, false
+		}
+		out[i] = n
+	}
+	return out, pre, true
+}
+
+// revisionLower reports whether a is strictly below b.
+func revisionLower(a, b string) bool {
+	an, apre, aok := revisionNumbers(a)
+	bn, bpre, bok := revisionNumbers(b)
+	if !aok || !bok {
+		return false
+	}
+	for i := range an {
+		if an[i] != bn[i] {
+			return an[i] < bn[i]
+		}
+	}
+	// Same numbers: a pre-release is below the release, nothing else is.
+	return apre && !bpre
+}
+
+// gapRecorded reports whether docs/contract-notes.md names both revisions in
+// ONE entry. An entry is a paragraph — the unit a reader takes in as a single
+// statement — because "both strings appear in the file" is satisfied by a
+// changelog that has accumulated every revision the project ever had.
+func gapRecorded(t *testing.T, declared, vendored string) bool {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "contract-notes.md"))
+	if err != nil {
+		t.Fatalf("read docs/contract-notes.md: %v", err)
+	}
+	for _, para := range strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n\n") {
+		if strings.Contains(para, declared) && strings.Contains(para, vendored) {
+			return true
+		}
+	}
+	return false
 }

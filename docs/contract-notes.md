@@ -420,18 +420,30 @@ README stay at **0.6.0** while `docs/contract.md` states **0.7.0**. Declaring a
 revision is a conformance claim and no test can make it; declaring 0.7.0 on the
 day the text was written would claim a door that does not exist yet.
 `TestTheDeclaredRevisionIsTheVendoredOne` was taught this one shape and no
-other: the declaration may lag the vendored document only while this file names
-both revisions, so a silent lag — the drift the test was written for — still
-fails. Bringing the door to parity and moving the declaration to 0.7.0 is its
+other, and it enforces both halves rather than describing them: the declared
+revision must be strictly LOWER than the vendored one, and the gap must be
+named in a SINGLE entry of this file. Leading the document fails, because a
+binary declaring a revision this repository does not contain is claiming
+conformance to a text nobody can read. A lag with no entry fails, because this
+file already names six revisions and "both strings appear somewhere" is
+satisfied by almost anything — which is how the first version of the relaxed
+guard let a two-revision silent lag through. Bringing the door to parity and moving the declaration to 0.7.0 is its
 own task, and it is what closes this entry.
 
 Two things that survive the amendment and should not be read as oversights.
 `TestMCPToolCountStaysSmall` still asserts 8–16 tools and still passes at 15;
 it enforces a §7.3 sentence that no longer exists, and it is the door task's
 job to delete it, not this one's — a passing test is not evidence of a rule.
-And `TestAsStaysOffTheMCPDoor` is KEPT: §7.3 now says in its own words that
-parity is over verbs and that `--as` is not one, so the pin went from a local
-choice to something the contract asks for.
+And the `--as` pin does not exist. §7.3's first draft cited
+`TestAsStaysOffTheMCPDoor` as holding it; `grep -rn TestAsStaysOffTheMCPDoor
+--include=*.go .` returns nothing. What exists is
+`internal/mcpdoor/mcpdoor.go:345`, where `as` carries an `Excluded` reason
+citing §3.2, and `cmd/htask/render_test.go:186-193`, which asserts only that
+every global has exactly one of `Property` or `Excluded` — it would pass just
+as happily if a later edit mapped `as` to a property. The reason is recorded;
+nothing holds it. §7.3 now requires the pin instead of citing one, and adding
+it is the door task's work alongside the parity gap above. A contract is the
+one document that may not cite a guarantee that is not there.
 
 §7.1's `serves MCP over stdio` was read and deliberately left alone. A door
 being first-class is a statement about which verbs it serves, not about how
