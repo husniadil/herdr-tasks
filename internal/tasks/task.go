@@ -286,13 +286,28 @@ func Claim(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 		Detail: map[string]any{"lease_until": t.LeaseUntil, "harness": t.ClaimedByHarness}}, nil
 }
 
+// notHolder is the refusal a stranger gets from the four verbs a lease
+// reserves for its holder. It names the caller as well as the holder, and
+// says what a lease is not: task 80 recorded a worker that read the older
+// "task is claimed by plugin:hdis" as a demand for that principal and
+// re-ran the call with `--as plugin:hdis`, which went through and credited
+// a plugin with an agent's work. The message it misread said who held the
+// lease and nothing about who the reader was or what to do next.
+func notHolder(t *Task, by Actor, verb string) error {
+	return codes.Errorf(codes.Forbidden,
+		"you are %s and the lease on this task is held by %s: only the holder may %s it. "+
+			"Declaring a principal does not move a lease - `--as` says who is calling, it does not transfer a claim. "+
+			"Ask the holder to release it, or wait for its lease to expire.",
+		by.Principal, t.ClaimedBy, verb)
+}
+
 // Touch renews the lease. Only the holder may renew (§16.3).
 func Touch(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 	if t.ClaimedBy == "" {
 		return Event{}, codes.New(codes.Conflict, "task is not claimed")
 	}
 	if t.ClaimedBy != by.Principal {
-		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
+		return Event{}, notHolder(t, by, "touch")
 	}
 	// Wherever touch works for the holder, claim works too — the rule task 30
 	// asked for. Claim refuses a task in review; so does this, and for the
@@ -316,7 +331,7 @@ func Release(t *Task, by Actor, note string, now int64, kind string) (Event, err
 		return Event{}, codes.New(codes.Conflict, "task is not claimed")
 	}
 	if kind != KindSwept && !by.IsHuman() && t.ClaimedBy != by.Principal {
-		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
+		return Event{}, notHolder(t, by, "release")
 	}
 	if err := bound("note", note, MaxText); err != nil {
 		return Event{}, err
@@ -342,7 +357,7 @@ func Submit(t *Task, by Actor, report string, evidence, evidenceFor []string, no
 		return Event{}, codes.Errorf(codes.Conflict, "task is %s, not doing", t.Status)
 	}
 	if t.ClaimedBy != "" && t.ClaimedBy != by.Principal && !by.IsHuman() {
-		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
+		return Event{}, notHolder(t, by, "submit")
 	}
 	if err := bound("report", report, MaxText); err != nil {
 		return Event{}, err
@@ -538,7 +553,7 @@ func Cancel(t *Task, by Actor, reason string, now int64) (Event, error) {
 		return Event{}, codes.Errorf(codes.Conflict, "task is already %s", t.Status)
 	}
 	if t.ClaimedBy != "" && t.ClaimedBy != by.Principal && !by.IsHuman() {
-		return Event{}, codes.Errorf(codes.Forbidden, "task is claimed by %s", t.ClaimedBy)
+		return Event{}, notHolder(t, by, "cancel")
 	}
 	if err := bound("reason", reason, MaxText); err != nil {
 		return Event{}, err

@@ -1791,3 +1791,44 @@ func mustJSON(t *testing.T, resp protocol.Response) json.RawMessage {
 	}
 	return resp.Result
 }
+
+// Task 80: the FORBIDDEN a non-holder gets names the caller as well as the
+// holder, and says that declaring a principal is not how a lease moves. The
+// older text was "task is claimed by plugin:hdis" and nothing else, and a
+// worker read it as a demand for that principal rather than as a refusal
+// addressed to itself: it re-ran the submit with `--as plugin:hdis`, which
+// went through and credited a plugin with an agent's work.
+func TestHolderRefusalNamesTheCallerAndRefusesTheWorkaround(t *testing.T) {
+	d := newDaemon(t, nil)
+	id := createTask(t, d, "held work").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+
+	for _, verb := range []struct {
+		name string
+		req  protocol.Request
+	}{
+		{"task.submit", protocol.Request{Verb: "task.submit", PaneID: "wF:p2",
+			Args: map[string]any{"id": id, "report": "not mine"}}},
+		{"task.release", protocol.Request{Verb: "task.release", PaneID: "wF:p2",
+			Args: map[string]any{"id": id}}},
+		{"task.cancel", protocol.Request{Verb: "task.cancel", PaneID: "wF:p2",
+			Args: map[string]any{"id": id, "reason": "not mine"}}},
+		{"task.touch", protocol.Request{Verb: "task.touch", PaneID: "wF:p2",
+			Args: map[string]any{"id": id}}},
+	} {
+		body := mustFail(t, d, verb.req, codes.Forbidden)
+		msg := body.Message
+		if !strings.Contains(msg, "agent:wF:p2") {
+			t.Errorf("%s: refusal must name the caller so it reads as addressed to them: %q", verb.name, msg)
+		}
+		if !strings.Contains(msg, "agent:wF:p1") {
+			t.Errorf("%s: refusal must still name the holder: %q", verb.name, msg)
+		}
+		if !strings.Contains(msg, "--as") {
+			t.Errorf("%s: refusal must say --as does not transfer a claim: %q", verb.name, msg)
+		}
+		if !strings.Contains(msg, "release") || !strings.Contains(msg, "expire") {
+			t.Errorf("%s: refusal must name what to do instead: %q", verb.name, msg)
+		}
+	}
+}
