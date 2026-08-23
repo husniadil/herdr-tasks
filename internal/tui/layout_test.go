@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/husniadil/herdr-tasks/internal/protocol"
+)
 
 // wrapTo must not lose text to the escape sequences inside a line. The head it
 // emits comes from ansi.Truncate, which re-emits a reset of its own, so the
@@ -35,5 +39,34 @@ func TestWrapToKeepsEveryCharacterOfAStyledLine(t *testing.T) {
 	}
 	if want := plain(line); joined != want {
 		t.Fatalf("wrapTo dropped text: got %q, want %q (lines %q)", joined, want, got)
+	}
+}
+
+// A tick is a timer, not an answer. A daemon that has stopped answering would
+// otherwise get one more read — one more goroutine, one more socket — every
+// two seconds for as long as the pane stays open.
+func TestTickDoesNotStackReadsOnAWedgedDaemon(t *testing.T) {
+	rec := &recorder{}
+	p := &program{model: New(ViewBoard, "/repo"), send: rec, base: protocol.Request{Project: "/repo"}}
+	p.Init()
+	for i := 0; i < 5; i++ {
+		if _, cmd := p.Update(tickMsg{}); cmd == nil {
+			t.Fatal("the tick stopped re-arming itself")
+		}
+	}
+	if !p.loading {
+		t.Fatal("the first read was never marked in flight")
+	}
+	// The one read Init asked for has not come back, so no tick started
+	// another; the answer arriving is what lets the next tick read again.
+	if _, cmd := p.Update(DataMsg{}); cmd != nil {
+		_ = cmd
+	}
+	if p.loading {
+		t.Fatal("an answer did not clear the in-flight read")
+	}
+	_, cmd := p.Update(tickMsg{})
+	if cmd == nil || !p.loading {
+		t.Fatal("the tick after an answer did not read again")
 	}
 }

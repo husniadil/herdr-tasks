@@ -50,9 +50,21 @@ type program struct {
 	model Model
 	send  Sender
 	base  protocol.Request
+	// loading is a read already on its way to the daemon. The tick is a timer,
+	// not an answer: a daemon that has stopped answering would otherwise get
+	// one more goroutine and one more open socket every two seconds, for as
+	// long as the operator leaves the pane open.
+	loading bool
 }
 
-func (p *program) Init() tea.Cmd { return tea.Batch(p.load(p.model.Filters()), tick()) }
+// startLoad issues the board read and records that one is in flight. Every
+// path that reads goes through it, so the tick has one flag to consult.
+func (p *program) startLoad() tea.Cmd {
+	p.loading = true
+	return p.load(p.model.Filters())
+}
+
+func (p *program) Init() tea.Cmd { return tea.Batch(p.startLoad(), tick()) }
 
 func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var in Msg
@@ -82,9 +94,19 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editedMsg:
 		return p, p.afterEditor(v)
 	case DataMsg, ErrMsg, DoneMsg:
+		// A read is over either way it ended, and only a read clears the flag.
+		switch msg.(type) {
+		case DataMsg, ErrMsg:
+			p.loading = false
+		}
 		in = msg.(Msg)
 	case tickMsg:
-		return p, tea.Batch(p.load(p.model.Filters()), tick())
+		if p.loading {
+			// Keep the timer, skip the read: the previous one has not come
+			// back yet.
+			return p, tick()
+		}
+		return p, tea.Batch(p.startLoad(), tick())
 	default:
 		return p, nil
 	}
@@ -104,11 +126,11 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	// A read verb IS the refresh; run() would throw its body away.
 	if strings.HasSuffix(call.Verb, ".list") {
-		return p, p.load(p.model.Filters())
+		return p, p.startLoad()
 	}
 	// A mutation is only real to the operator once the board shows it, so the
 	// write is followed by the read rather than waiting for the next tick.
-	return p, tea.Sequence(p.run(*call), p.load(p.model.Filters()))
+	return p, tea.Sequence(p.run(*call), p.startLoad())
 }
 
 func (p *program) View() string { return Render(p.model, time.Now().UnixMilli()) }
@@ -169,7 +191,7 @@ func (p *program) afterEditor(v editedMsg) tea.Cmd {
 		_, err := p.send.Call(req)
 		return afterUpdate(v.path, err)
 	}
-	return tea.Sequence(send, p.load(p.model.Filters()))
+	return tea.Sequence(send, p.startLoad())
 }
 
 // load reads the three lists the two views show, in one command. The filters

@@ -23,6 +23,13 @@ import (
 // live socket starts the daemon and waits for it, bounded, rather than fail.
 const StartTimeout = 3 * time.Second
 
+// CallTimeout bounds one request and its answer once the socket is connected.
+// It is generous rather than tight: the answer can wait on a policy gate
+// subprocess (§9.2), and this exists to end a wedged connection, not to
+// second-guess a slow one. `events --follow` has no such bound, by design.
+// It is a var so a test can shorten it; nothing else writes it.
+var CallTimeout = 30 * time.Second
+
 // Call sends one request and returns the answer. It starts the daemon if none
 // is listening.
 func Call(req protocol.Request) (json.RawMessage, error) {
@@ -31,6 +38,13 @@ func Call(req protocol.Request) (json.RawMessage, error) {
 		return nil, err
 	}
 	defer conn.Close()
+	// A connected socket that never answers is not the same as an unreachable
+	// one, and without a deadline it is indistinguishable from a call that
+	// simply takes a while: the read blocks forever, and a caller that polls
+	// — the TUI does, every two seconds — leaks a goroutine per attempt.
+	if err := conn.SetDeadline(time.Now().Add(CallTimeout)); err != nil {
+		return nil, codes.Errorf(codes.Unavailable, "set the deadline for %s: %v", req.Verb, err)
+	}
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return nil, codes.Errorf(codes.Unavailable, "send %s: %v", req.Verb, err)
 	}

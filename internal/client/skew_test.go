@@ -11,8 +11,11 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
+	"github.com/husniadil/herdr-tasks/internal/testenv"
 	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
@@ -139,4 +142,56 @@ func shortDir(t *testing.T) string {
 	}
 	t.Cleanup(func() { os.RemoveAll(dir) })
 	return dir
+}
+
+// A connected socket that never answers must end as UNAVAILABLE rather than
+// block forever: the TUI polls this every two seconds, and a call with no read
+// deadline leaks a goroutine and a socket per poll.
+func TestCallGivesUpOnADaemonThatNeverAnswers(t *testing.T) {
+	dir := testenv.ShortDir(t)
+	t.Setenv("TASKS_STATE_DIR", dir)
+	ln, err := net.Listen("unix", filepath.Join(dir, "tasks.sock"))
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			// Accepted and never answered: the wedged daemon.
+			defer conn.Close()
+		}
+	}()
+	was := CallTimeout
+	CallTimeout = 150 * time.Millisecond
+	defer func() { CallTimeout = was }()
+	done := make(chan error, 1)
+	go func() {
+		_, err := Call(protocol.Request{Verb: "doctor"})
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("a daemon that never answered returned success")
+		}
+		if got := codeOfErr(err); got != codes.Unavailable {
+			t.Fatalf("code = %q (%v), want UNAVAILABLE", got, err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Call never returned: the connection has no read deadline")
+	}
+}
+
+func codeOfErr(err error) string {
+	if ce, ok := err.(*codes.Error); ok {
+		return ce.Code
+	}
+	if f, ok := err.(*Failure); ok {
+		return f.Code()
+	}
+	return ""
 }
