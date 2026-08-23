@@ -927,3 +927,53 @@ func TestClaimRecordsAnAbsentAgentSessionAsAbsentNotUnknown(t *testing.T) {
 		t.Fatalf("a different pane with no session may review: %v", err)
 	}
 }
+
+// §3.4's snapshot is taken at the claim and it goes with the claim: all four
+// fields move together. A row that lets go while one of them stays behind goes
+// out over --json saying claimed_by "" and claimed_by_harness "claude" at once,
+// which is the previous holder's harness on a row nobody holds. Clearing them
+// one name at a time is how one gets overlooked, so this asks for the set.
+func TestLettingGoClearsTheWholeClaimSnapshot(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		let  func(*Task, Actor) error
+	}{
+		{"release", func(task *Task, a Actor) error {
+			_, err := Release(task, a, "migrations left", t0+9, KindReleased)
+			return err
+		}},
+		{"sweep", func(task *Task, a Actor) error {
+			_, err := Release(task, a, "the lease expired", t0+9, KindSwept)
+			return err
+		}},
+		{"cancel", func(task *Task, a Actor) error {
+			_, err := Cancel(task, a, "no longer needed", t0+9)
+			return err
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			task := newTask()
+			a := agent("wF:p1", "claude")
+			mustClaim(t, task, a)
+			if task.ClaimedByHarness == "" {
+				t.Fatal("the claim took no §3.4 snapshot, so this proves nothing")
+			}
+			if err := tc.let(task, a); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			for field, got := range map[string]string{
+				"claimed_by":         string(task.ClaimedBy),
+				"claimed_by_name":    task.ClaimedByName,
+				"claimed_by_harness": task.ClaimedByHarness,
+				"claimed_by_session": task.ClaimedBySession,
+			} {
+				if got != "" {
+					t.Errorf("%s left %s = %q on a row nobody holds", tc.name, field, got)
+				}
+			}
+			if task.ClaimedAt != 0 || task.LeaseUntil != 0 {
+				t.Errorf("%s left claimed_at %d / lease_until %d", tc.name, task.ClaimedAt, task.LeaseUntil)
+			}
+		})
+	}
+}

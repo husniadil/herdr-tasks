@@ -360,7 +360,7 @@ func Release(t *Task, by Actor, note string, now int64, kind string) (Event, err
 	if t.Status == StatusDoing {
 		t.Status = StatusTodo
 	}
-	t.ClaimedBy, t.ClaimedByName, t.ClaimedBySession = "", "", ""
+	t.ClaimedBy, t.ClaimedByName, t.ClaimedByHarness, t.ClaimedBySession = "", "", "", ""
 	t.ClaimedAt, t.LeaseUntil = 0, 0
 	t.ReleaseNote = note
 	t.ReleasedAt = now
@@ -661,7 +661,7 @@ func Cancel(t *Task, by Actor, reason string, now int64) (Event, error) {
 		return Event{}, err
 	}
 	t.Status = StatusCancelled
-	t.ClaimedBy, t.ClaimedByName, t.ClaimedBySession = "", "", ""
+	t.ClaimedBy, t.ClaimedByName, t.ClaimedByHarness, t.ClaimedBySession = "", "", "", ""
 	t.ClaimedAt, t.LeaseUntil = 0, 0
 	t.CancelledAt = now
 	t.UpdatedAt = now
