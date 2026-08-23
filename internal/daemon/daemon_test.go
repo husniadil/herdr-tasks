@@ -2085,3 +2085,18 @@ func TestPromoteRefusesATargetProjectThatIsNotThere(t *testing.T) {
 		t.Fatalf("the refused promote moved the note: %s", notes)
 	}
 }
+
+// §5.9 with §5.5: note.discuss --question is two transitions, and the question
+// is bounded by the second. An over-long question must be refused before the
+// first one runs, or the call fails with the note left discussing and the
+// operator never asked.
+func TestDiscussValidatesTheQuestionBeforeItWritesAnything(t *testing.T) {
+	d := newDaemon(t, nil)
+	mustCall(t, d, protocol.Request{Verb: "note.add", Args: map[string]any{"body": "an idea"}})
+	mustFail(t, d, protocol.Request{Verb: "note.discuss",
+		Args: map[string]any{"id": "1", "question": strings.Repeat("q", tasks.MaxText+1)}}, codes.Usage)
+	raw := mustCall(t, d, protocol.Request{Verb: "note.get", Args: map[string]any{"id": "1"}})
+	if !strings.Contains(string(raw), `"status":"inbox"`) {
+		t.Fatalf("the refused discuss moved the note anyway: %s", raw)
+	}
+}

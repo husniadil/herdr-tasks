@@ -441,6 +441,13 @@ func hNoteUpdate(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 
 func hNoteDiscuss(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	question := argString(req.Args, "question")
+	// Checked before the FIRST transition: the question is only read by the
+	// second one, and a question over the bound would otherwise open a
+	// discussion and then refuse to ask it — a half-written call the caller
+	// is told failed.
+	if err := tasks.BoundText("question", question); err != nil {
+		return nil, err
+	}
 	res, err := d.noteTransition(req, func(n *tasks.Note) (tasks.Event, error) {
 		return tasks.NoteDiscuss(n, by, d.Now())
 	})

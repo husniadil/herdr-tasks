@@ -46,6 +46,12 @@ func bound(field, s string, max int) error {
 	return nil
 }
 
+// BoundText refuses a prose field over MaxText, for a caller that must
+// validate BEFORE it starts writing. note.discuss --question is two
+// transitions and the question belongs to the second one, so a question over
+// the bound would otherwise leave the note discussing with nobody asked.
+func BoundText(field, s string) error { return bound(field, s, MaxText) }
+
 // boundList refuses a repeatable field with too many entries, or any one
 // entry that is too long. The index is named because "one of them is too
 // long" is not something a caller can act on.
