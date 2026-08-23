@@ -418,6 +418,30 @@ func TestArchiveOnlyTerminal(t *testing.T) {
 	}
 }
 
+// §5.7 with §8.1: archiving an archived task changes nothing, so it is not a
+// second archiving. Without the guard the second call moved archived_at to
+// now and appended another `archived` event, so the trail said the row was
+// archived twice and the row itself said it happened at the later time — a
+// board that answers "when was this hidden" with the last time anyone asked.
+func TestArchivingAnArchivedTaskIsRefused(t *testing.T) {
+	task := newTask()
+	mustClaim(t, task, agent("wF:p1", "claude"))
+	mustSubmit(t, task, agent("wF:p1", "claude"))
+	if _, err := Approve(task, human, t0+41); err != nil {
+		t.Fatalf("approve: %v", err)
+	}
+	if _, err := Archive(task, human, t0+42); err != nil {
+		t.Fatalf("archive: %v", err)
+	}
+	err := mustErr(Archive(task, human, t0+43))
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+	if task.ArchivedAt != t0+42 {
+		t.Errorf("archived_at moved to %d; the first archiving is when it happened", task.ArchivedAt)
+	}
+}
+
 // §5.7: nothing is hard-deleted except a row that never left its initial state.
 func TestHardDeleteOnlyNeverClaimed(t *testing.T) {
 	task := newTask()

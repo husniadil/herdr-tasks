@@ -689,6 +689,13 @@ func Archive(t *Task, by Actor, now int64) (Event, error) {
 	if !t.Status.Terminal() {
 		return Event{}, codes.Errorf(codes.Conflict, "task is %s; only done or cancelled tasks archive", t.Status)
 	}
+	// Already hidden is not hidden again. Without this the second call moved
+	// archived_at to now and appended a second `archived` event, so the row
+	// answered "when was this hidden" with the last time anyone asked and the
+	// trail said it happened twice.
+	if t.ArchivedAt != 0 {
+		return Event{}, codes.Errorf(codes.Conflict, "task is already archived")
+	}
 	t.ArchivedAt = now
 	t.UpdatedAt = now
 	return Event{Kind: KindArchived, Actor: by.Principal, At: now}, nil
