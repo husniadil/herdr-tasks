@@ -346,6 +346,21 @@ func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 			// would forge the plugin's signature in the event trail. §3.2
 			// lets a plugin refuse the principals it owns, and this is the
 			// one it owns. Sibling plugins stay declarable (§3.5).
+			// A pane already HAS a derived principal, so declaring one
+			// here is the case §3.2 refuses by name: a principal you can
+			// derive is not one you may declare. Task 81: a worker that
+			// claimed as plugin:hdis from a pane satisfied every holder
+			// guard by the guard's own test, and the board credited a
+			// plugin with an agent's work. The paneless case stays
+			// accepted — that is how a sibling plugin calls at all.
+			if req.PaneID != "" {
+				return tasks.Actor{}, codes.Errorf(codes.Forbidden,
+					"you are agent:%s and --as %s is not accepted from a pane: a principal you can derive "+
+						"is not one you may declare (§3.2). Drop `--as` and the board records this call as "+
+						"agent:%s, which is who you are. A plugin calling on its own behalf calls from a "+
+						"process with no pane in its environment, not from yours.",
+					req.PaneID, req.As, req.PaneID)
+			}
 			if tasks.Principal(req.As) == tasks.PrincipalPlugin {
 				return tasks.Actor{}, codes.Errorf(codes.Forbidden,
 					"--as %s is not accepted: that is this plugin's own principal (§3.2)", req.As)
