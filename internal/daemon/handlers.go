@@ -217,11 +217,20 @@ func (d *Daemon) transition(req protocol.Request, fn func(*tasks.Task) (tasks.Ev
 		}
 		project, ref = found.Project, found.ID
 	}
-	t, err := d.Store.TaskTransition(project, ref, req.BaseUpdatedAt, fn)
+	// The event is captured on its way through rather than read back: this
+	// closure is where the daemon already holds it, and a re-read cannot tell
+	// its own write from a concurrent one.
+	var wrote tasks.Event
+	t, err := d.Store.TaskTransition(project, ref, req.BaseUpdatedAt,
+		func(t *tasks.Task) (tasks.Event, error) {
+			ev, ferr := fn(t)
+			wrote = ev
+			return ev, ferr
+		})
 	if err != nil {
 		return nil, err
 	}
-	d.emitted(t.Project, "task", t.ID)
+	d.emit(t.Project, "task", t.ID, wrote)
 	return d.taskResult(t)
 }
 
@@ -433,11 +442,17 @@ func hNoteGet(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
 }
 
 func (d *Daemon) noteTransition(req protocol.Request, fn func(*tasks.Note) (tasks.Event, error)) (any, error) {
-	n, err := d.Store.NoteTransition(req.Project, argString(req.Args, "id"), req.BaseUpdatedAt, fn)
+	var wrote tasks.Event
+	n, err := d.Store.NoteTransition(req.Project, argString(req.Args, "id"), req.BaseUpdatedAt,
+		func(n *tasks.Note) (tasks.Event, error) {
+			ev, ferr := fn(n)
+			wrote = ev
+			return ev, ferr
+		})
 	if err != nil {
 		return nil, err
 	}
-	d.emitted(n.Project, "note", n.ID)
+	d.emit(n.Project, "note", n.ID, wrote)
 	return NoteResult{Note: n}, nil
 }
 

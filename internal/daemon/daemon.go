@@ -567,12 +567,37 @@ func (d *Daemon) runHook(ev store.Event) {
 	go cmd.Wait()
 }
 
-// emitted is called after a successful mutation: it fires the hook and wakes
-// the followers.
+// emit is called after a successful mutation with the event that mutation
+// WROTE: it fires the hook and wakes the followers. Being handed the event is
+// the point — reading it back and taking the newest is only the same answer
+// while nothing else is writing, and two callers racing on one entity would
+// both fire the hook for the later event and neither for the earlier.
+func (d *Daemon) emit(project, entity, entityID string, ev tasks.Event) {
+	d.runHook(store.Event{
+		Entity: entity, EntityID: entityID, Project: project,
+		At: ev.At, Actor: ev.Actor, Kind: ev.Kind,
+		Name: "tasks." + entity + "." + ev.Kind,
+	})
+	d.notify()
+}
+
+// emitted is emit for the writes whose event this daemon does not hold: a
+// create, a promote, a fold. Those mint the entity or decide it once, so the
+// row is not one two callers are mutating at the same moment, and the newest
+// event on it is the one that was just written. The read is bounded to that
+// one row and its failure is said rather than dropped — a hook that did not
+// fire is a fact, and a silent one is the §8.3 shape this plugin refuses.
 func (d *Daemon) emitted(project, entity, entityID string) {
-	evs, err := d.Store.Events(store.EventFilter{Project: project, Entity: entity, EntityID: entityID})
-	if err == nil && len(evs) > 0 {
-		d.runHook(evs[len(evs)-1])
+	ev, found, err := d.Store.LastEvent(project, entity, entityID)
+	switch {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "tasks: cannot read the event just written for %s %s, so no hook ran: %v\n",
+			entity, entityID, err)
+	case !found:
+		fmt.Fprintf(os.Stderr, "tasks: %s %s was written and has no event, so no hook ran\n",
+			entity, entityID)
+	default:
+		d.runHook(ev)
 	}
 	d.notify()
 }

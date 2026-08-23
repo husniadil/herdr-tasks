@@ -33,6 +33,10 @@ type EventFilter struct {
 	SinceID     string
 	SinceAt     int64
 	Limit       int
+	// Newest reverses the order, for a caller that wants the END of a trail
+	// rather than the start of it. The stream order stays oldest-first (§8.2);
+	// this is for "what did that write just do", which is one row.
+	Newest bool
 }
 
 // appendEvent writes one row of an entity's event table inside the caller's
@@ -86,7 +90,11 @@ func (s *Store) Events(f EventFilter) ([]Event, error) {
 	if len(parts) == 0 {
 		return []Event{}, nil
 	}
-	q := strings.Join(parts, " UNION ALL ") + " ORDER BY id ASC"
+	order := " ORDER BY id ASC"
+	if f.Newest {
+		order = " ORDER BY id DESC"
+	}
+	q := strings.Join(parts, " UNION ALL ") + order
 	if f.Limit > 0 {
 		q += " LIMIT " + fmtCount(f.Limit)
 	}
@@ -113,4 +121,19 @@ func (s *Store) Events(f EventFilter) ([]Event, error) {
 		out = append(out, e)
 	}
 	return out, wrap(rows.Err())
+}
+
+// LastEvent is the newest event on one entity. Reading the whole trail and
+// taking the end of the slice is the same answer only while nothing else is
+// writing, and it costs every event the entity ever had to get it.
+// The found flag rather than a NOT_FOUND: an entity with no events is not a
+// row the caller asked for and missed, it is a caller with nothing to fire a
+// hook about, and the two answers are not the same news (§6.3).
+func (s *Store) LastEvent(project, entity, entityID string) (ev Event, found bool, err error) {
+	evs, err := s.Events(EventFilter{
+		Project: project, Entity: entity, EntityID: entityID, Newest: true, Limit: 1})
+	if err != nil || len(evs) == 0 {
+		return Event{}, false, err
+	}
+	return evs[0], true, nil
 }
