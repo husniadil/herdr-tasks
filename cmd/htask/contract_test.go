@@ -249,18 +249,35 @@ func gapRecorded(t *testing.T, declared, vendored string) bool {
 	return false
 }
 
-// contractSection returns one section of the vendored contract with its
-// whitespace collapsed: from the anchor that opens it to the next anchor at
-// the same or a higher level. Collapsed, because the document is hard-wrapped
-// at around 76 columns and a sentence this file wants to read straddles two
-// or three lines wherever an edit last left it.
-func contractSection(t *testing.T, anchor string) string {
-	t.Helper()
-	body, err := os.ReadFile(filepath.Join("..", "..", contractFile))
-	if err != nil {
-		t.Fatalf("read %s: %v", contractFile, err)
+// preambleBoundary is the first line of the numbered contract. Everything
+// above it is the "Changes in <version>" preamble, whose entries begin with
+// the section number they SUMMARISE — so an anchor found above this line is
+// a description of a clause, never the clause.
+const preambleBoundary = "\n## §1 "
+
+// preambleAnchors returns the anchors that appear in the preamble, where an
+// anchor names a clause that is summarised rather than stated.
+func preambleAnchors(body string) map[string]bool {
+	end := strings.Index(body, preambleBoundary)
+	if end < 0 {
+		return nil
 	}
-	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
+	out := map[string]bool{}
+	for _, m := range contractAnchor.FindAllStringSubmatch(body[:end], -1) {
+		out[m[1]] = true
+	}
+	return out
+}
+
+// contractSectionText is contractSection without a *testing.T, so that the
+// guard below can assert the refusal instead of taking it on trust.
+func contractSectionText(body, anchor string) (string, error) {
+	if preambleAnchors(body)[anchor] {
+		return "", fmt.Errorf("%s names %s in its preamble, so the first line starting with "+
+			"%s summarises the clause rather than stating it; read it with contractHeading",
+			contractFile, anchor, anchor)
+	}
+	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 	start := -1
 	for i, line := range lines {
 		if m := contractAnchor.FindStringSubmatch(line); m != nil && m[1] == anchor {
@@ -269,7 +286,7 @@ func contractSection(t *testing.T, anchor string) string {
 		}
 	}
 	if start < 0 {
-		t.Fatalf("%s defines no %s", contractFile, anchor)
+		return "", fmt.Errorf("%s defines no %s", contractFile, anchor)
 	}
 	end := len(lines)
 	for i := start + 1; i < len(lines); i++ {
@@ -278,7 +295,76 @@ func contractSection(t *testing.T, anchor string) string {
 			break
 		}
 	}
-	return strings.Join(strings.Fields(strings.Join(lines[start:end], " ")), " ")
+	return strings.Join(strings.Fields(strings.Join(lines[start:end], " ")), " "), nil
+}
+
+// contractSection returns one section of the vendored contract with its
+// whitespace collapsed: from the anchor that opens it to the next anchor at
+// the same or a higher level. Collapsed, because the document is hard-wrapped
+// at around 76 columns and a sentence this file wants to read straddles two
+// or three lines wherever an edit last left it.
+//
+// It takes the FIRST line the anchor opens, which is the clause only while
+// the preamble does not also name that clause. It refuses rather than reads
+// when the preamble does, because the alternative is a test that asserts
+// against a summary of the rule and passes.
+func contractSection(t *testing.T, anchor string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	text, err := contractSectionText(string(body), anchor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return text
+}
+
+// The audit behind task 79 found two callers of contractSection, §3.2 and
+// §7.3, and neither was reading a preamble entry: the preamble names §3.2
+// only mid-line ("Changes in 0.8.0: §3.2 states ..."), and the one preamble
+// line that begins with a bare anchor and mentions §7.3 begins with §6.1, so
+// the anchor regex never claimed it. The bug was real and its blast radius
+// was empty, which is exactly the shape that survives a release. This is the
+// guard, and it is on the helper rather than beside it so that a NEW prose
+// test cannot reach the wrong text at all.
+//
+// It is also what makes task 78's move stick: §3.7 is named at the start of a
+// preamble line, so moving TestTheOperatorVerbRuleKeepsBothOfItsHalves back
+// onto contractSection now fails instead of quietly reading the summary.
+func TestContractSectionRefusesASectionThePreambleNames(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	body := string(raw)
+
+	named := preambleAnchors(body)
+	if !named["§3.7"] {
+		t.Fatalf("the preamble no longer names §3.7 at the start of a line; this guard is "+
+			"asserting against a document that changed, and %d anchors were found", len(named))
+	}
+	if _, err := contractSectionText(body, "§3.7"); err == nil {
+		t.Error("contractSection read §3.7, which the preamble summarises; a prose test " +
+			"pointed at it would assert against the summary and pass")
+	}
+
+	// And it still serves the two callers that were always safe. A guard that
+	// refused everything would pass the check above and break the file.
+	for _, anchor := range []string{"§3.2", "§7.3"} {
+		if named[anchor] {
+			t.Fatalf("the preamble now begins a line with %s; the caller reading it with "+
+				"contractSection must move to contractHeading", anchor)
+		}
+		text, err := contractSectionText(body, anchor)
+		if err != nil {
+			t.Fatalf("contractSection refuses %s, which the preamble does not name: %v", anchor, err)
+		}
+		if !strings.HasPrefix(text, anchor+" ") {
+			t.Errorf("contractSection(%s) did not start at the clause: %.80q", anchor, text)
+		}
+	}
 }
 
 // §3.2 gained a NAMED rule, and the name is the whole point of it: a
