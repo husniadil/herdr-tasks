@@ -31,6 +31,15 @@ type Request struct {
 	Operator bool `json:"operator,omitempty"`
 	// BaseUpdatedAt is the §5.6 optimistic guard.
 	BaseUpdatedAt int64 `json:"base_updated_at,omitempty"`
+	// Build is which binary the DOOR making this call is running (§13.3),
+	// and only a long-lived door sends it. The MCP door serves its
+	// Instructions once, at construction, so a session can be acting on prose
+	// that was corrected days ago while every other signal reads correct; the
+	// daemon stats this path to say so in doctor. A CLI process has no such
+	// window — it reads its own help and exits inside one invocation — so it
+	// leaves this empty, and empty means "not a long-lived door", never "a
+	// door too old to say". Additive: an old daemon ignores it.
+	Build verbs.Build `json:"build,omitempty"`
 	// Follow turns `events` into a subscription (§8.2).
 	Follow bool           `json:"follow,omitempty"`
 	Args   map[string]any `json:"args,omitempty"`

@@ -182,7 +182,15 @@ func handlerFor(v verbs.Verb, call Caller, opt Options) mcp.ToolHandler {
 			// declaration may not arrive per call, and this is the line that
 			// makes that true rather than intended.
 			Operator: opt.Operator,
-			Args:     args,
+			// This door is long-lived and it served its Instructions once, at
+			// construction, so it is the process that can be telling an agent
+			// something older than the binary at its own path now says. The
+			// daemon stats this to make that visible in doctor; nothing here
+			// tries to re-send the instructions, because the protocol sends
+			// them once and a design that pretended otherwise would be worse
+			// than the gap.
+			Build: verbs.ThisBuild(),
+			Args:  args,
 		})
 		if err != nil {
 			return errorResult(withDeclarationHint(err, opt)), nil

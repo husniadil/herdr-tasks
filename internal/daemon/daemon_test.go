@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -1907,4 +1908,78 @@ func TestClaimConflictNamesTheCallerAndRefusesTheWorkaround(t *testing.T) {
 	if strings.Contains(msg, "%!") {
 		t.Errorf("claim conflict carries a formatting artifact: %q", msg)
 	}
+}
+
+// TestDoctorSaysWhenTheAskingDoorIsOlderThanTheBinaryAtItsPath holds the whole
+// deliverable of the stale-instructions gap. §7.1 sends a server's
+// Instructions once, at construction, so a correction to what an agent is TOLD
+// never reaches a session already running: the repository is right, the pin is
+// green, the binary on disk is current, and the prose the agent is acting on
+// is still the old one. Nothing here makes that untrue — the instructions are
+// already sent, and a design that pretended to re-send them would be worse
+// than the gap. What ships is that the fact stops being invisible.
+//
+// Remove the report and this fails on the Degraded line, which is the half an
+// operator reads; remove only the flag and it fails on that.
+func TestDoctorSaysWhenTheAskingDoorIsOlderThanTheBinaryAtItsPath(t *testing.T) {
+	d := newDaemon(t, nil)
+
+	// A file standing in for the door's binary, and a stamp from BEFORE it was
+	// last written: the shape of a door that has been up across an install.
+	exe := filepath.Join(t.TempDir(), "htask")
+	if err := os.WriteFile(exe, []byte("the newer binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	current := statStamp(t, exe)
+	door := verbs.Build{Exe: exe, Stamp: "1-1", Revision: "abc123def4567"}
+
+	report := d.Doctor(protocol.Request{Project: proj, Build: door},
+		tasks.Actor{Principal: tasks.PrincipalHuman})
+	if report.Door != door {
+		t.Fatalf("doctor door = %+v, want %+v; the pair with the daemon's own build is the answer",
+			report.Door, door)
+	}
+	if !report.DoorSuperseded {
+		t.Fatal("doctor called a door superseded by the file at its own path current")
+	}
+	found := false
+	for _, line := range report.Degraded {
+		if strings.Contains(line, exe) && strings.Contains(line, "instructions") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no degraded line named the stale instructions; got %q", report.Degraded)
+	}
+
+	// The same door once its stamp matches what is on disk: current, and
+	// silent. Without this half the test would pass on a report that called
+	// every door stale.
+	door.Stamp = current
+	report = d.Doctor(protocol.Request{Project: proj, Build: door},
+		tasks.Actor{Principal: tasks.PrincipalHuman})
+	if report.DoorSuperseded {
+		t.Fatal("a door matching the binary at its path was reported superseded")
+	}
+	for _, line := range report.Degraded {
+		if strings.Contains(line, "instructions") {
+			t.Fatalf("a current door raised the stale-instructions line: %q", line)
+		}
+	}
+
+	// And a caller that sends no build at all — the CLI, which lives and dies
+	// inside one invocation and has no window to go stale in — says nothing.
+	report = d.Doctor(protocol.Request{Project: proj}, tasks.Actor{Principal: tasks.PrincipalHuman})
+	if report.DoorSuperseded || report.Door != (verbs.Build{}) {
+		t.Fatalf("a caller that sent no build was described as a door: %+v", report.Door)
+	}
+}
+
+func statStamp(t *testing.T, path string) string {
+	t.Helper()
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fmt.Sprintf("%d-%d", fi.Size(), fi.ModTime().UnixMilli())
 }

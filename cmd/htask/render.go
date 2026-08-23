@@ -277,6 +277,16 @@ func printDoctor(r daemon.DoctorReport) {
 	fmt.Printf("socket        %s (%s)\n", r.SocketPath, live(r.SocketLive))
 	fmt.Printf("daemon lock   %s\n", r.LockPath)
 	fmt.Printf("build         %s, surface %s\n", r.Build.Short(), r.Fingerprint)
+	// Beside the daemon's own, because the pair is the answer: a door older
+	// than the binary at its path is still serving that older binary's
+	// instructions to every session it holds.
+	if r.Door.Short() != "" {
+		stale := ""
+		if r.DoorSuperseded {
+			stale = " (superseded — see degraded)"
+		}
+		fmt.Printf("door          %s%s\n", r.Door.Short(), stale)
+	}
 	fmt.Printf("schema        version %d\n", r.SchemaVersion)
 	fmt.Printf("project       %s\n", r.Project)
 	fmt.Printf("principal     %s", r.Principal)

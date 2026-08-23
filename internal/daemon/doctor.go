@@ -28,15 +28,25 @@ type DoctorReport struct {
 	Fingerprint string `json:"fingerprint"`
 	// Build is which binary this daemon is running (§13.3), which the
 	// fingerprint above cannot say: a changed rule keeps the surface.
-	Build         verbs.Build `json:"build"`
-	Plugin        string      `json:"plugin"`
-	Binary        string      `json:"binary"`
-	StateDir      string      `json:"state_dir"`
-	ConfigDir     string      `json:"config_dir"`
-	ConfigFile    string      `json:"config_file"`
-	ConfigPresent bool        `json:"config_present"`
-	SocketPath    string      `json:"socket_path"`
-	SocketLive    bool        `json:"socket_live"`
+	Build verbs.Build `json:"build"`
+	// Door is which binary the long-lived door that asked is running, when
+	// one asked. It sits beside Build because the two are separate processes
+	// of separate ages, and only the pair answers "is what this agent is
+	// being told current" — the daemon's own build says nothing about the
+	// prose an MCP session was handed at construction.
+	Door verbs.Build `json:"door,omitempty"`
+	// DoorSuperseded is that door running code older than the binary now at
+	// its own path. It is reported and never enforced; the Degraded line it
+	// raises says what an operator can actually do about it.
+	DoorSuperseded bool   `json:"door_superseded,omitempty"`
+	Plugin         string `json:"plugin"`
+	Binary         string `json:"binary"`
+	StateDir       string `json:"state_dir"`
+	ConfigDir      string `json:"config_dir"`
+	ConfigFile     string `json:"config_file"`
+	ConfigPresent  bool   `json:"config_present"`
+	SocketPath     string `json:"socket_path"`
+	SocketLive     bool   `json:"socket_live"`
 	// LockPath is the file whose flock elects the one daemon (§2.3). An
 	// operator debugging a daemon that will not start needs to know which file
 	// the other one is holding.
@@ -94,6 +104,23 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 	}
 	if exe, err := os.Executable(); err == nil {
 		r.Binary = exe
+	}
+
+	// §7.1 sends a server's instructions once, at construction, so a door
+	// that has been up across an install is still teaching every session it
+	// holds the protocol its old binary described. Nothing here can fix that
+	// — the instructions are already sent — and nothing here refuses over it
+	// either: door and daemon are ordinarily different FILES (`make install`
+	// writes one, the manifest runs ./bin/htask), so refusing on a difference
+	// would deny the normal layout. What is owed is that the fact stops being
+	// invisible, and this is the line that says it.
+	r.Door = req.Build
+	if verbs.Superseded(r.Door) {
+		r.DoorSuperseded = true
+		r.Degraded = append(r.Degraded, "the door that asked is build "+r.Door.Short()+
+			", and a newer binary now sits at "+r.Door.Exe+"; it has been serving the instructions "+
+			"of the older one since it started, and a server sends those once (§7.1) — "+
+			"restart this door's session to be told the current protocol")
 	}
 	for _, v := range verbs.MCPTools() {
 		r.MCPTools = append(r.MCPTools, v.MCP)

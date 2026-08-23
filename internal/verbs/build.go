@@ -118,3 +118,33 @@ func (b Build) Short() string {
 	}
 	return rev + digest
 }
+
+// Superseded reports whether the file at b.Exe has changed since the process
+// b describes started — that is, whether that process is running code older
+// than the binary now installed at its own path.
+//
+// It exists for a gap no other check can see. A long-lived door hands its
+// Instructions to the MCP client once, at construction, so a correction to
+// what an agent is TOLD reaches only sessions started after the fix; the
+// repository is right, the test is green, the binary on disk is current, and
+// the text the agent is acting on is still wrong. The skew warning next door
+// cannot see it either: that one compares a door with the DAEMON, and a door
+// and a daemon of the same stale build agree with each other perfectly.
+//
+// Anything it cannot decide is NOT superseded, which is the opposite of
+// Same's caution and deliberate: Same guards behaviour, where an unknown is
+// unsafe, while this only reports, and a report that fires on every binary
+// whose path cannot be stat'd would be noise standing where a fact belongs.
+// An empty Exe or Stamp is already its own degraded line.
+func Superseded(b Build) bool {
+	if b.Exe == "" || b.Stamp == "" {
+		return false
+	}
+	fi, err := os.Stat(b.Exe)
+	if err != nil {
+		// The file is gone or unreadable. That is a different fact from "a
+		// newer one is there", and this function only answers the second.
+		return false
+	}
+	return fmt.Sprintf("%d-%d", fi.Size(), fi.ModTime().UnixMilli()) != b.Stamp
+}
