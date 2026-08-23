@@ -20,6 +20,12 @@ const (
 	NoteDropped    NoteStatus = "dropped"
 )
 
+// NoteStatuses is every value a note's status holds, for the reason
+// Statuses is the task list: a filter outside the vocabulary matches nothing
+// and means nothing.
+var NoteStatuses = []NoteStatus{NoteInbox, NoteDiscussing, NoteNeedsInput,
+	NoteProposed, NoteKept, NoteTask, NoteDropped}
+
 // Terminal reports whether the operator has already decided this note.
 func (s NoteStatus) Terminal() bool {
 	return s == NoteKept || s == NoteTask || s == NoteDropped

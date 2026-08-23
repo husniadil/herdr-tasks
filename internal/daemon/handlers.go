@@ -149,6 +149,9 @@ type TaskListResult struct {
 }
 
 func hTaskList(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	if err := oneOf("task status", argString(req.Args, "status"), taskStatuses()); err != nil {
+		return nil, err
+	}
 	f := store.TaskFilter{
 		Project:     req.Project,
 		AllProjects: req.AllProjects,
@@ -391,6 +394,9 @@ type NoteListResult struct {
 }
 
 func hNoteList(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
+	if err := oneOf("note status", argString(req.Args, "status"), noteStatuses()); err != nil {
+		return nil, err
+	}
 	f := store.NoteFilter{
 		Project:     req.Project,
 		AllProjects: req.AllProjects,
@@ -695,6 +701,9 @@ type EventsResult struct {
 }
 
 func hEvents(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
+	if err := oneOf("entity", argString(req.Args, "entity"), entities()); err != nil {
+		return nil, err
+	}
 	f := store.EventFilter{
 		Project:     req.Project,
 		AllProjects: req.AllProjects,

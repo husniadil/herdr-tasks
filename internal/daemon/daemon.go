@@ -571,6 +571,13 @@ func (d *Daemon) emitted(project, entity, entityID string) {
 // streamEvents is `events --follow`, the subscription primitive of §8.2. There
 // is no push bus in the contract; this is a store read woken by a mutation.
 func (d *Daemon) streamEvents(ctx context.Context, req protocol.Request, enc *json.Encoder) {
+	// The same vocabulary check the one-shot path makes, in the same words. A
+	// stream filtered on an entity nobody has can never say anything, which
+	// on the wire is indistinguishable from a quiet project.
+	if err := oneOf("entity", argString(req.Args, "entity"), entities()); err != nil {
+		enc.Encode(d.stamp(protocol.Response{Error: errorBody(err)}))
+		return
+	}
 	f := store.EventFilter{
 		Project:     req.Project,
 		AllProjects: req.AllProjects,

@@ -3,6 +3,10 @@ package daemon
 import (
 	"encoding/json"
 	"strconv"
+	"strings"
+
+	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
 
 // The args map arrives as decoded JSON, so a number may be a float64 and a
@@ -116,3 +120,44 @@ func decodeArgs(payload string, out *map[string]any) error {
 	}
 	return json.Unmarshal([]byte(payload), out)
 }
+
+// oneOf refuses a filter value the vocabulary does not hold. An empty value is
+// "no filter" and passes; anything else has to be a word the store can match,
+// because a value that cannot match is answered with an empty list that reads
+// as a fact about the board (§6.2). The refusal names what the caller could
+// have said, which is the whole of what it is for.
+func oneOf(what, got string, allowed []string) error {
+	if got == "" {
+		return nil
+	}
+	for _, a := range allowed {
+		if got == a {
+			return nil
+		}
+	}
+	return codes.Errorf(codes.Usage, "%q is not a %s; it is one of %s",
+		got, what, strings.Join(allowed, ", "))
+}
+
+// taskStatuses, noteStatuses and entities are the three vocabularies a filter
+// is checked against, read from the state machine rather than restated here.
+func taskStatuses() []string {
+	out := make([]string, 0, len(tasks.Statuses))
+	for _, s := range tasks.Statuses {
+		out = append(out, string(s))
+	}
+	return out
+}
+
+func noteStatuses() []string {
+	out := make([]string, 0, len(tasks.NoteStatuses))
+	for _, s := range tasks.NoteStatuses {
+		out = append(out, string(s))
+	}
+	return out
+}
+
+// entities is the two event tables §8.1 names. It is not derived from a
+// vocabulary elsewhere because there is no elsewhere: store.Events itself
+// spells the pair out.
+func entities() []string { return []string{"task", "note"} }

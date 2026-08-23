@@ -22,6 +22,12 @@ const (
 	StatusCancelled Status = "cancelled"
 )
 
+// Statuses is every value a task's status holds, in lifecycle order. It is
+// here rather than at a caller because the vocabulary belongs to the state
+// machine: a filter that names something outside it can never match, and an
+// empty list is the answer to a different question.
+var Statuses = []Status{StatusTodo, StatusDoing, StatusReview, StatusDone, StatusCancelled}
+
 // Terminal reports whether a status admits no further transitions.
 func (s Status) Terminal() bool { return s == StatusDone || s == StatusCancelled }
 
