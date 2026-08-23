@@ -2100,3 +2100,20 @@ func TestDiscussValidatesTheQuestionBeforeItWritesAnything(t *testing.T) {
 		t.Fatalf("the refused discuss moved the note anyway: %s", raw)
 	}
 }
+
+// §3.1: a principal is <kind>:<id>. `--as cron` names a class of caller and
+// nobody in particular, so the row it wrote could never be traced back to the
+// job that wrote it.
+func TestAsWithoutAnIDIsRefused(t *testing.T) {
+	d := newDaemon(t, nil)
+	for _, as := range []string{"cron", "trigger", "plugin", "cron:", "cron:   "} {
+		body := mustFail(t, d, protocol.Request{Verb: "task.create", As: as,
+			Args: map[string]any{"title": "who filed this"}}, codes.Usage)
+		if !strings.Contains(body.Message, "<kind>:<id>") {
+			t.Fatalf("--as %q: the refusal does not say the rule: %q", as, body.Message)
+		}
+	}
+	// The declared principal that DOES name one still works.
+	mustCall(t, d, protocol.Request{Verb: "task.create", As: "cron:nightly",
+		Args: map[string]any{"title": "filed by the nightly job"}})
+}

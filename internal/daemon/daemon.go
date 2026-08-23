@@ -346,7 +346,7 @@ func (d *Daemon) admit(req protocol.Request) (verbs.Verb, tasks.Actor, error) {
 // three Herdr facts at the moment they matter (§3.4).
 func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 	if req.As != "" {
-		kind, _, _ := strings.Cut(req.As, ":")
+		kind, id, hasID := strings.Cut(req.As, ":")
 		switch kind {
 		case "cron", "trigger", "plugin":
 			// A pane already HAS a derived principal, so declaring one
@@ -372,6 +372,14 @@ func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 			if tasks.Principal(req.As) == tasks.PrincipalPlugin {
 				return tasks.Actor{}, codes.Errorf(codes.Forbidden,
 					"--as %s is not accepted: that is this plugin's own principal (§3.2)", req.As)
+			}
+			// §3.1: a principal is <kind>:<id>. `--as cron` names a KIND and
+			// no one in particular, so the trail would record a whole class
+			// of caller as the actor and no later reader could tell which
+			// one wrote the row.
+			if !hasID || strings.TrimSpace(id) == "" {
+				return tasks.Actor{}, codes.Errorf(codes.Usage,
+					"--as %s names no id: a principal is <kind>:<id> (§3.1), for example --as %s:nightly", req.As, kind)
 			}
 			// A principal is written verbatim into the event trail and
 			// rendered into single-line prose, so an id carrying whitespace
