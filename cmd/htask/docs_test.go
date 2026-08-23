@@ -633,8 +633,26 @@ func TestTheChangelogHasALineForTheDeclaredContractRevision(t *testing.T) {
 	clause := "the declared contract revision is now " + daemon.ContractVersion
 	// The changelog wraps its prose, so the clause can carry a newline where a
 	// space is; compare on collapsed whitespace.
-	flat := strings.Join(strings.Fields(string(body)), " ")
-	if !strings.Contains(strings.ToLower(flat), clause) {
+	flat := strings.ToLower(strings.Join(strings.Fields(string(body)), " "))
+	// The version has to END where the clause ends. A mutation proved the
+	// prefix match alone unsound: with the changelog announcing 0.10.0-draft
+	// and the binary declaring 0.10.0, the clause was found and the guard went
+	// green while the file named a DIFFERENT revision — and a revision of this
+	// contract really can carry a -draft suffix, so that is not a contrived
+	// input.
+	found := false
+	for i := 0; ; {
+		at := strings.Index(flat[i:], clause)
+		if at < 0 {
+			break
+		}
+		i += at + len(clause)
+		if i == len(flat) || !strings.ContainsRune("0123456789.-", rune(flat[i])) {
+			found = true
+			break
+		}
+	}
+	if !found {
 		t.Errorf("CHANGELOG.md has no entry saying %q, and this binary declares contract "+
 			"revision %s in `doctor --json`. §13.3 makes a change a consumer can pin on legal "+
 			"between minors only with an entry here, and the revision moved without one",
