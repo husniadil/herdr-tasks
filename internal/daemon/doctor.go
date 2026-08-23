@@ -163,16 +163,31 @@ func (d *Daemon) Doctor(req protocol.Request, by tasks.Actor) DoctorReport {
 	if err := d.Store.DB().QueryRow("SELECT schema_version FROM meta").Scan(&r.SchemaVersion); err != nil {
 		r.Degraded = append(r.Degraded, "cannot read the schema version: "+err.Error())
 	}
-	if parked, err := d.Store.ListParked(req.Project); err == nil {
+	// A read that failed leaves its counts at zero, and zero is also what an
+	// empty board looks like. Which of the two it is belongs in Degraded:
+	// doctor never fails (§10.3), and a count nobody could take is a thing to
+	// say rather than a fact to report.
+	if parked, err := d.Store.ListParked(req.Project); err != nil {
+		r.Degraded = append(r.Degraded, "cannot read the parked queue, so parked_waiting is 0 "+
+			"for want of an answer rather than because nothing is parked: "+err.Error())
+	} else {
 		r.ParkedWaiting = len(parked)
 		if r.ParkedWaiting > 0 {
 			r.Degraded = append(r.Degraded, "the policy gate parked actions the operator has not resolved")
 		}
 	}
-	if list, err := d.Store.ListTasks(store.TaskFilter{Project: req.Project}); err == nil {
+	if list, err := d.Store.ListTasks(store.TaskFilter{Project: req.Project}); err != nil {
+		r.Degraded = append(r.Degraded, "cannot read this project's tasks, so tasks_in_project and "+
+			"leases_outstanding are 0 for want of an answer rather than because the board is empty: "+err.Error())
+	} else {
 		r.TasksInProject = len(list)
 		for _, t := range list {
-			if t.ClaimedBy != "" {
+			// A LEASE, not a claim. Submit ends the lease and keeps
+			// `claimed_by` — it is the board's answer to who submitted the
+			// work — so counting claims reported an outstanding lease on
+			// every row waiting for a reviewer, which is precisely the set
+			// the sweep can never release.
+			if t.LeaseUntil != 0 {
 				r.LeasesOutstands++
 			}
 		}
