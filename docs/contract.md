@@ -445,8 +445,9 @@ A plugin whose door excludes `--as` MUST pin that exclusion with a test.
 Recording the reason in a table beside the other globals says what was
 intended, and nothing fails when a later edit maps the flag instead. This
 revision grandfathers no one: herdr-tasks records the exclusion and its reason
-and has no such pin today, and adding one is part of bringing its door to
-parity.
+in `mcpdoor.Globals`, and pins the exclusion itself with
+`TestAsStaysOffTheMCPDoor`, which asserts `as` is neither a served tool nor a
+property of any served tool's input schema.
 
 §7.4 Tool results are the same JSON as `--json` CLI output. Errors are tool
 errors carrying the §6.3 code, never JSON-RPC protocol errors.

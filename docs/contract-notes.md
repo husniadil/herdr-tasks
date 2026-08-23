@@ -488,17 +488,22 @@ so the parity half of the 0.7.0 gap is CLOSED. What stays open in this entry
 is only the declaration: `daemon.ContractVersion` is 0.6.0 against a document
 that states 0.10.0, and no one has audited the four revisions between them.
 
-One thing survives the amendment and should not be read as an oversight. The
-`--as` pin does not exist. §7.3's first draft cited
-`TestAsStaysOffTheMCPDoor`, which does not exist and never did — `grep -rn
-TestAsStaysOffTheMCPDoor --include=*.go .` returns nothing. What exists is
+The `--as` pin now EXISTS. It is `TestAsStaysOffTheMCPDoor` in
+`internal/mcpdoor/as_test.go`, the name §7.3's first draft cited before
+anything answered to it. It reads the SERVED tool list off a live in-memory
+session and asserts that `as` is neither a tool name nor a property of any
+tool's input schema — the surface §7.3 promises, rather than the intent behind
+it. What held the clause before is still there and still does its own job:
 `internal/mcpdoor/mcpdoor.go:345`, where `as` carries an `Excluded` reason
 citing §3.2, and `cmd/htask/render_test.go:186-193`, which asserts only that
-every global has exactly one of `Property` or `Excluded` — it would pass just
-as happily if a later edit mapped `as` to a property. The reason is recorded;
-nothing holds it. §7.3 now requires the pin instead of citing one, and adding
-it is the door task's work alongside the parity gap above. A contract is the
-one document that may not cite a guarantee that is not there.
+every global has exactly one of `Property` or `Excluded`. That assertion never
+held the promise and does not hold it now — it passes just as happily if a
+later edit maps `as` to a property. The two fail independently, which is the
+point of adding a second one: publishing `as` as a schema property fails the
+new test and leaves the render assertion green, and dropping the `as` entry
+from `mcpdoor.Globals` fails the render assertion and leaves the new test
+green. A contract is the one document that may not cite a guarantee that is
+not there, and it no longer does.
 
 ## 0.8.0 answers §3.2 and leaves §7.3's parity gap where it was
 
