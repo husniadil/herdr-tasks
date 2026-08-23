@@ -270,7 +270,7 @@ func Claim(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 			return Event{}, codes.New(codes.Conflict, "task is blocked by an unfinished dependency")
 		}
 		if t.ClaimedBy != "" {
-			return Event{}, codes.Errorf(codes.Conflict, "claimed by %s", t.ClaimedBy)
+			return Event{}, alreadyClaimed(t, by)
 		}
 	}
 	t.Status = StatusDoing
@@ -284,6 +284,20 @@ func Claim(t *Task, by Actor, now, leaseMS int64) (Event, error) {
 	t.UpdatedAt = now
 	return Event{Kind: KindClaimed, Actor: by.Principal, At: now,
 		Detail: map[string]any{"lease_until": t.LeaseUntil, "harness": t.ClaimedByHarness}}, nil
+}
+
+// alreadyClaimed is the refusal for taking a lease somebody else holds. It is
+// CONFLICT rather than FORBIDDEN, and it stays that way - the code vocabulary
+// is semver-bound - but its prose was the same bare "claimed by <holder>" that
+// notHolder replaced, and this is the FIRST message a worker meets when it
+// walks into someone else's lease. Terseness here is where the misreading
+// that produced task 80 starts; notHolder only cleans it up afterwards.
+func alreadyClaimed(t *Task, by Actor) error {
+	return codes.Errorf(codes.Conflict,
+		"you are %s and the lease on this task is already held by %s: it is not free to take. "+
+			"Declaring a principal does not move a lease - `--as` says who is calling, it does not transfer a claim. "+
+			"Ask the holder to release it, or wait for its lease to expire.",
+		by.Principal, t.ClaimedBy)
 }
 
 // notHolder is the refusal a stranger gets from the four verbs a lease

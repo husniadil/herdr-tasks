@@ -1832,3 +1832,30 @@ func TestHolderRefusalNamesTheCallerAndRefusesTheWorkaround(t *testing.T) {
 		}
 	}
 }
+
+// Task 80 (G3): the CONFLICT a second claimant gets is the FIRST message a
+// worker meets when it walks into someone else's lease, and terseness there is
+// where the misreading starts that TestHolderRefusalNamesTheCaller... only
+// cleans up afterwards. The code stays CONFLICT - the vocabulary is
+// semver-bound - and only the prose names the caller and the workaround.
+func TestClaimConflictNamesTheCallerAndRefusesTheWorkaround(t *testing.T) {
+	d := newDaemon(t, nil)
+	id := createTask(t, d, "held work").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+
+	body := mustFail(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p2",
+		Args: map[string]any{"id": id}}, codes.Conflict)
+	msg := body.Message
+	if !strings.Contains(msg, "agent:wF:p2") {
+		t.Errorf("claim conflict must name the caller so it reads as addressed to them: %q", msg)
+	}
+	if !strings.Contains(msg, "agent:wF:p1") {
+		t.Errorf("claim conflict must still name the holder: %q", msg)
+	}
+	if !strings.Contains(msg, "--as") {
+		t.Errorf("claim conflict must say --as does not transfer a claim: %q", msg)
+	}
+	if !strings.Contains(msg, "release") || !strings.Contains(msg, "expire") {
+		t.Errorf("claim conflict must name what to do instead: %q", msg)
+	}
+}
