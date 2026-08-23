@@ -135,3 +135,38 @@ func TestAgentGetReadsTheBareObjectWithAStringSession(t *testing.T) {
 		t.Fatalf("snapshot = %+v", got)
 	}
 }
+
+// harnesslessHerdr answers with the name and the session but no `agent`: a
+// pane whose harness Herdr has no answer for yet.
+func harnesslessHerdr(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "herdr")
+	script := `#!/bin/sh
+case "$1 $2" in
+  "agent get") printf '{"result":{"agent":{"pane_id":"%s","name":"builder","agent_status":"working","agent_session":{"value":"sess-%s"}}}}\n' "$3" "$3" ;;
+  *) echo "unsupported: $*" >&2; exit 64 ;;
+esac
+`
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatalf("write herdr: %v", err)
+	}
+	return path
+}
+
+// §3.4: "unknown" is what Herdr could not say about the HARNESS, not an
+// instruction to forget the name and the session it did say. Discarding them
+// left the board unable to name the peer that claimed, and CheckRecusal's
+// session rule with nothing to compare.
+func TestAgentGetKeepsTheNameAndSessionOfAnUnknownHarness(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	got, err := New(harnesslessHerdr(t)).AgentGet("wF:p1")
+	if err != nil {
+		t.Fatalf("AgentGet: %v", err)
+	}
+	if got.Harness != "unknown" {
+		t.Fatalf("harness = %q, want unknown", got.Harness)
+	}
+	if got.Name != "builder" || got.Session != "sess-wF:p1" || got.PaneID != "wF:p1" {
+		t.Fatalf("an unknown harness threw away what Herdr did answer: %+v", got)
+	}
+}

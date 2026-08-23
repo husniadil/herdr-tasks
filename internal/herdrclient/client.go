@@ -106,13 +106,18 @@ func (c *Client) AgentGet(pane string) (Agent, error) {
 		a = env.Result.Agent.toAgent()
 	}
 	if a.Harness == "" {
+		// The flat shape wins only when it actually says something: an empty
+		// decode of it must not overwrite an envelope answer that named the
+		// pane's name and session, which §3.4 wants kept.
 		var flat rawAgent
-		if err := json.Unmarshal(out, &flat); err == nil {
+		if err := json.Unmarshal(out, &flat); err == nil && flat.Harness != "" {
 			a = flat.toAgent()
 		}
 	}
 	if a.Harness == "" {
-		return Agent{PaneID: pane, Harness: "unknown"}, nil
+		// Unknown in place: the harness is what Herdr could not say, and the
+		// name and session it did say are still the answer (§3.4).
+		a.Harness = "unknown"
 	}
 	a.PaneID = pane
 	return a, nil
