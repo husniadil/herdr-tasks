@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
@@ -645,19 +646,53 @@ func wrapTo(s string, w int) []string {
 			continue
 		}
 		for cells(line) > w {
-			head := truncateCells(line, w)
-			if head == "" {
+			n := consumeCells(line, w)
+			if n == 0 {
 				// A single character wider than the whole pane. Emit it
 				// anyway: one overflowing row the renderer trims is better
 				// than a loop that never ends or text that never appears.
-				head = string([]rune(line)[0])
+				_, n = utf8.DecodeRuneInString(line)
 			}
-			out = append(out, head)
-			line = line[len(head):]
+			out = append(out, line[:n])
+			line = line[n:]
 		}
 		out = append(out, line)
 	}
 	return out
+}
+
+// consumeCells is the byte length of the longest prefix of s that is at most w
+// cells wide, cutting only at a rune boundary outside an escape sequence.
+// truncateCells cannot answer this: ansi.Truncate re-emits the styles it cut
+// through, so what it returns is not a prefix of the source and its length
+// says nothing about how much of the source was consumed — advancing a wrap by
+// it silently eats characters. The width of every candidate prefix is measured
+// with the same cells() the renderer measures with, so a line this lets
+// through is a line the renderer does not trim.
+func consumeCells(s string, w int) int {
+	best, inEsc := 0, false
+	for i, r := range s {
+		end := i + utf8.RuneLen(r)
+		switch {
+		case r == 0x1b:
+			inEsc = true
+		case inEsc:
+			// A CSI sequence ends at its final byte, which is a letter. Only
+			// there is the prefix cuttable again.
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+				if cells(s[:end]) <= w {
+					best = end
+				}
+			}
+		default:
+			if cells(s[:end]) > w {
+				return best
+			}
+			best = end
+		}
+	}
+	return best
 }
 
 // tab draws one view tab. The active one is bracketed, and padded back to the
