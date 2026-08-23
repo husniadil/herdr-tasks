@@ -297,10 +297,10 @@ func (s *Store) DeleteNote(project, ref string, by tasks.Actor) error {
 	if err := tasks.CanHardDeleteNote(n, by); err != nil {
 		return err
 	}
+	// The ROW goes; the trail stays, for the reason DeleteTask keeps a task's
+	// (§5.5). notes_events is append-only, and an inbox note that was filed
+	// and withdrawn is exactly the history a reader looks for.
 	if _, err := tx.Exec("DELETE FROM notes WHERE id = ?", n.ID); err != nil {
-		return wrap(err)
-	}
-	if _, err := tx.Exec("DELETE FROM notes_events WHERE entity_id = ?", n.ID); err != nil {
 		return wrap(err)
 	}
 	return wrap(tx.Commit())

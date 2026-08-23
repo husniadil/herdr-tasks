@@ -19,6 +19,13 @@ never asked; and no door starts a daemon in order to stop it — `htask stop`
 with nothing listening prints that and exits 0, while the MCP tool answers
 `UNAVAILABLE`.
 
+A hard-deleted task or note leaves its events behind. §5.5 calls the events
+tables append-only, and the delete removed the entity's rows with it, so the
+one operation the trail most needed to survive was the one that erased it. A
+consumer of `events` now sees entity ids that name no live row, which is what
+an append-only trail across a §5.7 delete looks like; `events --entity task
+--json` reads them like any other.
+
 `task archive` on an already-archived task answers `CONFLICT`. The second call
 moved `archived_at` to now and appended a second `archived` event, so the row
 answered "when was this hidden" with the last time anyone asked and the trail

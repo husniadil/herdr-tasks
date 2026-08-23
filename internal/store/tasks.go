@@ -252,10 +252,13 @@ func (s *Store) DeleteTask(project, ref string) error {
 			"%s is a dependency of %s; drop the edge with `task update --depends-on` before deleting it",
 			refOf(task), strings.Join(held, ", "))
 	}
+	// The ROW goes; the trail stays. §5.5 calls tasks_events append-only, and
+	// erasing it here made the one operation the trail most needed to survive
+	// the one that removed it: a task created and then deleted left no record
+	// that either had happened. Nothing joins an event to a live entity — the
+	// event carries its own entity_id, not a foreign key — so the rows keep
+	// reading after the task they name has gone.
 	if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", task.ID); err != nil {
-		return wrap(err)
-	}
-	if _, err := tx.Exec("DELETE FROM tasks_events WHERE entity_id = ?", task.ID); err != nil {
 		return wrap(err)
 	}
 	return wrap(tx.Commit())
