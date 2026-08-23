@@ -97,3 +97,38 @@ func TestEveryCLIVerbIsServedByTheDoor(t *testing.T) {
 			len(served), len(verbs.All))
 	}
 }
+
+// §7.3 put every verb on this door, and the served instructions kept telling
+// agents the opposite: "the CLI (`htask`) carries every verb, including the
+// ones missing here". That sentence is prose an agent READS and acts on — a
+// harness with only this door would believe some work needed a shell it does
+// not have — so it needs a pin, not a comment. The audit named it and left it
+// for this task; this is the test that keeps it corrected.
+//
+// It reads the instructions off the live session rather than the constant,
+// because what a caller receives is the initialize result, and it asserts on
+// the CLAIM rather than on an exact sentence: any wording saying verbs are
+// missing from this door fails, whatever it is spelled like.
+func TestTheInstructionsDoNotSendAgentsToTheCLIForMissingVerbs(t *testing.T) {
+	unreachable := func(protocol.Request) (json.RawMessage, error) {
+		t.Error("the daemon was called; this test only reads the served surface")
+		return nil, nil
+	}
+	sess := mcpSession(t, unreachable)
+
+	served := sess.InitializeResult().Instructions
+	if served == "" {
+		t.Fatal("the door serves no instructions; the test would pass on an empty string")
+	}
+	if served != Instructions {
+		t.Fatalf("the served instructions are not mcpdoor.Instructions; this test would be "+
+			"reading the wrong text\nserved: %q", served)
+	}
+	for _, stale := range []string{"missing here", "missing from this door", "including the ones"} {
+		if strings.Contains(served, stale) {
+			t.Errorf("the served instructions say %q; every verb is on this door (§7.3) and "+
+				"TestEveryCLIVerbIsServedByTheDoor holds it, so telling an agent otherwise is "+
+				"a false claim in text it acts on", stale)
+		}
+	}
+}

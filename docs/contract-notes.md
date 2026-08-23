@@ -443,7 +443,32 @@ One observation the table does not settle: `Prompt` has no caller. It is the
 delivers text to an agent today, so §11.4 is satisfied by a path that is not
 exercised outside its own package.
 
-## 0.7.0 opens a parity gap in every plugin, this one included
+And one thing the table itself broke, found under task 89 and fixed there.
+`gapRecorded` in `cmd/htask/contract_test.go` asks whether a lagging
+declaration is written down, by looking for a SINGLE paragraph naming both
+revisions. A markdown table carries no blank line, so the table above is one
+paragraph naming most of this document's revisions at once, and it answered
+yes for pairs nobody had ever recorded: with the declaration mutated to 0.5.0
+the guard stayed green. That is the same "both strings appear somewhere"
+failure the paragraph anchor was introduced to close, arriving again one level
+down. `gapRecorded` now drops table rows before splitting, so a recorded gap
+has to be prose or a heading; the mutation to 0.5.0 fails, a mutation to 0.9.0
+passes and logs the entry that records it, and leading the document still
+fails.
+
+## 0.7.0 opens a parity gap in every plugin, this one included (0.7.0 to 0.10.0; superseded)
+
+**Historical, and CLOSED.** This entry's condition was two things: bring the
+door to parity AND move the declaration. Both are now true. Parity landed
+when 0.10.0 removed the last ground a verb had for staying off the door, and
+the declaration moved under task 89: `daemon.ContractVersion` and the README
+say **0.10.0**, the revision `docs/contract.md` states, so
+`TestTheDeclaredRevisionIsTheVendoredOne` no longer takes its lag branch at
+all. What earned the move is later in this file: the 0.9.0 sweep under task
+86 and its completion under task 88 audited every MUST in this document
+against 0.9.0's rule, and the `--as` pin this entry says was owed exists.
+Kept, not deleted, because the binaries that shipped declaring 0.6.0 are
+readable only against what was true then.
 
 The 0.7.0 amendment to §7.3 requires a plugin's MCP door to serve every verb
 its CLI serves. Nothing served that when it was written. This plugin served 13
@@ -453,12 +478,15 @@ closed: 0.10.0 removed the only ground those absences rested on, and every
 verb is on both doors, pinned by `TestEveryVerbIsOnBothDoors` and
 `TestEveryCLIVerbReachesTheMCPDoor`.
 
-The declaration still lags on purpose: `daemon.ContractVersion` and the
-README stay at **0.6.0** while `docs/contract.md` now states **0.10.0**.
-Declaring a revision is a conformance claim and no test can make it; declaring
-0.7.0 on the day the text was written would claim a door that does not exist
-yet, and 0.8.0, 0.9.0 and 0.10.0 each carry a claim this repository has not
-audited itself against end to end.
+The declaration lagged on purpose for four revisions, and no longer does.
+While it lagged, `daemon.ContractVersion` and the README stayed at **0.6.0**
+against a `docs/contract.md` stating **0.10.0**, because declaring a revision
+is a conformance claim and no test can make it: declaring 0.7.0 on the day the
+text was written would have claimed a door that did not exist yet, and 0.8.0,
+0.9.0 and 0.10.0 each carried a claim this repository had not audited itself
+against end to end. That audit has since run and the declaration moved to
+**0.10.0**; the paragraph below describes the guard that held the lag, which
+is now dormant rather than gone.
 `TestTheDeclaredRevisionIsTheVendoredOne` was taught this one shape and no
 other, and it enforces both halves rather than describing them: the declared
 revision must be strictly LOWER than the vendored one, and the gap must be
@@ -467,8 +495,11 @@ binary declaring a revision this repository does not contain is claiming
 conformance to a text nobody can read. A lag with no entry fails, because this
 file already names six revisions and "both strings appear somewhere" is
 satisfied by almost anything — which is how the first version of the relaxed
-guard let a two-revision silent lag through. Auditing the declaration forward from 0.6.0 through 0.10.0 is its
-own task, and it is what closes this entry.
+guard let a two-revision silent lag through. Auditing the declaration forward
+from 0.6.0 through 0.10.0 was its own task, task 89, and running it is what
+closed this entry. Both halves of the guard still fail on a mutation with the
+revisions equal, which is the point: a guard that only worked while there was
+a lag was never a guard.
 
 `TestMCPToolCountStaysSmall` is gone, earlier than this entry said it would
 be. It asserted the 8–16 range of a §7.3 sentence 0.7.0 removed, and it stood
@@ -484,9 +515,10 @@ What holds the clause NOW, and what the paragraph above should be read
 against, is `TestEveryVerbIsOnBothDoors` in `internal/verbs` and
 `TestEveryCLIVerbReachesTheMCPDoor` in `internal/mcpdoor`: nothing may be
 absent from either door, in either direction. The door serves all 32 verbs,
-so the parity half of the 0.7.0 gap is CLOSED. What stays open in this entry
-is only the declaration: `daemon.ContractVersion` is 0.6.0 against a document
-that states 0.10.0, and no one has audited the four revisions between them.
+so the parity half of the 0.7.0 gap is CLOSED. The declaration half is closed
+too: `daemon.ContractVersion` and the README state 0.10.0, the revision the
+vendored document states, and the four revisions between were audited by the
+0.9.0 sweep and its completion before the constant moved.
 
 The `--as` pin now EXISTS. It is `TestAsStaysOffTheMCPDoor` in
 `internal/mcpdoor/as_test.go`, the name §7.3's first draft cited before
@@ -592,7 +624,14 @@ belongs on that board.
 
 What replaced it: the sweep ran under task 86 and its result is the entry
 below, "The 0.9.0 sweep: every MUST, and the test that fails without it". That
-entry, not this one, is this plugin's current answer to 0.9.0's rule. The two
+sweep did not finish the job on its own — it proved 38 MUSTs by mutation,
+closed five that had no pin, and LISTED eleven it had not pinned. **Task 88 is
+what closed the sweep this entry was waiting on**, answering all eleven with
+thirteen further tests and two arguments; its own summary is in that entry and
+says nothing is left open. So the pointer is to both: task 86 for the sweep,
+task 88 for its closure. Together, that entry rather than this one is this
+plugin's current answer to 0.9.0's rule, and it is what let task 89 move the
+declared revision. The two
 items named as out of scope in the paragraph above were not part of the sweep
 and are still open.
 
@@ -907,9 +946,13 @@ not by mutation, and that is on purpose.
 
 ### One thing this audit found that is not a pin
 
-`mcpdoor.Instructions` still tells an agent that "the CLI (`htask`) carries
-every verb, including the ones missing here". Since 0.10.0 there are no verbs
-missing there, and `TestEveryCLIVerbIsServedByTheDoor` now holds that. The
-sentence is stale rather than wrong-in-mechanism, and correcting served prose
-is a change to the door's shipped text, so it is named here and left for the
-door task that moves the declared revision.
+`mcpdoor.Instructions` told an agent that "the CLI (`htask`) carries every
+verb, including the ones missing here". Since 0.10.0 there are no verbs missing
+there, and `TestEveryCLIVerbIsServedByTheDoor` holds that. The sentence was
+stale rather than wrong-in-mechanism, and correcting served prose is a change
+to the door's shipped text, so it was left for the door task that moves the
+declared revision. Task 89 made that change, and it did not go in as prose
+alone: `TestTheInstructionsDoNotSendAgentsToTheCLIForMissingVerbs` reads the
+instructions off a live session and fails on any wording claiming a verb is
+absent from this door, so the stale claim cannot return unnoticed. This item
+is therefore no longer "not a pin" — it is one.

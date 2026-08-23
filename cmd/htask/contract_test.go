@@ -260,7 +260,22 @@ func gapRecorded(t *testing.T, declared, vendored string) bool {
 	if err != nil {
 		t.Fatalf("read docs/contract-notes.md: %v", err)
 	}
-	for _, para := range strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n\n") {
+	// Table rows are dropped before the split. The 0.9.0 sweep added a
+	// reference table that names a revision beside nearly every § it lists,
+	// and a markdown table carries no blank line, so the whole thing is ONE
+	// paragraph naming most of this document's revisions at once. Reading it
+	// as an entry let a five-revision lag through with nothing written down —
+	// the same "both strings appear somewhere" failure the paragraph anchor
+	// was introduced to close, arriving again one level down. A recorded gap
+	// is prose or a heading that says the two revisions belong together.
+	prose := []string{}
+	for _, line := range strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		prose = append(prose, line)
+	}
+	for _, para := range strings.Split(strings.Join(prose, "\n"), "\n\n") {
 		if strings.Contains(para, declared) && strings.Contains(para, vendored) {
 			return true
 		}

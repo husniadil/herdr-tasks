@@ -43,8 +43,8 @@ const Instructions = "herdr-tasks is the task backlog and notes board for agents
 	"derived from the pane you run in — you never declare who you are. The usual entry points are " +
 	"`list` to find ready work, `claim` to take it, `touch` at the start of every turn to " +
 	"renew the lease, and `submit` with a report and evidence when it is done. `goal` prints a " +
-	"paste-ready /goal condition for a task. The CLI (`htask`) carries every verb, including the ones " +
-	"missing here; `htask --help` lists them."
+	"paste-ready /goal condition for a task. Every verb this plugin has is here; the CLI (`htask`) " +
+	"serves the same set, and `htask --help` lists them."
 
 // Caller is what the door needs to reach the daemon. The default calls the
 // real socket; a test swaps in something that answers in-process.
