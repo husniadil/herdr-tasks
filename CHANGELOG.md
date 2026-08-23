@@ -19,11 +19,11 @@ never asked; and no door starts a daemon in order to stop it — `htask stop`
 with nothing listening prints that and exits 0, while the MCP tool answers
 `UNAVAILABLE`.
 
-`task archive` on an already-archived task answers `CONFLICT` instead of
-succeeding. It used to move `archived_at` to now and append a second
-`archived` event, so the row said it was hidden at the last time anyone asked
-and the trail said it happened twice. A caller that archived defensively
-should read the code and treat CONFLICT as "already done".
+`task archive` on an already-archived task answers `CONFLICT`. The second call
+moved `archived_at` to now and appended a second `archived` event, so the row
+answered "when was this hidden" with the last time anyone asked and the trail
+said it happened twice. A caller that archives defensively reads the code and
+treats CONFLICT as "already done".
 
 Three new `--json` fields on a parked action, `tab_id`, `workspace_id` and
 `all_projects`, all `omitempty`. They are what the door derived rather than
