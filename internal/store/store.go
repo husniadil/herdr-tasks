@@ -171,7 +171,8 @@ func wrap(err error) error {
 }
 
 // refClause turns a caller-typed reference into a WHERE fragment: a 26-char
-// ULID is identity, a bare integer is the project's seq (§5.4).
+// ULID is identity, an integer — with or without the `#` the board prints —
+// is the project's seq (§5.4).
 func refClause(ref string) (string, any, error) {
 	ref = strings.TrimSpace(ref)
 	if ref == "" {
@@ -180,7 +181,11 @@ func refClause(ref string) (string, any, error) {
 	if ids.Valid(ref) {
 		return "id = ?", ref, nil
 	}
-	if n, err := strconv.ParseInt(ref, 10, 64); err == nil && n > 0 {
+	// `#12` as well as `12`: every rendering this plugin has prints the number
+	// with the hash in front of it, so that is the form a reader copies back.
+	// A `#` on its own, or on anything that is not a number, still resolves to
+	// nothing and is refused below.
+	if n, err := strconv.ParseInt(strings.TrimPrefix(ref, "#"), 10, 64); err == nil && n > 0 {
 		return "seq = ?", n, nil
 	}
 	return "", nil, codes.Errorf(codes.Usage, "%q is neither a 26-character id nor a positive number", ref)
