@@ -1983,3 +1983,71 @@ func statStamp(t *testing.T, path string) string {
 	}
 	return fmt.Sprintf("%d-%d", fi.Size(), fi.ModTime().UnixMilli())
 }
+
+// §4.4: a transition carries --all-projects the same way task.get does — a
+// ULID names one task anywhere, so a sibling plugin releasing a task filed on
+// another board gets that task, not NOT_FOUND.
+func TestTransitionHonoursAllProjects(t *testing.T) {
+	d := newDaemon(t, nil)
+	other := "/tmp/project-b"
+	created := unmarshalTask(t, mustCall(t, d, protocol.Request{
+		Verb: "task.create", Project: other, Args: map[string]any{"title": "elsewhere"}}))
+	claimed := unmarshalTask(t, mustCall(t, d, protocol.Request{
+		Verb: "task.claim", Project: proj, AllProjects: true,
+		Args: map[string]any{"id": created.Task.ID}}))
+	if claimed.Task.Project != other || claimed.Task.Status != tasks.StatusDoing {
+		t.Fatalf("claim across projects = %s in %q, want doing in %q",
+			claimed.Task.Status, claimed.Task.Project, other)
+	}
+	released := unmarshalTask(t, mustCall(t, d, protocol.Request{
+		Verb: "task.release", Project: proj, AllProjects: true,
+		Args: map[string]any{"id": created.Task.ID}}))
+	if released.Task.Status != tasks.StatusTodo {
+		t.Fatalf("release across projects = %s, want todo", released.Task.Status)
+	}
+	// Without it, the same call still sees only this board.
+	mustFail(t, d, protocol.Request{Verb: "task.claim", Project: proj,
+		Args: map[string]any{"id": created.Task.ID}}, codes.NotFound)
+}
+
+// §4.4: a number is minted per project, so it cannot address a task across
+// boards — a transition refuses it with USAGE, the answer task.get gives.
+func TestTransitionRefusesANumberAcrossProjects(t *testing.T) {
+	d := newDaemon(t, nil)
+	createTask(t, d, "here")
+	mustFail(t, d, protocol.Request{Verb: "task.claim", Project: proj, AllProjects: true,
+		Args: map[string]any{"id": "1"}}, codes.Usage)
+}
+
+// Both doors carry --all-projects on every verb, so a verb that ignores it
+// must refuse it rather than answer as though the whole fleet was searched.
+func TestAllProjectsIsRefusedByVerbsThatIgnoreIt(t *testing.T) {
+	d := newDaemon(t, nil)
+	created := createTask(t, d, "here")
+	for _, req := range []protocol.Request{
+		{Verb: "doctor"},
+		{Verb: "note.get", Args: map[string]any{"id": "1"}},
+		{Verb: "task.goal", Args: map[string]any{"id": created.Task.ID}},
+		{Verb: "task.create", Args: map[string]any{"title": "x"}},
+	} {
+		req.AllProjects = true
+		mustFail(t, d, req, codes.Usage)
+	}
+}
+
+// The refusal is declared in the registry, not written out a second time here:
+// every verb the daemon answers across boards says so, and every verb that
+// does not is refused by admit.
+func TestEveryVerbThatHonoursAllProjectsDeclaresIt(t *testing.T) {
+	honours := map[string]bool{
+		"task.list": true, "task.get": true, "note.list": true, "events": true, "dump": true,
+		"task.claim": true, "task.touch": true, "task.release": true, "task.submit": true,
+		"task.amend": true, "task.approve": true, "task.reject": true, "task.cancel": true,
+		"task.update": true, "task.archive": true,
+	}
+	for _, v := range verbs.All {
+		if v.AllProjects != honours[v.Name] {
+			t.Errorf("%s: AllProjects = %v, want %v", v.Name, v.AllProjects, honours[v.Name])
+		}
+	}
+}

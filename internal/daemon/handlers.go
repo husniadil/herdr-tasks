@@ -197,7 +197,20 @@ func hTaskGet(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
 }
 
 func (d *Daemon) transition(req protocol.Request, fn func(*tasks.Task) (tasks.Event, error)) (any, error) {
-	t, err := d.Store.TaskTransition(req.Project, argString(req.Args, "id"), req.BaseUpdatedAt, fn)
+	project, ref := req.Project, argString(req.Args, "id")
+	if req.AllProjects {
+		// §4.4: the caller asked past their own board, so the id is resolved
+		// against every project first and the move happens on the board the
+		// task was actually filed on. Only a ULID addresses a task across
+		// boards — GetTaskAnyProject refuses a number with USAGE, the same
+		// answer task.get gives.
+		found, ferr := d.Store.GetTaskAnyProject(ref)
+		if ferr != nil {
+			return nil, ferr
+		}
+		project, ref = found.Project, found.ID
+	}
+	t, err := d.Store.TaskTransition(project, ref, req.BaseUpdatedAt, fn)
 	if err != nil {
 		return nil, err
 	}

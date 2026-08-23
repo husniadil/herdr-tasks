@@ -64,6 +64,11 @@ type Verb struct {
 	Who string
 	// Mutates marks a verb that writes, for the --base-updated-at guard (§5.6).
 	Mutates bool
+	// AllProjects marks a verb that HONOURS --all-projects (§4.4). Both doors
+	// carry the flag on every verb, so the daemon refuses it with USAGE
+	// wherever this is false: a scope a verb ignores is a scope the caller
+	// thinks it asked for and never got.
+	AllProjects bool
 }
 
 // idArg is the reference every entity verb takes: a 26-character id or the
@@ -91,7 +96,8 @@ var All = []Verb{
 	},
 	{
 		Name: "task.list", CLI: []string{"task", "list"}, MCP: "list",
-		Short: "List tasks in this project",
+		Short:       "List tasks in this project",
+		AllProjects: true,
 		Args: []Arg{
 			{Name: "status", Type: String, Desc: "todo, doing, review, done or cancelled"},
 			{Name: "ready", Type: Bool, Desc: "Only unblocked, unclaimed todo tasks"},
@@ -103,32 +109,36 @@ var All = []Verb{
 	},
 	{
 		Name: "task.get", CLI: []string{"task", "get"}, MCP: "get",
-		Short: "Read one task in full",
-		Args:  []Arg{idArg("The task id or number")},
+		Short:       "Read one task in full",
+		AllProjects: true,
+		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
 		Name: "task.claim", CLI: []string{"task", "claim"}, MCP: "claim",
-		Short:   "Take a task and its lease",
-		Gated:   "tasks.claim",
-		Who:     "Anyone, for an unclaimed and unblocked task; the holder, to renew.",
-		Mutates: true,
-		Args:    []Arg{idArg("The task id or number")},
+		Short:       "Take a task and its lease",
+		AllProjects: true,
+		Gated:       "tasks.claim",
+		Who:         "Anyone, for an unclaimed and unblocked task; the holder, to renew.",
+		Mutates:     true,
+		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
 		Name: "task.touch", CLI: []string{"task", "touch"}, MCP: "touch",
-		Short:   "Renew the lease on a task you hold",
-		Long:    "Run this at the start of each turn: a lease that lapses is swept and the task returns to the queue.",
-		Who:     "The holder only.",
-		Ungated: "renewing your own lease is not a decision a policy could usefully defer",
-		Mutates: true,
-		Args:    []Arg{idArg("The task id or number")},
+		Short:       "Renew the lease on a task you hold",
+		AllProjects: true,
+		Long:        "Run this at the start of each turn: a lease that lapses is swept and the task returns to the queue.",
+		Who:         "The holder only.",
+		Ungated:     "renewing your own lease is not a decision a policy could usefully defer",
+		Mutates:     true,
+		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
 		Name: "task.release", CLI: []string{"task", "release"}, MCP: "release",
-		Short:   "Hand a task back with a note saying what is left",
-		Who:     "The holder, or the operator.",
-		Ungated: "handing work back is the safe direction; a gate that could park it would strand the task",
-		Mutates: true,
+		Short:       "Hand a task back with a note saying what is left",
+		AllProjects: true,
+		Who:         "The holder, or the operator.",
+		Ungated:     "handing work back is the safe direction; a gate that could park it would strand the task",
+		Mutates:     true,
 		Args: []Arg{
 			idArg("The task id or number"),
 			{Name: "note", Type: String, Desc: "What is left, for whoever claims it next"},
@@ -136,10 +146,11 @@ var All = []Verb{
 	},
 	{
 		Name: "task.submit", CLI: []string{"task", "submit"}, MCP: "submit",
-		Short:   "Send a task to review with a report and its evidence",
-		Gated:   "tasks.submit",
-		Who:     "The holder, or the operator.",
-		Mutates: true,
+		Short:       "Send a task to review with a report and its evidence",
+		AllProjects: true,
+		Gated:       "tasks.submit",
+		Who:         "The holder, or the operator.",
+		Mutates:     true,
 		Args: []Arg{
 			idArg("The task id or number"),
 			{Name: "report", Type: String, Desc: "What you did and how it was verified", Required: true},
@@ -149,7 +160,8 @@ var All = []Verb{
 	},
 	{
 		Name: "task.amend", CLI: []string{"task", "amend"}, MCP: "amend",
-		Short: "Correct the report and evidence of work already in review",
+		Short:       "Correct the report and evidence of work already in review",
+		AllProjects: true,
 		Long: "Submit is made once and judged once, so it refuses a second call. This is the other half: " +
 			"the holder replaces the report and the evidence of a task waiting for a reviewer, and the " +
 			"submission itself — when it was submitted, by whom, from which session — does not move. " +
@@ -168,19 +180,21 @@ var All = []Verb{
 	},
 	{
 		Name: "task.approve", CLI: []string{"task", "approve"}, MCP: "approve",
-		Short:   "Accept submitted work",
-		Long:    "A harness may not approve work its own harness produced (§6.6). The operator is exempt.",
-		Gated:   "tasks.approve",
-		Who:     "Anyone but the submitting harness (§6.6); the operator is exempt.",
-		Mutates: true,
-		Args:    []Arg{idArg("The task id or number")},
+		Short:       "Accept submitted work",
+		AllProjects: true,
+		Long:        "A harness may not approve work its own harness produced (§6.6). The operator is exempt.",
+		Gated:       "tasks.approve",
+		Who:         "Anyone but the submitting harness (§6.6); the operator is exempt.",
+		Mutates:     true,
+		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
 		Name: "task.reject", CLI: []string{"task", "reject"}, MCP: "reject",
-		Short:   "Send submitted work back with feedback",
-		Gated:   "tasks.reject",
-		Who:     "Anyone but the submitting harness (§6.6); the operator is exempt.",
-		Mutates: true,
+		Short:       "Send submitted work back with feedback",
+		AllProjects: true,
+		Gated:       "tasks.reject",
+		Who:         "Anyone but the submitting harness (§6.6); the operator is exempt.",
+		Mutates:     true,
 		Args: []Arg{
 			idArg("The task id or number"),
 			{Name: "feedback", Type: String, Desc: "What must change", Required: true},
@@ -201,10 +215,11 @@ var All = []Verb{
 	},
 	{
 		Name: "task.cancel", CLI: []string{"task", "cancel"}, MCP: "cancel",
-		Short:   "End a task that will not be done",
-		Gated:   "tasks.cancel",
-		Who:     "The holder or the operator while claimed; anyone while unclaimed — the same rule release and submit apply.",
-		Mutates: true,
+		Short:       "End a task that will not be done",
+		AllProjects: true,
+		Gated:       "tasks.cancel",
+		Who:         "The holder or the operator while claimed; anyone while unclaimed — the same rule release and submit apply.",
+		Mutates:     true,
 		Args: []Arg{
 			idArg("The task id or number"),
 			{Name: "reason", Type: String, Desc: "Why it is being cancelled"},
@@ -212,10 +227,11 @@ var All = []Verb{
 	},
 	{
 		Name: "task.update", CLI: []string{"task", "update"}, MCP: "update",
-		Short:   "Edit a live task",
-		Gated:   "tasks.update",
-		Who:     "Anyone, while the task is not terminal.",
-		Mutates: true,
+		Short:       "Edit a live task",
+		AllProjects: true,
+		Gated:       "tasks.update",
+		Who:         "Anyone, while the task is not terminal.",
+		Mutates:     true,
 		Args: []Arg{
 			idArg("The task id or number"),
 			{Name: "title", Type: String, Desc: "A new title"},
@@ -227,11 +243,12 @@ var All = []Verb{
 	},
 	{
 		Name: "task.archive", CLI: []string{"task", "archive"}, MCP: "archive",
-		Short:   "Hide a finished task from the default list",
-		Who:     "Anyone, and only a terminal task. Arranging the default view is the operator's call, so an agent asks before tidying someone else's board (§3.7).",
-		Ungated: "hiding a finished task changes no work and is reversible",
-		Mutates: true,
-		Args:    []Arg{idArg("The task id or number")},
+		Short:       "Hide a finished task from the default list",
+		AllProjects: true,
+		Who:         "Anyone, and only a terminal task. Arranging the default view is the operator's call, so an agent asks before tidying someone else's board (§3.7).",
+		Ungated:     "hiding a finished task changes no work and is reversible",
+		Mutates:     true,
+		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
 		Name: "task.delete", CLI: []string{"task", "delete"}, MCP: "delete",
@@ -254,7 +271,8 @@ var All = []Verb{
 	},
 	{
 		Name: "note.list", CLI: []string{"note", "list"}, MCP: "note_list",
-		Short: "List notes in this project",
+		Short:       "List notes in this project",
+		AllProjects: true,
 		Args: []Arg{
 			{Name: "status", Type: String, Desc: "inbox, discussing, needs_input, proposed, keep, task or dropped"},
 			{Name: "query", Type: String, Desc: "Match the body or the verdict reason"},
@@ -391,7 +409,8 @@ var All = []Verb{
 	},
 	{
 		Name: "events", CLI: []string{"events"}, MCP: "events",
-		Short: "Stream the append-only event trail",
+		Short:       "Stream the append-only event trail",
+		AllProjects: true,
 		Long: "Without --since this reads from the BEGINNING: the answer, and a\n" +
 			"--follow stream alike, start with the whole trail, oldest event first.\n" +
 			"--follow only waits for something new once that backlog is drained, so a\n" +
@@ -420,7 +439,8 @@ var All = []Verb{
 	},
 	{
 		Name: "dump", CLI: []string{"dump"}, MCP: "dump",
-		Short: "Print the whole store as JSON, every project included (§3.5)",
+		Short:       "Print the whole store as JSON, every project included (§3.5)",
+		AllProjects: true,
 	},
 }
 

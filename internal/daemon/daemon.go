@@ -306,6 +306,14 @@ func (d *Daemon) admit(req protocol.Request) (verbs.Verb, tasks.Actor, error) {
 				req.Verb, name)
 		}
 	}
+	// Both doors carry --all-projects on every verb, so a verb that does not
+	// honour it refuses the call rather than acting on this board and
+	// answering as though the whole fleet had been searched (§4.4).
+	if req.AllProjects && !v.AllProjects {
+		return verbs.Verb{}, tasks.Actor{}, codes.Errorf(codes.Usage,
+			"%s does not act across projects; drop --all-projects, and name the board with --project if it is not this one",
+			req.Verb)
+	}
 	actor, err := d.actor(req)
 	if err != nil {
 		return verbs.Verb{}, tasks.Actor{}, err

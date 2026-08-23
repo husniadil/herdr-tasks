@@ -949,6 +949,48 @@ func TestGetAcrossProjectsThroughMCP(t *testing.T) {
 	}
 }
 
+// §4.4 / §6.1: a transition carries all_projects through this door too — the
+// case a sibling plugin hits when it releases a task filed on another board —
+// and a verb that does not honour the flag refuses it rather than acting on
+// the caller's own board.
+func TestTransitionAcrossProjectsThroughMCP(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	_, call := inProcessDaemon(t)
+	sess := mcpSession(t, call)
+	here, there := canonProject(t, "/tmp/here"), canonProject(t, "/tmp/there")
+	made, err := call(protocol.Request{Verb: "task.create", Project: there,
+		Args: map[string]any{"title": "filed over there"}})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var created struct {
+		Task struct{ ID string } `json:"task"`
+	}
+	if err := json.Unmarshal(made, &created); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	res := callTool(t, sess, "claim", map[string]any{"id": created.Task.ID, "project": here, "all_projects": true})
+	if res.IsError {
+		t.Fatalf("all_projects claim: %s", text(res))
+	}
+	var got struct {
+		Task struct{ ID, Project, Status string } `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Task.Project != there || got.Task.Status != "doing" {
+		t.Fatalf("all_projects claim = %s in %q, want doing in %q", got.Task.Status, got.Task.Project, there)
+	}
+	no := callTool(t, sess, "goal", map[string]any{"id": created.Task.ID, "project": here, "all_projects": true})
+	if !no.IsError {
+		t.Fatalf("a verb that ignores all_projects accepted it: %s", text(no))
+	}
+	if !strings.Contains(text(no), "does not act across projects") {
+		t.Fatalf("the refusal does not say why: %s", text(no))
+	}
+}
+
 // §7.5, and the sentence that keeps the declaration from being `--as` with a
 // different spelling: it is read from how the door was STARTED and can never
 // arrive per call. Three things have to hold at once, so all three are here —
