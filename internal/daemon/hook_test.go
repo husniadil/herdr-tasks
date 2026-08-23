@@ -15,12 +15,12 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/store"
 )
 
-// §8.3: the hook fires for the event the write WROTE. It used to be found by
-// re-reading the entity's whole trail and taking the end of it, which is the
-// same event only while nothing else is writing — two callers mutating one
-// task both saw the later event, so it was announced twice and the earlier one
-// never was. A consumer that acts on the trail then acted twice on one change
-// and missed another.
+// §8.3: the hook fires for the event the write WROTE, once per event. Finding
+// it by re-reading the entity's whole trail and taking the end is the same
+// event only while nothing else is writing: two callers mutating one task both
+// see the later one, so it is announced twice and the earlier one never is,
+// and a consumer acting on the trail acts twice on one change and misses
+// another.
 func TestEveryEventIsAnnouncedExactlyOnce(t *testing.T) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "log")
