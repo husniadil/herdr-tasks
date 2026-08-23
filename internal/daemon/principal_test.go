@@ -25,6 +25,16 @@ func TestPaneMayNotDeclareAPluginPrincipal(t *testing.T) {
 	if !errors.As(err, &ce) || ce.Code != codes.Forbidden {
 		t.Fatalf("error = %v, want a %s", err, codes.Forbidden)
 	}
+	// The guard sits on the whole declarable arm, not the plugin case alone:
+	// cron and trigger have the same derived-principal problem from a pane,
+	// and plugin:tasks reaches this refusal before the board's own-principal
+	// one. Pinned because the diff does it and the task text asked only for
+	// the plugin case.
+	for _, as := range []string{"cron:nightly", "trigger:webhook", "plugin:tasks"} {
+		if _, err := d.actor(protocol.Request{PaneID: "wF:p1", As: as}); err == nil {
+			t.Errorf("pane + --as %s was accepted", as)
+		}
+	}
 }
 
 // TestPanelessPluginPrincipalStaysAccepted holds the case task 67 protected:
@@ -83,8 +93,8 @@ func TestClaimAndSubmitAsAPluginFromAPaneNoLongerReproduces(t *testing.T) {
 
 	claim := mustFail(t, d, protocol.Request{Verb: "task.claim",
 		PaneID: "wF:p1", As: "plugin:hdis", Args: map[string]any{"id": id}}, codes.Forbidden)
-	if !strings.Contains(claim.Message, "agent:wF:p1") {
-		t.Errorf("claim refusal does not name the derived principal: %s", claim.Message)
+	if !strings.Contains(claim.Message, "not accepted from a pane") {
+		t.Errorf("claim was refused for some other reason: %s", claim.Message)
 	}
 
 	// The pane claims as itself, which is the only shape left, and then the
@@ -94,8 +104,12 @@ func TestClaimAndSubmitAsAPluginFromAPaneNoLongerReproduces(t *testing.T) {
 	sub := mustFail(t, d, protocol.Request{Verb: "task.submit",
 		PaneID: "wF:p1", As: "plugin:hdis",
 		Args: map[string]any{"id": id, "report": "done", "evidence": "make test"}}, codes.Forbidden)
-	if !strings.Contains(sub.Message, "agent:wF:p1") {
-		t.Errorf("submit refusal does not name the derived principal: %s", sub.Message)
+	// The refusal must be THIS one. notHolder also names agent:wF:p1, so a
+	// test that only looked for the principal would pass with the submit half
+	// of the guard removed — the mutation `req.Verb == "task.claim"` proved
+	// exactly that.
+	if !strings.Contains(sub.Message, "not accepted from a pane") {
+		t.Errorf("submit was refused for some other reason: %s", sub.Message)
 	}
 
 	got := unmarshalTask(t, mustCall(t, d, protocol.Request{Verb: "task.get",
