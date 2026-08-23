@@ -306,6 +306,43 @@ func TestSection32NamesTheProcessBoundIdentityRule(t *testing.T) {
 	}
 }
 
+// §3.7's two halves are one rule or they are none. 0.8.0 said `human` is
+// never the fallback for knowing nothing; 0.10.0 stops an operator verb
+// refusing a non-operator principal, which leaves the trail as the only place
+// the operator's authority is visible at all — so the first half is what makes
+// the second meaningful, and dropping either leaves a plugin that either
+// refuses what it was told not to refuse, or performs it and files it under
+// the operator. The behaviour is pinned in internal/tasks and internal/daemon;
+// this pins that the document still asks for it, because a MUST nobody can
+// find is a MUST nobody applies.
+func TestTheOperatorVerbRuleKeepsBothOfItsHalves(t *testing.T) {
+	// NOT contractSection: its anchor regex matches the first line starting
+	// with `§3.7`, and that is the 0.8.0 preamble entry, which summarises the
+	// clause rather than stating it. This reads the numbered §3, where the
+	// clause itself lives.
+	body := contractHeading(t, "## §3 ", "## §4 ")
+	for _, phrase := range []string{
+		// The half 0.8.0 wrote, unchanged.
+		"`human` is never the fallback for knowing nothing",
+		// The refusal 0.10.0 removed, and the duty that replaces it.
+		"MUST NOT refuse an operator verb on the ground that the caller is not the operator",
+		"an agent confirms with the user",
+		// Why there is no mechanism behind the duty.
+		"does not verify that the confirmation happened",
+		// The trail that carries the accountability instead, both halves.
+		"MUST record the calling principal as the event's actor — never `human`",
+		"MUST mark the event as an operator verb performed by someone other than",
+		// And the 0.9.0 preamble's rule applied to this clause's own MUSTs.
+		"MUST pin both halves with a test",
+		// The boundary: what does NOT become advisory with it.
+		"does not become advisory with it",
+	} {
+		if !strings.Contains(body, phrase) {
+			t.Errorf("§3.7 no longer states the operator-verb rule: %q is missing", phrase)
+		}
+	}
+}
+
 // §7.3's parity MUST and its `--as` exclusion are one argument or they are
 // two, and 0.7.0 shipped them as two: the MUST put every verb on the door
 // while the exclusion said a shell-less caller must not gain authority it has
@@ -333,11 +370,59 @@ func TestParityAndTheAsExclusionRestOnTheSameArgument(t *testing.T) {
 	for _, phrase := range []string{
 		"fixed before any call arrives",
 		"identity claim carried BY a call",
+		// 0.10.0: the one reason a plugin ever gave for a CLI-only verb was
+		// "this authority is the operator's", and §3.7 no longer supports it.
+		// Without this sentence the MUST reads as one a drafter may carve an
+		// operator-verb exception out of, which is the shape it already had.
+		"There is no operator-verb exception to this MUST",
+		"MUST pin the totality with a test",
 	} {
 		if !strings.Contains(body, phrase) {
 			t.Errorf("§7.3 cites the rule but does not apply it: %q is missing", phrase)
 		}
 	}
+}
+
+// §9 with §3.7 (0.10.0): withholding a verb from a principal is the gate's
+// job. Two things had to move with the amendment and both are MUSTs, so both
+// are pinned here: a parked action must name who resolved it, because §9.3
+// re-runs the verb under the ORIGINAL subject and would otherwise leave the
+// decider out of the only record there is; and §3.7 must not be read as a
+// second place to withhold a verb now that it withholds nothing.
+func TestTheGateIsTheOnlyPlaceAVerbIsWithheld(t *testing.T) {
+	body := contractHeading(t, "## §9 ", "## §10 ")
+	for _, phrase := range []string{
+		"the parked record MUST also carry WHO resolved it",
+		"an agent confirms with the user and resolves",
+		"A door MUST NOT withhold one by not carrying it",
+		"neither is an operator-verb refusal a way to withhold one",
+	} {
+		if !strings.Contains(body, phrase) {
+			t.Errorf("§9 no longer states where withholding lives: %q is missing", phrase)
+		}
+	}
+}
+
+// contractHeading returns the vendored contract between two `## ` headings,
+// flattened the way contractSection flattens a section. It exists because the
+// section anchors also appear in the preamble's change entries, so a clause
+// whose number is named up front cannot be addressed by its anchor alone.
+func contractHeading(t *testing.T, from, to string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	text := strings.ReplaceAll(string(body), "\r\n", "\n")
+	i := strings.Index(text, "\n"+from)
+	if i < 0 {
+		t.Fatalf("%s has no %q heading", contractFile, from)
+	}
+	j := strings.Index(text[i+1:], "\n"+to)
+	if j < 0 {
+		t.Fatalf("%s has no %q heading after %q", contractFile, to, from)
+	}
+	return strings.Join(strings.Fields(text[i:i+1+j]), " ")
 }
 
 // contractParagraph returns the blank-line-delimited paragraph containing

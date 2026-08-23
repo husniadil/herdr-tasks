@@ -288,6 +288,21 @@ func TestGateDeferParksAndAnAgentResolvesOnTheRecord(t *testing.T) {
 	if p.ResolvedBy != "agent:wF:p1" {
 		t.Fatalf("resolved_by = %q, want the agent that resolved it", p.ResolvedBy)
 	}
+
+	// Rejecting records the decider too. It is the same MUST and the same
+	// row, and a half-recorded trail answers "who let this run" while
+	// leaving "who refused it" blank.
+	second := mustFail(t, d, protocol.Request{Verb: "task.create", PaneID: "wF:p1",
+		Args: map[string]any{"title": "more parked work"}}, codes.Denied)
+	mustCall(t, d, protocol.Request{Verb: "parked.resolve", PaneID: "wF:p1",
+		Args: map[string]any{"id": second.ParkedID, "reject": true}})
+	rejected, err := d.Store.GetParked(proj, second.ParkedID)
+	if err != nil {
+		t.Fatalf("GetParked: %v", err)
+	}
+	if rejected.State != "rejected" || rejected.ResolvedBy != "agent:wF:p1" {
+		t.Fatalf("rejected row = %+v, want rejected by the agent that rejected it", rejected)
+	}
 }
 
 // §3.7 (0.10.0), the daemon's three operator-authority doors: hNotePromote

@@ -1720,3 +1720,32 @@ func TestGetAcrossProjectsTakesAULIDAndRefusesANumber(t *testing.T) {
 		t.Fatalf("a refused get still returned a task: %q", stdout)
 	}
 }
+
+// §3.7 (0.10.0) with §7.3: an operator verb is advice, so the principal rule
+// is only useful where it is read — and a human reading `--help` must be told
+// what an agent reading the tool description is told. The MCP half is pinned
+// in internal/mcpdoor; this is the CLI half, which goes silently missing when
+// the command goes back to showing Long alone.
+func TestHelpTextSaysWhoMayCallTheVerb(t *testing.T) {
+	w := newWorld(t)
+	for _, v := range verbs.All {
+		if v.Who == "" {
+			continue
+		}
+		args := append(append([]string{}, v.CLI...), "--help")
+		out, _, status := w.run(w.env(), args...)
+		if status != 0 {
+			t.Fatalf("%s --help: exit %d", strings.Join(v.CLI, " "), status)
+		}
+		if !strings.Contains(collapse(out), collapse(v.Who)) {
+			t.Errorf("%s --help does not say who may call it:\n%s", strings.Join(v.CLI, " "), out)
+		}
+		if strings.Contains(strings.ToLower(out), "operator only") {
+			t.Errorf("%s --help still reads as a refusal; an operator verb is advice an agent confirms", strings.Join(v.CLI, " "))
+		}
+	}
+}
+
+// collapse folds the line wrapping cobra applies to long help so a registry
+// string can be compared against what a terminal shows.
+func collapse(s string) string { return strings.Join(strings.Fields(s), " ") }

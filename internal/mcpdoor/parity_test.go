@@ -1340,3 +1340,21 @@ func TestSeveralNotesPromoteIntoOneTaskThroughTheDoor(t *testing.T) {
 		t.Fatalf("%d tasks, want the one they were folded into", tasks.Count)
 	}
 }
+
+// §3.7 (0.10.0) with §7.3: the principal rule has nowhere left to be enforced
+// for an operator verb, so it has to be READ — and read the same on both
+// doors. TestHelpCarriesTheWhoRuleForEveryVerb holds that the registry
+// composes it; this holds that the MCP door actually shows it, which is the
+// half that goes silently missing when a door goes back to Short alone.
+func TestEveryToolDescriptionCarriesTheWhoRule(t *testing.T) {
+	for _, v := range verbs.MCPTools() {
+		desc := tool(v).Description
+		if !strings.Contains(desc, v.Short) {
+			t.Errorf("%s: the tool description drops the one-line summary", v.MCP)
+		}
+		if v.Who != "" && !strings.Contains(desc, v.Who) {
+			t.Errorf("%s: the tool description does not say who may call it; an agent reads this "+
+				"where a human reads --help, and two texts would be two rules", v.MCP)
+		}
+	}
+}

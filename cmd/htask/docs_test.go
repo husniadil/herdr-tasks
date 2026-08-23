@@ -388,3 +388,31 @@ func TestTheSkillTeachesWhichTestPinsWhichClaim(t *testing.T) {
 		}
 	}
 }
+
+// §3.7 (0.10.0) makes an operator verb advice an agent confirms, and the
+// plugin deliberately builds no mechanism to check that the confirmation
+// happened. That leaves the skill as the ONLY place the duty is taught, which
+// makes it load-bearing in a way a paragraph of prose usually is not: delete
+// it and an agent reads a door that promotes without asking as permission to
+// promote without asking. Pinned for exactly the reason the duty has no
+// mechanism.
+func TestTheSkillTeachesTheConfirmationDuty(t *testing.T) {
+	doc := docFiles(t)[filepath.Join("skills", "tasks", "SKILL.md")]
+	flat := strings.Join(strings.Fields(doc), " ")
+	for _, phrase := range []string{
+		// The verbs are reachable.
+		"You may run those verbs",
+		// And what is owed before running one.
+		"confirm with the user",
+		"AskUserQuestion",
+		"asked for autonomy at the outset is not asked again",
+		// Why nothing enforces it, said where an agent will read it.
+		"Nothing checks that you asked",
+		// And the boundary: what no confirmation lifts.
+		"no confirmation lifts them",
+	} {
+		if !strings.Contains(flat, phrase) {
+			t.Errorf("skills/tasks/SKILL.md does not teach the confirmation duty §3.7 relies on: %q is missing", phrase)
+		}
+	}
+}
