@@ -286,9 +286,11 @@ Deviations worth naming up front:
   ```
 
   It is read when the server starts and never from a tool call, so no request
-  can claim it, and a door started with it inside a pane refuses to start
-  rather than let an agent hold the operator's seat. A CLI invocation needs
-  nothing: one process per call means its argv is already the human act.
+  can claim it. A door carrying `HERDR_PANE_ID` is that pane's agent whatever
+  it was declared, because the daemon resolves the pane first; on top of that
+  a declared door inside a pane refuses to START, so an ambiguous door fails
+  loudly once instead of running all day. A CLI invocation needs nothing: one
+  process per call means its argv is already the human act.
 - **§8.4** — the manifest reacts to `pane.closed` and `pane.exited`, both
   running `scripts/on-pane-gone.sh`, which sweeps the leases of the pane the
   event names. It self-filters by construction rather than by a check:

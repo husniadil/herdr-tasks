@@ -462,7 +462,7 @@ What moved, and what answers it here:
 |---|---|---|
 | §3.2 | the process-bound identity rule, by name: a door's principal is fixed when the process starts and cannot be learned from a call; a CLI invocation is one process per call, a server door outlives every call it serves | `TestSection32NamesTheProcessBoundIdentityRule` in `cmd/htask/contract_test.go` pins the name and the four clauses that carry it, through a new `contractSection` helper that reads one § with its hard wrapping collapsed |
 | §3.7 | `human` is never the fallback for knowing nothing; a paneless door with no declaration is the literal `none`, and verbs reserved for the operator refuse it with `FORBIDDEN` | `tasks.PrincipalNone`; `Daemon.actor` in `internal/daemon/daemon.go` returns it when `PaneID` is empty and the request carries no declaration; `TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal` drives `note.promote` both ways and reads the principal back out of `doctor`. `protocol.Request.Operator` is how a door says which it is, and `cmd/htask/root.go` sets it unconditionally because a CLI process is one process per call |
-| §7.5 | the operator declaration: `--operator` on the server command, read once, never per call, never inside a pane | `cmd/htask/mcp.go` declares it on the `mcp` command alone and not as a persistent flag; `mcpdoor.Options` carries it from `Serve` into every handler; `Serve` refuses to start a declared door that carries `HERDR_PANE_ID`; `checkArgs` refuses the word `operator` as an argument BY NAME, at the door, rather than letting the daemon's generic unknown-argument check stand in for it. `TestTheOperatorDeclarationNeverArrivesPerCall` holds all three — no schema offers it, a call carrying it is refused with `USAGE` before any request is built, and an undeclared door sends `false` — and `TestTheDeclaredDoorIsTheOperatorAndTheUndeclaredOneIsNot` runs the same tool call through both doors |
+| §7.5 | the operator declaration: `--operator` on the server command, read once, never per call, never inside a pane | `cmd/htask/mcp.go` declares it on the `mcp` command alone and not as a persistent flag; `mcpdoor.Options` carries it from `Serve` into every handler; `checkArgs` refuses the word `operator` as an argument BY NAME, at the door, rather than letting the daemon's generic unknown-argument check stand in for it. `TestTheOperatorDeclarationNeverArrivesPerCall` holds all three — no schema offers it, a call carrying it is refused with `USAGE` before any request is built, and an undeclared door sends `false` — and `TestTheDeclaredDoorIsTheOperatorAndTheUndeclaredOneIsNot` runs the same tool call through both doors. The fourth property is two requirements with a test each: `Daemon.actor` resolves the pane before it reads the declaration, held by `TestAnInPaneDeclaredDoorIsStillThePanesAgent`, which also asserts the door really sent both facts so the test cannot pass on a door that quietly dropped the flag; and `Serve` refuses to START a declared door carrying `HERDR_PANE_ID`, held by `TestServeRefusesADeclaredDoorInsideAPane` across all four combinations of pane and declaration |
 | §7.3 | the parity MUST and the `--as` exclusion rest on the process-bound identity rule instead of on two arguments that contradicted each other | `TestParityAndTheAsExclusionRestOnTheSameArgument` fails if either half stands without the other, or if either stands without the rule; the `as` entry in `mcpdoor.Globals` now records the rule rather than the old "no pane to derive one from" reason |
 
 The parity gap above is untouched by this. This plugin still serves 13 of its
@@ -478,6 +478,26 @@ One consequence recorded rather than left to be rediscovered. `mcpdoor` grew
 an undeclared door meets. No verb on the door fires it today, for the same
 reason the gap is open: the operator verbs are not there yet. It is tested
 against a stub caller, and the first real caller arrives with parity.
+
+Two consequences recorded rather than left to be rediscovered.
+
+`mcpdoor` grew `withDeclarationHint`, which appends the missing declaration to
+a `FORBIDDEN` an undeclared door meets. No verb on the door fires it today,
+for the same reason the gap is open: the operator verbs are not there yet. It
+is tested against a stub caller, and the first real caller arrives with parity.
+
+And §7.5's fourth property was drafted as one claim — "never an escalation" —
+resting on `Serve`'s startup refusal, which nothing tested: `if false &&
+opt.Operator && ...` compiled and left the whole suite green. Review found it,
+and found the claim too strong besides. The refusal is not what prevents the
+escalation. `Daemon.actor` tests `req.PaneID == ""` before it looks at the
+declaration, so a declared door inside a pane sends `Operator` true and the
+daemon still resolves it to that pane's agent; deleting the startup check
+changes who a call is attributed to not at all. So §7.5 now states the two
+requirements separately, says which one is the guarantee and which is defence
+in depth, and requires a test for each. The ordering in `actor` is the guarantee, and it is
+pinned as one rather than left as an implementation detail that happens to be
+in the right order.
 
 §7.1's `serves MCP over stdio` was read and deliberately left alone. A door
 being first-class is a statement about which verbs it serves, not about how

@@ -399,10 +399,19 @@ a declaration rather than a claim:
   calling principal, so a doctor call through a declared door answers `human`
   and one through an undeclared door answers `none`. That is how an operator
   checks which of their registrations speak for them.
-- **Never an escalation.** A door started inside a Herdr pane is that pane's
-  agent (§3.2), so the declaration would be an agent claiming to be the
-  operator. A plugin MUST refuse to start a declared door that carries
-  `HERDR_PANE_ID`, with `FORBIDDEN`, rather than silently preferring one.
+- **The pane wins, and an ambiguous door does not start.** These are two
+  requirements and only the first is what prevents an escalation. A door
+  carrying `HERDR_PANE_ID` is that pane's agent (§3.2) whatever it was
+  declared, so a plugin MUST resolve the pane before it reads the
+  declaration: an agent that starts a declared door gains nothing by it,
+  because every call it makes is still attributed to its pane. On top of
+  that, a plugin MUST refuse to START a declared door that carries
+  `HERDR_PANE_ID`, with `FORBIDDEN`. That refusal is defence in depth rather
+  than the guarantee — deleting it changes who a call is attributed to not at
+  all — and it earns its place by failing loudly once instead of running a
+  door whose two answers disagree for as long as it is up. A plugin MUST pin
+  BOTH with tests. The half that exists to reassure a reader is the half a
+  reader stops checking.
 
 The declaration answers only the paneless case §3.7 leaves with no principal.
 

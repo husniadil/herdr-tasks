@@ -3,12 +3,14 @@ package mcpdoor
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -1041,5 +1043,110 @@ func TestAnUndeclaredDoorIsToldWhyItHasNoPrincipal(t *testing.T) {
 	// with which principal the caller is.
 	if got := text(callTool(t, mcpSessionWith(t, conflict, Options{}), "note_add", args)); strings.Contains(got, "--operator") {
 		t.Errorf("a CONFLICT was answered with an identity hint: %s", got)
+	}
+}
+
+// §7.5's fourth property, on the mechanism: a door given --operator inside a
+// Herdr pane refuses to START. This is defence in depth rather than the thing
+// that stops the escalation — the test below holds that — and it earns its
+// place by failing loudly once instead of running an ambiguous door all day.
+// It went in with no test at all, and `if false && ...` left the whole suite
+// green.
+func TestServeRefusesADeclaredDoorInsideAPane(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	// Cancelled before it starts, so the cases that ARE allowed to serve
+	// return from the transport promptly instead of reading stdin. What is
+	// under test is which of the two answers comes back.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	silent := func(protocol.Request) (json.RawMessage, error) { return nil, nil }
+
+	for name, tc := range map[string]struct {
+		pane    string
+		opt     Options
+		refused bool
+	}{
+		"declared inside a pane":   {"wF:p1", Options{Operator: true}, true},
+		"declared in no pane":      {"", Options{Operator: true}, false},
+		"undeclared inside a pane": {"wF:p1", Options{}, false},
+		"undeclared and paneless":  {"", Options{}, false},
+	} {
+		t.Setenv("HERDR_PANE_ID", tc.pane)
+		done := make(chan error, 1)
+		opt := tc.opt
+		go func() { done <- Serve(ctx, silent, opt) }()
+		var err error
+		select {
+		case err = <-done:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("%s: Serve did not return", name)
+		}
+		// The same two shapes errorResult unwraps: an error that already knows
+		// its §6.3 code, and *codes.Error itself.
+		var coded Coded
+		var ce *codes.Error
+		refused := (errors.As(err, &coded) && coded.Code() == codes.Forbidden) ||
+			(errors.As(err, &ce) && ce.Code == codes.Forbidden)
+		if refused != tc.refused {
+			t.Errorf("%s: refused = %v, want %v (err = %v)", name, refused, tc.refused, err)
+			continue
+		}
+		if tc.refused && !strings.Contains(err.Error(), tc.pane) {
+			t.Errorf("%s: the refusal does not name the pane: %v", name, err)
+		}
+	}
+}
+
+// And the property the guard above is only the loud half of: a declared door
+// that somehow IS inside a pane is still that pane's agent, never `human`.
+// This is what actually prevents the escalation — `Daemon.actor` reads the
+// pane before it reads the declaration — so it is pinned here rather than
+// left resting on a startup check that a caller can avoid by starting the
+// door another way.
+func TestAnInPaneDeclaredDoorIsStillThePanesAgent(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	var seen []protocol.Request
+	var mu sync.Mutex
+	_, real := inProcessDaemon(t)
+	// AFTER inProcessDaemon, which clears the trio at the one seam every test
+	// goes through (§12.3). Named before it, this test read `human` and would
+	// have passed for the wrong reason on a door that never sent the pane.
+	t.Setenv("HERDR_PANE_ID", "wF:p1")
+	spy := func(req protocol.Request) (json.RawMessage, error) {
+		mu.Lock()
+		seen = append(seen, req)
+		mu.Unlock()
+		return real(req)
+	}
+	project := canonProject(t, "/tmp/p")
+
+	sess := mcpSessionWith(t, spy, Options{Operator: true})
+	res := callTool(t, sess, "note_add", map[string]any{"body": "filed from a declared pane", "project": project})
+	if res.IsError {
+		t.Fatalf("note_add: %s", text(res))
+	}
+	var added struct {
+		Note struct {
+			Author string `json:"author"`
+		} `json:"note"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &added); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if added.Note.Author != "agent:wF:p1" {
+		t.Fatalf("author = %q, want agent:wF:p1: the declaration overruled the pane", added.Note.Author)
+	}
+	// And the door really did send the declaration, so what refused it is the
+	// daemon's ordering and not the door quietly dropping the flag. Without
+	// this the test would still pass on a door that never sent it, which is a
+	// different plugin from the one §7.5 describes.
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Fatalf("%d requests reached the daemon, want 1", len(seen))
+	}
+	if !seen[0].Operator || seen[0].PaneID != "wF:p1" {
+		t.Fatalf("the daemon saw operator=%v pane=%q; the door dropped one of the two",
+			seen[0].Operator, seen[0].PaneID)
 	}
 }

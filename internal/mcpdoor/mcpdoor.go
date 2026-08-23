@@ -80,10 +80,12 @@ func New(call Caller, opt Options) *mcp.Server {
 
 // Serve runs the server on stdio until the client disconnects (§7.1).
 func Serve(ctx context.Context, call Caller, opt Options) error {
-	// §7.5's fourth property: a door inside a pane is that pane's agent, so a
-	// declaration there is an agent claiming to be the operator. Refusing to
-	// start says so once, loudly, rather than quietly preferring one of the
-	// two identities on every call that follows.
+	// §7.5, and it is defence in depth rather than the guarantee: Daemon.actor
+	// resolves the pane BEFORE it reads the declaration, so a declared door
+	// inside a pane is that pane's agent on every call whether this returns
+	// or not (TestAnInPaneDeclaredDoorIsStillThePanesAgent holds that). What
+	// this buys is failing loudly once, instead of running a door whose two
+	// answers about who it is disagree for as long as it is up.
 	if opt.Operator && os.Getenv("HERDR_PANE_ID") != "" {
 		return codes.Errorf(codes.Forbidden,
 			"--operator declares this door speaks for the operator, but it is starting inside "+
