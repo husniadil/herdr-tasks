@@ -566,6 +566,13 @@ func TestNoDocClaimsThisPluginsDoorIsPartial(t *testing.T) {
 		"still cli-only", "is cli-only", "are cli-only",
 		"verbs now", "tools now",
 	}
+	// A second draft added "pinned subset", "chosen subset" and "narrowing
+	// rule" to catch the superseded §6.1 reading, and they flagged that
+	// entry's own PAST-tense rewrite — "this plugin read §7.3 as the
+	// narrowing rule ... a chosen subset was also an MCP tool". A noun phrase
+	// carries no tense, so no substring of one can tell a record from a
+	// claim. That entry is pinned by its marker instead, in
+	// TestTheSupersededParityReadingSaysSoInItsHeading.
 	for name, doc := range everyMarkdownFile(t) {
 		for _, sentence := range sentences(doc) {
 			lower := strings.ToLower(sentence)
@@ -581,5 +588,51 @@ func TestNoDocClaimsThisPluginsDoorIsPartial(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// §13.3 makes the CLI, the MCP tool list, the JSON shapes and the error codes
+// changeable between minors WITH AN ENTRY in the changelog, which is the
+// changelog's own opening paragraph. The commit that grew the tool list from
+// 24 to 32 bumped the version and wrote no entry, and nothing was red: the
+// promise had no mechanism. This is the mechanism.
+func TestTheChangelogHasAnEntryForThisVersion(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "CHANGELOG.md"))
+	if err != nil {
+		t.Fatalf("read CHANGELOG.md: %v", err)
+	}
+	if !strings.Contains(string(body), "\n## "+daemon.Version+" ") {
+		t.Errorf("CHANGELOG.md has no `## %s` entry, and this binary is %s. §13.3 makes a "+
+			"surface change between minors legal only with an entry here, and the changelog "+
+			"says so in its own first paragraph", daemon.Version, daemon.Version)
+	}
+}
+
+// The reviewer's condition on the superseded §6.1 entry, kept as a condition
+// rather than a promise. That entry records how §6.1 and §7.3 were read while
+// §7.3 still asked for a tool budget, and it is KEPT: a conformance record
+// that deletes its earlier readings cannot be checked against the binaries
+// that shipped under them. What it may not do is read as current, and no
+// phrase test can tell a record from a claim — "a chosen subset was also an
+// MCP tool" and "a chosen subset is also an MCP tool" differ by one word that
+// no noun phrase carries. So the marker is what is pinned: the heading says
+// which revisions the entry covers and that it is superseded, which is the
+// first thing a reader meets.
+func TestTheSupersededParityReadingSaysSoInItsHeading(t *testing.T) {
+	doc := everyMarkdownFile(t)[filepath.Join("docs", "contract-notes.md")]
+	var heading string
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(line, "## §6.1") {
+			heading = line
+			break
+		}
+	}
+	if heading == "" {
+		t.Fatal("docs/contract-notes.md has no §6.1 entry; it is the record of the reading §7.3's budget forced")
+	}
+	if !strings.Contains(strings.ToLower(heading), "superseded") {
+		t.Errorf("the §6.1 entry's heading does not say it is superseded, so it reads as this "+
+			"plugin's current reading of §6.1 and §7.3 — and it is not, since 0.10.0 put every "+
+			"verb on both doors:\n  %s", heading)
 	}
 }
