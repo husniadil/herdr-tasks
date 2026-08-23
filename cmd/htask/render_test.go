@@ -361,3 +361,30 @@ func TestAWaitIsReadInTheUnitThatFitsIt(t *testing.T) {
 		}
 	}
 }
+
+// §6.1, the prose half of criterion 2: a reviewer reading `htask task get` is
+// told the report above is not the one that was submitted. The --json caller
+// has amend_count; the human reading prose has this line, and without it the
+// two surfaces would answer the same question differently.
+func TestProseSaysAReportWasAmended(t *testing.T) {
+	amended := &tasks.Task{Seq: 9, Title: "corrected after submitting",
+		Status: tasks.StatusReview, Report: "done at 9f738bf", AmendCount: 1, AmendedAt: 1}
+	out := captureStdout(t, func() { printTask(amended, 0) })
+	for _, want := range []string{"Amended", "1 amendment", "submitted"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the prose does not say %q:\n%s", want, out)
+		}
+	}
+
+	twice := &tasks.Task{Seq: 10, Title: "corrected twice",
+		Status: tasks.StatusReview, Report: "done", AmendCount: 2, AmendedAt: 1}
+	if out := captureStdout(t, func() { printTask(twice, 0) }); !strings.Contains(out, "2 amendments") {
+		t.Errorf("the prose does not count two amendments:\n%s", out)
+	}
+
+	plain := &tasks.Task{Seq: 11, Title: "submitted once",
+		Status: tasks.StatusReview, Report: "done"}
+	if out := captureStdout(t, func() { printTask(plain, 0) }); strings.Contains(out, "Amended") {
+		t.Errorf("a report nobody amended was reported as amended:\n%s", out)
+	}
+}

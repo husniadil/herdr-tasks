@@ -18,7 +18,7 @@ const taskColumns = `id, seq, project, title, description, status, priority, val
 	claimed_by_harness, claimed_by_session, claimed_at, lease_until, ever_claimed,
 	release_note, released_at, report, evidence, evidence_for, submitted_by, submitted_by_harness,
 	submitted_by_session, submitted_at, feedback, reviewed_by, completed_at, cancelled_at, archived_at,
-	pane_id, tab_id, workspace_id`
+	pane_id, tab_id, workspace_id, amended_at, amend_count`
 
 // CreateTask allocates an id and a seq and writes the task with its created
 // event, in one transaction (§5.5).
@@ -506,13 +506,15 @@ func scanTask(sc scanner) (*tasks.Task, error) {
 		pane         sql.NullString
 		tab          sql.NullString
 		ws           sql.NullString
+		amendedAt    sql.NullInt64
+		amendCount   sql.NullInt64
 	)
 	if err := sc.Scan(&t.ID, &t.Seq, &t.Project, &t.Title, &desc, &t.Status, &t.Priority, &validation,
 		&discovered, &t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &claimedBy, &claimName,
 		&claimHarness, &claimSession, &claimedAt, &leaseUntil, &everClaimed,
 		&releaseNote, &releasedAt, &report, &evidence, &evidenceFor, &submittedBy, &submitHarn,
 		&submitSess, &submittedAt, &feedback, &reviewedBy, &completedAt, &cancelledAt, &archivedAt,
-		&pane, &tab, &ws); err != nil {
+		&pane, &tab, &ws, &amendedAt, &amendCount); err != nil {
 		return nil, err
 	}
 	t.Description = desc.String
@@ -537,6 +539,7 @@ func scanTask(sc scanner) (*tasks.Task, error) {
 	t.Feedback, t.ReviewedBy = feedback.String, tasks.Principal(reviewedBy.String)
 	t.CompletedAt, t.CancelledAt, t.ArchivedAt = completedAt.Int64, cancelledAt.Int64, archivedAt.Int64
 	t.PaneID, t.TabID, t.WorkspaceID = pane.String, tab.String, ws.String
+	t.AmendedAt, t.AmendCount = amendedAt.Int64, amendCount.Int64
 	return &t, nil
 }
 
@@ -552,12 +555,13 @@ func taskArgs(t *tasks.Task) []any {
 		nullIfEmpty(t.SubmittedBySession), nullIfZero(t.SubmittedAt), nullIfEmpty(t.Feedback), nullIfEmpty(string(t.ReviewedBy)),
 		nullIfZero(t.CompletedAt), nullIfZero(t.CancelledAt), nullIfZero(t.ArchivedAt),
 		nullIfEmpty(t.PaneID), nullIfEmpty(t.TabID), nullIfEmpty(t.WorkspaceID),
+		nullIfZero(t.AmendedAt), nullIfZero(t.AmendCount),
 	}
 }
 
 func insertTask(tx *sql.Tx, t *tasks.Task) error {
-	_, err := tx.Exec("INSERT INTO tasks ("+taskColumns+") VALUES (?"+strings.Repeat(", ?", 35)+")",
-		append([]any{t.ID}, taskArgs(t)...)...)
+	args := append([]any{t.ID}, taskArgs(t)...)
+	_, err := tx.Exec("INSERT INTO tasks ("+taskColumns+") VALUES (?"+strings.Repeat(", ?", len(args)-1)+")", args...)
 	return err
 }
 

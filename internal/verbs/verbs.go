@@ -148,6 +148,24 @@ var All = []Verb{
 		},
 	},
 	{
+		Name: "task.amend", CLI: []string{"task", "amend"}, MCP: "amend",
+		Short: "Correct the report and evidence of work already in review",
+		Long: "Submit is made once and judged once, so it refuses a second call. This is the other half: " +
+			"the holder replaces the report and the evidence of a task waiting for a reviewer, and the " +
+			"submission itself — when it was submitted, by whom, from which session — does not move. " +
+			"The row records that it was amended and how many times, and the trail carries an `amended` " +
+			"event, so a reviewer sees the correction rather than learning about it in a message.",
+		Gated:   "tasks.amend",
+		Who:     "The holder, or the operator.",
+		Mutates: true,
+		Args: []Arg{
+			idArg("The task id or number"),
+			{Name: "report", Type: String, Desc: "The corrected report, which replaces the one on the row", Required: true},
+			{Name: "evidence", Type: Strings, Desc: "A command you ran and what it printed, replacing what was submitted (repeatable)"},
+			{Name: "evidence-for", Type: Strings, Desc: "Evidence for one acceptance criterion, as \"<criterion>: what it printed\" (repeatable)"},
+		},
+	},
+	{
 		Name: "task.approve", CLI: []string{"task", "approve"}, MCP: "approve",
 		Short:   "Accept submitted work",
 		Long:    "A harness may not approve work its own harness produced (§6.6). The operator is exempt.",

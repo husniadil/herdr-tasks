@@ -217,6 +217,12 @@ func printTask(t *tasks.Task, now int64) {
 	for _, e := range t.Evidence {
 		fmt.Printf("Evidence: %s\n", e)
 	}
+	// A reviewer reads this line before deciding, which is the whole reason
+	// the marker is on the row rather than only in the trail: the report above
+	// is not the one that was submitted, and nothing else here would say so.
+	if t.AmendCount > 0 {
+		fmt.Printf("Amended: the report above replaced the submitted one (%s)\n", amendments(t.AmendCount))
+	}
 	if t.Feedback != "" {
 		fmt.Printf("\nFeedback: %s\n", t.Feedback)
 	}
@@ -401,4 +407,12 @@ func seqList(seqs []int64) string {
 		out = append(out, "#"+strconv.FormatInt(n, 10))
 	}
 	return strings.Join(out, ", ")
+}
+
+// amendments counts corrections in words a reader does not have to parse.
+func amendments(n int64) string {
+	if n == 1 {
+		return "1 amendment"
+	}
+	return fmt.Sprintf("%d amendments", n)
 }

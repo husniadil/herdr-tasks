@@ -32,6 +32,23 @@ htask task submit 12 --report "what you did and how you verified it" \
                   --evidence-for "2: go test ./internal/store -run Sweep -v: PASS"
 ```
 
+Submit once. If you then find something to fix — a mutation that proves a test
+unpinned, a commit that lands after the row was written — fix it and correct
+the row rather than leaving its evidence pointing at a head that is no longer
+there:
+
+```sh
+htask task amend 12 --report "what you did, at the head it actually reached" \
+                    --evidence "make test-full at 9f738bf: EXIT=0" \
+                    --evidence-for "1: make test-full at 9f738bf: EXIT=0"
+```
+
+`amend` replaces the report and the evidence and leaves the submission alone:
+the task stays in review, and who submitted it and when do not move. The row
+records that it was amended and the trail carries an `amended` event, so the
+reviewer sees the correction instead of learning about it from a message. Only
+the holder may amend, and only while the task is waiting for a verdict.
+
 **Renew the lease at the start of every turn.** `htask task touch <id>` is one
 call and it is the difference between holding your work and having it swept
 back into the queue while you are still doing it. A lapsed lease is released

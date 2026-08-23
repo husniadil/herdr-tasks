@@ -54,6 +54,7 @@ htask task claim 12                           # one winner
 htask task touch 12                           # renew the lease, every turn
 htask task submit 12 --report "…" --evidence "make test-full: ok" \
                      --evidence-for "1: make test-full: ok, 214 tests"
+htask task amend 12 --report "…"              # correct a report still in review
 htask task approve 12                         # not if your session wrote it
 htask note add "the sweep releases a lease without logging why"
 htask task goal 12                            # a paste-ready /goal condition

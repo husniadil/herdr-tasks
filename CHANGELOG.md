@@ -5,6 +5,29 @@ the shared plugin contract makes the CLI, the MCP tool list, the JSON shapes
 and the error codes stable within a minor and changeable between minors with an
 entry here, so every entry says what moved and what a caller does about it.
 
+## 0.6.0 — 2026-08-23
+
+Additive for every caller; nothing shipped changes meaning. A caller that
+parses a task row gains two fields and may keep ignoring them.
+
+One new verb on both doors, `task amend` / the `amend` MCP tool: the holder of
+a task in review replaces its report, `evidence` and `evidence-for` without
+touching the submission. `submitted_at`, `submitted_by`, the submitter's
+harness and session, and the status all stay as `submit` left them, so §6.6
+still recuses the session that produced the work. It exists because the
+self-review lane asks a worker to keep fixing what a mutation proves unpinned:
+the lane deliberately produces commits after the submit, and until now the only
+record of the newer head was a message in a different store.
+
+Two new `--json` fields on a task, `amended_at` and `amend_count`, absent on a
+row that was never amended. Schema migration 9 adds the two columns; a row
+written by an older binary reads back with neither, which means never amended.
+
+A reviewer who read a row and then approves against what they read is refused
+by the §5.6 `--base-updated-at` guard, because an amendment moves
+`updated_at`. That guard is not new and is still opt-in — what is new is that
+an amendment trips it.
+
 ## 0.5.0 — 2026-08-23
 
 Additive for every caller; nothing shipped changes meaning. An agent gains

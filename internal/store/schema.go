@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 8
+const SchemaVersion = 9
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -179,4 +179,14 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// confirms, and §9.3 re-runs the verb under the ORIGINAL subject — so
 	// without this column the trail names the deferred agent and no one else.
 	{SQL: `ALTER TABLE parked ADD COLUMN resolved_by TEXT;`},
+	// 9 — when a submitted report was last corrected, and how many times. NEW
+	// columns beside submitted_at, never a change to it: a row written before
+	// this migration was never amended, reads back NULL, and a zero
+	// amend_count means exactly that. They exist because `task amend` lets the
+	// holder correct a report while it is in review, and a reviewer reading
+	// the row afterwards has to be able to see that it happened without
+	// relying on the worker having said so in a message that lives in another
+	// store.
+	{SQL: `ALTER TABLE tasks ADD COLUMN amended_at INTEGER;
+ALTER TABLE tasks ADD COLUMN amend_count INTEGER;`},
 }

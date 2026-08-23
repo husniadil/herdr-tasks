@@ -29,6 +29,7 @@ func init() {
 		"task.touch":   hTaskTouch,
 		"task.release": hTaskRelease,
 		"task.submit":  hTaskSubmit,
+		"task.amend":   hTaskAmend,
 		"task.approve": hTaskApprove,
 		"task.reject":  hTaskReject,
 		"task.cancel":  hTaskCancel,
@@ -225,6 +226,16 @@ func hTaskRelease(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 func hTaskSubmit(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
 		return tasks.Submit(t, by, argString(req.Args, "report"), argStrings(req.Args, "evidence"), argStrings(req.Args, "evidence-for"), d.Now())
+	})
+}
+
+// Amending is Submit's missing other half: the same arguments, the same
+// citation rules, and none of the submission's own facts. hTaskSubmit and this
+// differ by exactly the state-machine call, which is the point — a caller that
+// can write a submit can write the correction to it.
+func hTaskAmend(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
+		return tasks.Amend(t, by, argString(req.Args, "report"), argStrings(req.Args, "evidence"), argStrings(req.Args, "evidence-for"), d.Now())
 	})
 }
 

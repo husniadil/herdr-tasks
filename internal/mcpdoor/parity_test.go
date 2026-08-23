@@ -36,6 +36,7 @@ var pinnedTools = []string{
 	"touch",
 	"release",
 	"submit",
+	"amend",
 	"approve",
 	"reject",
 	"goal",

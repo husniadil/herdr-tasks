@@ -129,6 +129,7 @@ const (
 	KindReleased  = "released"
 	KindSwept     = "swept"
 	KindSubmitted = "submitted"
+	KindAmended   = "amended"
 	KindApproved  = "approved"
 	KindRejected  = "rejected"
 	KindCancelled = "cancelled"
@@ -183,6 +184,12 @@ type Task struct {
 	SubmittedByHarness string     `json:"submitted_by_harness,omitempty"`
 	SubmittedBySession string     `json:"submitted_by_session,omitempty"`
 	SubmittedAt        int64      `json:"submitted_at,omitempty"`
+	// AmendedAt and AmendCount are the marker Amend leaves on the row. A
+	// submission is made once and judged once; a correction to its report is a
+	// second thing, and a reviewer who reads the row after one has landed sees
+	// that it did without needing the worker to have sent mail about it.
+	AmendedAt  int64 `json:"amended_at,omitempty"`
+	AmendCount int64 `json:"amend_count,omitempty"`
 
 	Feedback   string    `json:"feedback,omitempty"`
 	ReviewedBy Principal `json:"reviewed_by,omitempty"`
@@ -408,6 +415,72 @@ func Submit(t *Task, by Actor, report string, evidence, evidenceFor []string, no
 	t.UpdatedAt = now
 	return Event{Kind: KindSubmitted, Actor: by.Principal, At: now,
 		Detail: map[string]any{"evidence_count": len(evidence), "citation_count": len(cites)}}, nil
+}
+
+// Amend corrects the report and evidence of work already in review, without
+// touching the submission itself. It exists because the self-review lane asks
+// a worker to keep fixing what a mutation proves unpinned, so the lane
+// deliberately produces commits AFTER the submit — and Submit's own
+// StatusDoing guard, which is right, left the worker no way to say so on the
+// row. Before this verb the only record of the newer head was a message in a
+// different store, remembered by hand.
+//
+// What it does NOT move is the submission: status, submitted_at,
+// submitted_by, the submitter's harness and session, and the ended lease all
+// stay exactly as Submit left them. §6.6 recuses on the submitting session,
+// so moving that field would move who is allowed to review the work.
+//
+// What a reviewer sees when the report changes under them is the row and the
+// trail saying so: AmendCount and AmendedAt on the row, an `amended` event
+// beside the `submitted` one, and UpdatedAt moved — which is what makes §5.6's
+// --base-updated-at guard refuse an approve built on the report that was
+// replaced.
+func Amend(t *Task, by Actor, report string, evidence, evidenceFor []string, now int64) (Event, error) {
+	if strings.TrimSpace(report) == "" {
+		return Event{}, codes.New(codes.Usage, "a report is required")
+	}
+	if t.Status != StatusReview {
+		return Event{}, codes.Errorf(codes.Conflict,
+			"task is %s, not in review; a report is amended while it waits for a reviewer", t.Status)
+	}
+	// A claim reserves this the way it reserves touch, release, submit and
+	// cancel. The claimless case is its own refusal rather than an open door:
+	// a row in review with no holder was swept or released, and letting any
+	// principal rewrite its report would put a stranger's words under the
+	// submitter's name.
+	if t.ClaimedBy == "" {
+		if !by.IsHuman() {
+			return Event{}, codes.New(codes.Conflict,
+				"nobody holds this task, so there is no holder to amend its report")
+		}
+	} else if t.ClaimedBy != by.Principal && !by.IsHuman() {
+		return Event{}, notHolder(t, by, "amend")
+	}
+	if err := bound("report", report, MaxText); err != nil {
+		return Event{}, err
+	}
+	if err := boundList("evidence", evidence, MaxItem, MaxItems); err != nil {
+		return Event{}, err
+	}
+	if err := boundList("evidence-for", evidenceFor, MaxItem, MaxItems); err != nil {
+		return Event{}, err
+	}
+	cites, err := parseCitations(evidenceFor, len(t.Validation))
+	if err != nil {
+		return Event{}, err
+	}
+	if err := coversRequired(t.Validation, cites); err != nil {
+		return Event{}, err
+	}
+	t.Report = report
+	t.Evidence = evidence
+	t.EvidenceFor = cites
+	t.AmendCount++
+	t.AmendedAt = now
+	t.UpdatedAt = now
+	return Event{Kind: KindAmended, Actor: by.Principal, At: now,
+		Detail: map[string]any{"amendment": t.AmendCount,
+			"evidence_count": len(evidence), "citation_count": len(cites)}}, nil
 }
 
 // parseCitations reads the "<criterion>: what it printed" form both doors
