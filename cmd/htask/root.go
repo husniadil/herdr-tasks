@@ -35,7 +35,8 @@ func newRootCmd() *cobra.Command {
 		Use:   "htask",
 		Short: "A task backlog and notes board for agents running on Herdr",
 		Long: "herdr-tasks: tasks move todo → doing → review → done with claims, leases,\n" +
-			"evidence and review; notes are pre-decision ideas a human promotes or drops.\n" +
+			"evidence and review; notes are pre-decision ideas whose promotion is the\n" +
+			"operator's authority, which an agent exercises after confirming with them.\n" +
 			"Conforms to the shared plugin contract.",
 		SilenceUsage:  true,
 		SilenceErrors: true,

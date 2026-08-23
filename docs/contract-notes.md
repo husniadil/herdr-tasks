@@ -133,7 +133,7 @@ where a verb appeared in both, the name, the arguments and the result shape
 were identical because both doors are generated from one registry
 (`internal/verbs`).
 
-Since 0.10.0 there is no subset and no narrowing rule: every one of the 32
+Since 0.10.0 there is no subset and no narrowing rule: every one of the 33
 verbs is a CLI subcommand and an MCP tool, so §6.1 and §7.3 say the same thing
 and neither has to give. The one registry and the parity test survive
 unchanged and are what the entry was really about — `TestCLIAndMCPSurfacesDoNotDrift`
@@ -401,7 +401,7 @@ the ones this repository's own rules force — the umbrella project's name and
 the tools it replaces are not named (§13.1), and the revision tag reads "this
 revision" where the source wrote a version token.
 
-The vendored document states Version 0.6.0, and `ContractVersion` in
+The vendored document states Version 0.10.0, and `ContractVersion` in
 `internal/daemon/daemon.go` says the same. `htask version`, `htask doctor` and
 the README all read that one constant, and
 `TestTheDeclaredRevisionIsTheVendoredOne` fails when the constant, the README
@@ -426,7 +426,7 @@ here is the half of the rule this plugin answers:
 | §7.1 (0.4.0) | a tool is named by its verb alone, no plugin prefix, because the client's registration label already namespaces it | `internal/verbs/verbs.go` carries the bare `MCP` names; `pinnedTools` in `internal/mcpdoor/parity_test.go` pins them and `TestTheServerNameCarriesTheIdentityAndTheToolsDoNot` refuses any plugin lead; `daemon.Version` is `0.2.0` for the semver-bound list that moved |
 | §5.5 | an events table named after its entity table, written in the same transaction | `internal/store/schema.go:82` `tasks_events`, `:113` `notes_events`, with §5.5's columns; `internal/store/tasks.go:31-51` opens the transaction, appends the event, commits |
 | §5.9 | write-time text bounds with `USAGE`, and a render-time clamp that says what it dropped | `internal/tasks/bounds.go`; `TestEveryTaskFreeTextFieldIsBounded`, `TestEveryNoteFreeTextFieldIsBounded`; the clamp is `internal/daemon/goal.go`, with `TestGoalSaysWhenItDroppedCriteria` and `TestGoalClipsRatherThanOverflows` |
-| §6.1 / §7.3 (0.10.0) | CLI total, MCP total, one registry, a parity test that fails in both directions | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestEveryVerbIsOnBothDoors`, `TestEveryCLIVerbReachesTheMCPDoor`; 32 verbs, 32 tools. The `roughly 8–16` budget this row asserted until 0.10.0, and `TestMCPToolCountStaysSmall` which held it, are both gone — see the §6.1 entry above |
+| §6.1 / §7.3 (0.10.0) | CLI total, MCP total, one registry, a parity test that fails in both directions | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestEveryVerbIsOnBothDoors`, `TestEveryCLIVerbReachesTheMCPDoor`; 33 verbs, 33 tools. The `roughly 8–16` budget this row asserted until 0.10.0, and `TestMCPToolCountStaysSmall` which held it, are both gone — see the §6.1 entry above |
 | §8.4 spelling | Herdr event names spelled as its schema prints them | `internal/herdrclient/client.go:173` matches either spelling, which is right for a document whose halves disagree; the manifest takes dots because Herdr validates it against dots — the entry above records which is which |
 | §8.4 reaction | `[[events]]` is usable; a reaction self-filters, is idempotent, and complements the sweep | `herdr-plugin.toml` declares `pane.closed` and `pane.exited`; `scripts/on-pane-gone.sh` sweeps by pane, which is both by construction; `TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` drives it against a real Herdr |
 | §11.2 | the schema document's shape, and the flat form too | `internal/herdrclient/client.go` reads `schemas.request.oneOf[].properties.method` and `schemas.event.$defs.EventKind`, and the flat `{requests, events}` form; the protocol number is read for `doctor` and never pinned; `TestSchemaListsCapabilities` |
@@ -514,7 +514,7 @@ door, so there is no absence left for it to read a reason out of.
 What holds the clause NOW, and what the paragraph above should be read
 against, is `TestEveryVerbIsOnBothDoors` in `internal/verbs` and
 `TestEveryCLIVerbReachesTheMCPDoor` in `internal/mcpdoor`: nothing may be
-absent from either door, in either direction. The door serves all 32 verbs,
+absent from either door, in either direction. The door serves all 33 verbs,
 so the parity half of the 0.7.0 gap is CLOSED. The declaration half is closed
 too: `daemon.ContractVersion` and the README state 0.10.0, the revision the
 vendored document states, and the four revisions between were audited by the
@@ -562,7 +562,7 @@ note 60 measured — a paneless harness that could approve a task and could not
 promote a note — was still here. What 0.8.0 changed is that it became safe to
 close: a door that reaches those verbs is either a pane's agent, a declared
 operator, or `none`, and its principal is settled before any call arrives.
-0.10.0 closed it; the door serves all 32 verbs, and `none` is no longer
+0.10.0 closed it; the door serves all 33 verbs, and `none` is no longer
 refused an operator verb, it is recorded as having performed one.
 
 One consequence recorded rather than left to be rediscovered. `mcpdoor` grew

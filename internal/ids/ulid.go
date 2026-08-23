@@ -1,5 +1,5 @@
 // Package ids generates the ULIDs the contract fixes as entity identity
-// (§5.4). Written here rather than pulled in: the dependency budget is three
+// (§5.4). Written here rather than pulled in: the dependency budget is five
 // libraries, and a ULID is a hundred lines.
 //
 // The ids are monotonic. §8.2 makes the event trail a stream that `--since

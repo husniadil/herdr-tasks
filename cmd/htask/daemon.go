@@ -39,8 +39,10 @@ func newDaemonCmd() *cobra.Command {
 			go reloadOnHUP(ctx, d)
 
 			fmt.Fprintf(os.Stderr, "tasks: listening on %s\n", config.SocketPath())
-			// The reconciliation sweep §8.4 allows at start: leases whose panes
-			// died while the daemon was down are released before anything else.
+			// The reconciliation sweep §8.4 allows at start: leases that
+			// LAPSED while the daemon was down are released before anything
+			// else. A pane that died with time left on its lease keeps the
+			// claim until it runs out, or until `htask sweep --pane` says so.
 			d.Sweep()
 			return d.Serve(ctx, ln)
 		},

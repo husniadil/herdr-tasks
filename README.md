@@ -229,8 +229,8 @@ does not get to assume which one it will be: a program with no `HERDR_PANE_ID`
 is `human` (§3.2), and one started inside a Herdr pane inherits that pane id
 and is `agent:<pane id>` instead — which is the usual case, because a program
 that drives panes tends to be running in one. The two are not interchangeable:
-`human` is exempt from recusal and is the only principal that may promote a
-note. Rather than depend on either, a consumer says what it is with
+`human` is exempt from recusal, and promoting a note is the operator's
+authority, which an agent exercises after confirming with them (§3.7). Rather than depend on either, a consumer says what it is with
 `--as plugin:<name>` on every call, reads as well as writes. `--as agent:…`
 and `--as human` are refused, because those two are derived from the
 environment and never declared; `TestAsRefusesDerivedPrincipals` holds that.
@@ -341,8 +341,9 @@ around: the plugin is a local tool for a single operator's machine, and the
 protection is the account, not the plugin.
 
 Two things follow. Your principal is **derived, never declared** — a call from
-a pane is `agent:<pane id>`, a call from anywhere else is `human`, and `--as`
-is accepted only for `cron`, `trigger` and `plugin` principals. And the policy
+a pane is `agent:<pane id>`, a paneless door that was never declared the
+operator's is `none`, and `--as` is accepted only for `cron`, `trigger` and
+`plugin` principals, each naming an id. And the policy
 gate below is a governance tool for coordinating agents, not a security
 boundary against a hostile one.
 
@@ -353,8 +354,9 @@ Every world-changing verb passes through one gate before anything happens
 `{"subject","verb","target"}` on stdin and prints
 `{"decision":"allow"|"deny"|"defer"}`. **Any failure to get a well-formed
 answer — unreachable, non-zero, malformed, oversized, slow — is a deny.** A
-`defer` parks the action and returns `DENIED` with a `parked_id`; only the
-operator resolves it, and the re-run happens under the original subject.
+`defer` parks the action and returns `DENIED` with a `parked_id`; resolving it
+is the operator's authority, which an agent exercises after confirming with
+them (§3.7), and the re-run happens under the original subject.
 
 The gated verbs, for a future policy plugin to name:
 

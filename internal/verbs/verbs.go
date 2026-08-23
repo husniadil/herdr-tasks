@@ -50,12 +50,12 @@ type Verb struct {
 	Args []Arg
 	// Gated is the §9.4 verb name passed to the policy gate. Empty means this
 	// verb is not offered to the gate, which is NOT the same as "changes
-	// nothing": eleven verbs that write carry no gate name, three of them
+	// nothing": twelve verbs that write carry no gate name, three of them
 	// destructive. A Mutates verb with no Gated must say why in Ungated.
 	Gated string
 	// Ungated is why a verb that writes passes no name to the policy gate.
-	// Required exactly when Mutates is true and Gated is empty, so the eleven
-	// cannot quietly become twelve.
+	// Required exactly when Mutates is true and Gated is empty, so the twelve
+	// cannot quietly become thirteen.
 	Ungated string
 	// Who is the principal rule: who may call this verb. Every verb that
 	// writes states one, because the alternative is a rule of "whoever asked"
@@ -182,9 +182,9 @@ var All = []Verb{
 		Name: "task.approve", CLI: []string{"task", "approve"}, MCP: "approve",
 		Short:       "Accept submitted work",
 		AllProjects: true,
-		Long:        "A harness may not approve work its own harness produced (§6.6). The operator is exempt.",
+		Long:        "A principal may not approve work it, its own pane, or its own agent session produced (§6.6). The harness does not recuse: claude reviews claude from another session. The operator is exempt.",
 		Gated:       "tasks.approve",
-		Who:         "Anyone but the submitting harness (§6.6); the operator is exempt.",
+		Who:         "Anyone but the submitting principal, pane or agent session (§6.6); the operator is exempt.",
 		Mutates:     true,
 		Args:        []Arg{idArg("The task id or number")},
 	},
@@ -193,7 +193,7 @@ var All = []Verb{
 		Short:       "Send submitted work back with feedback",
 		AllProjects: true,
 		Gated:       "tasks.reject",
-		Who:         "Anyone but the submitting harness (§6.6); the operator is exempt.",
+		Who:         "Anyone but the submitting principal, pane or agent session (§6.6); the operator is exempt.",
 		Mutates:     true,
 		Args: []Arg{
 			idArg("The task id or number"),

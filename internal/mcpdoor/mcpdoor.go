@@ -37,7 +37,8 @@ const Title = "Herdr Tasks"
 // pane/agent/workspace mean what Herdr says they mean, and where to start.
 const Instructions = "herdr-tasks is the task backlog and notes board for agents running on Herdr. " +
 	"A task moves todo → doing → review → done behind a claim with a renewable lease; a note is a " +
-	"pre-decision idea that only the operator promotes into a task, keeps, or drops. Everything is " +
+	"pre-decision idea whose promotion, keep or drop is the operator's authority, which an agent " +
+	"exercises after confirming with them (§3.7). Everything is " +
 	"scoped to a project, the git root of the directory you are working in. `pane`, `agent`, " +
 	"`harness`, `workspace` and `agent_status` mean what Herdr says they mean, and your principal is " +
 	"derived from the pane you run in — you never declare who you are. The usual entry points are " +

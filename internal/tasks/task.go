@@ -810,10 +810,9 @@ func sessionOf(a Actor) string {
 }
 
 // harnessOf is §3.4's "store unknown rather than guess": an agent principal
-// whose harness Herdr could not report is recorded as unknown, and unknown
-// never matches unknown for recusal purposes (see CheckRecusal, which compares
-// non-empty strings — two unknowns do compare equal, which is the conservative
-// direction: it recuses).
+// whose harness Herdr could not report is recorded as unknown. It is a fact
+// the row carries, not a recusal input — CheckRecusal compares the principal,
+// the pane and the agent session, and never the harness (§6.6).
 func harnessOf(a Actor) string {
 	if a.IsHuman() {
 		return ""

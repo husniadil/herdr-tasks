@@ -17,7 +17,7 @@ func newTUICmd() *cobra.Command {
 		Use:   "tui [view]",
 		Short: "Open the board, or the notes board, in this terminal",
 		Long: "board shows this project's tasks in their state columns with the claim and\n" +
-			"its lease on each card; notes shows the notes board and the actions the\n" +
+			"its lease on each task; notes shows the notes board and the actions the\n" +
 			"policy gate parked. Mouse first, keyboard everywhere the mouse can go.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, argv []string) error {
