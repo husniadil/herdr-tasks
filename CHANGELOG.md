@@ -11,7 +11,7 @@ Additive for every caller; nothing shipped changes meaning. An agent gains
 verbs it was refused before, so a caller that relied on those refusals to keep
 an agent out has to move that rule into the policy gate (§9).
 
-Ten new MCP tools, which is every verb the door did not carry: `archive`,
+Eight new MCP tools, which is every verb the door did not carry: `archive`,
 `delete`, `note_keep`, `note_drop`, `note_delete`, `parked_resolve`, `sweep`
 and `dump`. §7.3 admits no CLI-only verb, so the CLI and the MCP door now
 serve the same 32 verbs. No tool was renamed or removed; the names already on

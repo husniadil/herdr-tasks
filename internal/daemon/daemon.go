@@ -33,7 +33,7 @@ import (
 // Version is the plugin version `htask version` and doctor print (§13.3).
 // 0.2.0 named the MCP tools by the verb alone; 0.3.0 stops a paneless door
 // being the operator, which moves a value a shipped JSON field can hold;
-// 0.5.0 puts the ten verbs no door carried onto the MCP door and adds the
+// 0.5.0 puts the eight verbs no door carried onto the MCP door and adds the
 // `on_behalf_of_operator` event detail and `parked.resolved_by`. All are
 // major-shaped changes carried in the minor, as a 0.x version is allowed to.
 const Version = "0.5.0"

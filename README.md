@@ -296,7 +296,7 @@ Deviations worth naming up front:
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
   The binary is **0.5.0** since §3.7 made an operator verb advisory and the
-  ten verbs a door never carried came to it; the names already on the list
+  eight verbs a door never carried came to it; the names already on the list
   have not moved since 0.2.0.
 - **§3.7 / §7.5** — `human` is not what a door falls back to when it knows
   nothing. A `htask mcp` door standing in a Herdr pane is that pane's agent;
