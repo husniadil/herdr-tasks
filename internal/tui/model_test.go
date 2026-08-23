@@ -2604,3 +2604,38 @@ func TestNoteDetailSaysNothingAboutProjectWhenThePromotionStayedHome(t *testing.
 		t.Fatalf("the detail changed for a same-project promotion:\n%s", d)
 	}
 }
+
+// The operator approves from this panel, so what the prose door tells a
+// reviewer the TUI has to tell them too: the report on the card is not the one
+// that was submitted. Without this the plugin answered the same question two
+// ways depending on which door the reviewer used, and the door the operator
+// actually reviews from was the silent one.
+func TestDetailSaysAReportWasAmended(t *testing.T) {
+	c := task(3, tasks.StatusReview, "corrected after submitting")
+	c.Report, c.Evidence = "done at 9f738bf", []string{"make test-full at 9f738bf: EXIT=0"}
+	c.AmendCount, c.AmendedAt = 1, 1
+	m := board(t, c)
+	m, _ = Update(m, KeyMsg{Key: "enter"})
+	d := Detail(m, 0)
+	for _, want := range []string{"amended", "1 amendment", "submitted"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("the detail panel does not say %q:\n%s", want, d)
+		}
+	}
+
+	twice := task(4, tasks.StatusReview, "corrected twice")
+	twice.Report, twice.AmendCount, twice.AmendedAt = "done", 2, 1
+	m2 := board(t, twice)
+	m2, _ = Update(m2, KeyMsg{Key: "enter"})
+	if d := Detail(m2, 0); !strings.Contains(d, "2 amendments") {
+		t.Errorf("the detail panel does not count two amendments:\n%s", d)
+	}
+
+	plain := task(5, tasks.StatusReview, "submitted once")
+	plain.Report = "done"
+	m3 := board(t, plain)
+	m3, _ = Update(m3, KeyMsg{Key: "enter"})
+	if d := Detail(m3, 0); strings.Contains(d, "amended") {
+		t.Errorf("a report nobody amended was reported as amended:\n%s", d)
+	}
+}

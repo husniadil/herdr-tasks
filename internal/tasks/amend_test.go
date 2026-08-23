@@ -187,3 +187,73 @@ func TestAmendHoldsSubmitsRulesForItsArguments(t *testing.T) {
 		t.Errorf("evidence_for = %v, want both citations", task.EvidenceFor)
 	}
 }
+
+// The refusal M6 proved unpinned: a row in review that NOBODY holds. It is
+// reachable — a claim can be swept or released out from under work already
+// submitted — and without this an amendment from any passing principal would
+// put a stranger's words under the submitter's name, which is the one thing
+// the holder rule exists to stop. The operator stays exempt, as it is for
+// submit, release and cancel.
+func TestAmendRefusesWhenNobodyHoldsTheRow(t *testing.T) {
+	task, worker := reviewing(t)
+	if _, err := Release(task, worker, "handing it back", 2500, KindSwept); err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if task.Status != StatusReview {
+		t.Fatalf("status = %q; the fixture wanted a claimless row still in review", task.Status)
+	}
+	stranger := Actor{Principal: "agent:wM:p9", Harness: "claude", Session: "s9"}
+	_, err := Amend(task, stranger, "mine now", nil, nil, 3000)
+	if err == nil {
+		t.Fatal("a claimless row in review was amended by a principal that never held it")
+	}
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Errorf("code = %s, want CONFLICT", got)
+	}
+	if !strings.Contains(err.Error(), "holds") {
+		t.Errorf("the refusal does not say nobody holds the row:\n  %s", err)
+	}
+	if task.Report != "the first report" {
+		t.Errorf("the refused amendment still landed: report = %q", task.Report)
+	}
+	if _, err := Amend(task, Actor{Principal: PrincipalHuman}, "the operator's correction", nil, nil, 3000); err != nil {
+		t.Errorf("the operator was refused a claimless row: %v", err)
+	}
+}
+
+// The bounds M16 proved unpinned. §5.9 caps the free text a task carries, and
+// amend takes the same three arguments submit does: a report over the cap, an
+// evidence entry over the item cap, and a list over the item-count cap are
+// each USAGE. Without this, amend was the one door into the row with no
+// ceiling on what it wrote.
+func TestAmendBoundsItsOwnArguments(t *testing.T) {
+	task, worker := reviewing(t)
+	if _, err := Amend(task, worker, strings.Repeat("a", MaxText+1), nil, nil, 3000); err == nil {
+		t.Error("a report over the §5.9 cap was accepted")
+	} else if got := codeOf(t, err); got != codes.Usage {
+		t.Errorf("an over-long report: code = %s, want USAGE", got)
+	}
+	if _, err := Amend(task, worker, "ok", []string{strings.Repeat("b", MaxItem+1)}, nil, 3000); err == nil {
+		t.Error("an evidence entry over the §5.9 item cap was accepted")
+	} else if got := codeOf(t, err); got != codes.Usage {
+		t.Errorf("an over-long evidence entry: code = %s, want USAGE", got)
+	}
+	tooMany := make([]string, MaxItems+1)
+	for i := range tooMany {
+		tooMany[i] = "make test: ok"
+	}
+	if _, err := Amend(task, worker, "ok", tooMany, nil, 3000); err == nil {
+		t.Error("an evidence list over the §5.9 count cap was accepted")
+	} else if got := codeOf(t, err); got != codes.Usage {
+		t.Errorf("an over-long evidence list: code = %s, want USAGE", got)
+	}
+	longCite := []string{"1: " + strings.Repeat("c", MaxItem)}
+	if _, err := Amend(task, worker, "ok", nil, longCite, 3000); err == nil {
+		t.Error("an evidence-for entry over the §5.9 item cap was accepted")
+	} else if got := codeOf(t, err); got != codes.Usage {
+		t.Errorf("an over-long evidence-for entry: code = %s, want USAGE", got)
+	}
+	if task.Report != "the first report" || task.AmendCount != 0 {
+		t.Errorf("a refused amendment still landed: report %q, amend_count %d", task.Report, task.AmendCount)
+	}
+}

@@ -45,6 +45,12 @@ func Detail(m Model, now int64) string {
 		for _, e := range t.Evidence {
 			fmt.Fprintf(&b, "  evidence: %s\n", e)
 		}
+		// The operator approves from this pane, so the marker belongs here as
+		// much as in the prose door: the report above is not the one that was
+		// submitted, and nothing else on the card would say so.
+		if t.AmendCount > 0 {
+			fmt.Fprintf(&b, "amended: the report above replaced the submitted one (%s)\n", amendments(t.AmendCount))
+		}
 		if t.Feedback != "" {
 			fmt.Fprintf(&b, "\nlast feedback: %s\n", t.Feedback)
 		}
@@ -129,4 +135,12 @@ func checklist(b *strings.Builder, t *tasks.Task) {
 				e.Criterion, e.Text)
 		}
 	}
+}
+
+// amendments counts corrections in words a reader does not have to parse.
+func amendments(n int64) string {
+	if n == 1 {
+		return "1 amendment"
+	}
+	return fmt.Sprintf("%d amendments", n)
 }
