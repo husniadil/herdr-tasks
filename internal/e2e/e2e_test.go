@@ -123,6 +123,18 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 	}
 }
 
+// evidenceOf reads a task's evidence list without panicking when it is
+// absent, so a broken amend fails with a message instead of an index panic.
+func evidenceOf(task map[string]any) []string {
+	raw, _ := task["evidence"].([]any)
+	out := make([]string, 0, len(raw))
+	for _, e := range raw {
+		s, _ := e.(string)
+		out = append(out, s)
+	}
+	return out
+}
+
 // §12.1 layer 3, §6.5: the correction is part of the lifecycle a reviewer
 // depends on. The holder submits, notices the report is wrong, amends it, and
 // the operator approves — and what the approving read returns is the AMENDED
@@ -151,6 +163,15 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	if submitted["amend_count"] != nil {
 		t.Fatalf("a task that was never amended reports amend_count %v", submitted["amend_count"])
 	}
+	// Pin what submit wrote before amend touches it. Without this the later
+	// assertions cannot tell "amend replaced the report" from "submit never
+	// stored one and amend was the first writer".
+	if got := submitted["report"]; got != "wired it" {
+		t.Fatalf("report after submit = %v, want what submit was given", got)
+	}
+	if got := evidenceOf(submitted); len(got) != 1 || got[0] != "make test: FAIL" {
+		t.Fatalf("evidence after submit = %v, want what submit was given", got)
+	}
 	submittedAt, submittedBy := submitted["submitted_at"], submitted["submitted_by"]
 
 	// §6.5: the holder corrects the report while the row waits for a reviewer.
@@ -165,7 +186,7 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	if got := amended["report"]; got != "wired it, and the gate is green now" {
 		t.Fatalf("report after amend = %v, want the corrected one", got)
 	}
-	if got := amended["evidence"]; len(got.([]any)) != 1 || got.([]any)[0] != "make test: ok" {
+	if got := evidenceOf(amended); len(got) != 1 || got[0] != "make test: ok" {
 		t.Fatalf("evidence after amend = %v, want the named list to have replaced the old one", got)
 	}
 	// The submission itself does not move (§6.5).
@@ -175,6 +196,26 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	}
 	if amended["amend_count"] != float64(1) {
 		t.Fatalf("amend_count = %v, want 1", amended["amend_count"])
+	}
+
+	// §6.5 again, from the other allowed principal: the operator may correct a
+	// row it does not hold, and the submission still does not move to them.
+	// Layer 1 pins this with a fabricated principal; here both principals are
+	// real — one derived from a Herdr pane, one from a terminal.
+	w.htask("task", "amend", id, "--report", "wired it, and the gate is green now")
+
+	twice := w.task(id)
+	if twice["submitted_by"] != submittedBy || twice["submitted_at"] != submittedAt {
+		t.Fatalf("an operator amend moved the submission to %v/%v, want %v/%v",
+			twice["submitted_by"], twice["submitted_at"], submittedBy, submittedAt)
+	}
+	if twice["amend_count"] != float64(2) {
+		t.Fatalf("amend_count after a second amend = %v, want 2", twice["amend_count"])
+	}
+	// A list the caller did not name is left alone (§6.5): the operator passed
+	// no --evidence, so the holder's corrected list survives.
+	if got := evidenceOf(twice); len(got) != 1 || got[0] != "make test: ok" {
+		t.Fatalf("evidence after an amend that named no list = %v, want it untouched", got)
 	}
 
 	// The whole point: the approving read sees the correction.
@@ -189,7 +230,7 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	if got := done["report"]; got != "wired it, and the gate is green now" {
 		t.Fatalf("the approving read saw report %v, want the amended one", got)
 	}
-	if got := done["evidence"]; len(got.([]any)) != 1 || got.([]any)[0] != "make test: ok" {
+	if got := evidenceOf(done); len(got) != 1 || got[0] != "make test: ok" {
 		t.Fatalf("the approving read saw evidence %v, want the amended list", got)
 	}
 
