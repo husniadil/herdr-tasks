@@ -6,10 +6,11 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 )
 
-// wrapTo must not lose text to the escape sequences inside a line. The head it
-// emits comes from ansi.Truncate, which re-emits a reset of its own, so the
-// string handed back is NOT a prefix of the source and advancing by its byte
-// length eats characters that were never shown.
+// §11.6: the pane is what the human reads, so wrapTo must not lose text to the
+// escape sequences inside a line. The head it emits comes from ansi.Truncate,
+// which re-emits a reset of its own, so the string handed back is NOT a prefix
+// of the source and advancing by its byte length eats characters that were
+// never shown.
 func TestWrapToKeepsEveryCharacterOfAStyledLine(t *testing.T) {
 	const line = "a\x1b[31mred\x1b[0mbcdef"
 	got := wrapTo(line, 3)
@@ -42,9 +43,9 @@ func TestWrapToKeepsEveryCharacterOfAStyledLine(t *testing.T) {
 	}
 }
 
-// A tick is a timer, not an answer. A daemon that has stopped answering would
-// otherwise get one more read — one more goroutine, one more socket — every
-// two seconds for as long as the pane stays open.
+// §11.6: a tick is a timer, not an answer. A daemon that has stopped answering
+// would otherwise get one more read — one more goroutine, one more socket —
+// every two seconds for as long as the operator leaves the pane open.
 func TestTickDoesNotStackReadsOnAWedgedDaemon(t *testing.T) {
 	rec := &recorder{}
 	p := &program{model: New(ViewBoard, "/repo"), send: rec, base: protocol.Request{Project: "/repo"}}
