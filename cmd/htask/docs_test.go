@@ -636,3 +636,33 @@ func TestTheSupersededParityReadingSaysSoInItsHeading(t *testing.T) {
 			"verb on both doors:\n  %s", heading)
 	}
 }
+
+// The same condition on the 0.9.0 entry, and it is here because a mutation
+// proved the marker unheld: with "superseded" stripped from that heading the
+// whole package stayed green, and the entry read again as a current claim that
+// nothing had audited this plugin against 0.9.0's rule — which task 86's sweep
+// had already answered, seventy lines below in the same file. That defect shape
+// — an entry saying a piece of WORK has not happened, after it has — is not
+// reachable by a phrase list: "nothing has audited this" is the honest and
+// necessary way to record a gap on the day it is recorded, so a list of such
+// phrases would fire on every correct gap entry. What IS pinnable is the same
+// thing §6.1 pins: one literal heading, and whether it carries its marker.
+func TestTheSupersededAuditGapEntrySaysSoInItsHeading(t *testing.T) {
+	doc := everyMarkdownFile(t)[filepath.Join("docs", "contract-notes.md")]
+	var heading string
+	for _, line := range strings.Split(doc, "\n") {
+		if strings.HasPrefix(line, "## 0.9.0 ") {
+			heading = line
+			break
+		}
+	}
+	if heading == "" {
+		t.Fatal("docs/contract-notes.md has no 0.9.0 entry; it is the record of the gap between " +
+			"0.9.0's rule and the sweep that answered it")
+	}
+	if !strings.Contains(strings.ToLower(heading), "superseded") {
+		t.Errorf("the 0.9.0 entry's heading does not say it is superseded, so it reads as a "+
+			"current claim that nothing has audited this plugin against 0.9.0's rule — and the "+
+			"sweep that did is in this same file:\n  %s", heading)
+	}
+}
