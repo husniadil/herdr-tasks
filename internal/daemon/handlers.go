@@ -234,8 +234,19 @@ func hTaskSubmit(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 // differ by exactly the state-machine call, which is the point — a caller that
 // can write a submit can write the correction to it.
 func hTaskAmend(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	// The `has` pattern hTaskUpdate uses, for the same reason: absent and
+	// empty are different answers, and only one of them means "clear it".
+	var evidence, evidenceFor *[]string
+	if has(req.Args, "evidence") {
+		v := argStrings(req.Args, "evidence")
+		evidence = &v
+	}
+	if has(req.Args, "evidence-for") {
+		v := argStrings(req.Args, "evidence-for")
+		evidenceFor = &v
+	}
 	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
-		return tasks.Amend(t, by, argString(req.Args, "report"), argStrings(req.Args, "evidence"), argStrings(req.Args, "evidence-for"), d.Now())
+		return tasks.Amend(t, by, argString(req.Args, "report"), evidence, evidenceFor, d.Now())
 	})
 }
 

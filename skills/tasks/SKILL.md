@@ -43,11 +43,14 @@ htask task amend 12 --report "what you did, at the head it actually reached" \
                     --evidence-for "1: make test-full at 9f738bf: EXIT=0"
 ```
 
-`amend` replaces the report and the evidence and leaves the submission alone:
+`amend` replaces the report, replaces any list you name, and leaves the
+submission alone:
 the task stays in review, and who submitted it and when do not move. The row
 records that it was amended and the trail carries an `amended` event, so the
 reviewer sees the correction instead of learning about it from a message. Only
-the holder may amend, and only while the task is waiting for a verdict.
+the holder may amend, and only while the task is waiting for a verdict. A list
+you do not pass is kept as it was; passing `--evidence` with nothing in it
+clears it.
 
 **Renew the lease at the start of every turn.** `htask task touch <id>` is one
 call and it is the difference between holding your work and having it swept

@@ -30,7 +30,7 @@ func reviewing(t *testing.T) (*Task, Actor) {
 // reached.
 func TestAmendRewritesTheReportOfATaskInReview(t *testing.T) {
 	task, worker := reviewing(t)
-	ev, err := Amend(task, worker, "the corrected report", []string{"make test: ok at bbb2222"}, nil, 3000)
+	ev, err := Amend(task, worker, "the corrected report", &[]string{"make test: ok at bbb2222"}, nil, 3000)
 	if err != nil {
 		t.Fatalf("Amend: %v", err)
 	}
@@ -175,12 +175,12 @@ func TestAmendHoldsSubmitsRulesForItsArguments(t *testing.T) {
 		t.Errorf("code = %s, want USAGE", codeOf(t, err))
 	}
 	task.Validation = []Criterion{{Text: "one", Required: true}, {Text: "two", Required: true}}
-	if _, err := Amend(task, worker, "ok", nil, []string{"1: it printed ok"}, 3000); err == nil {
+	if _, err := Amend(task, worker, "ok", nil, &[]string{"1: it printed ok"}, 3000); err == nil {
 		t.Error("an amendment cited one of two required criteria and was accepted")
 	} else if codeOf(t, err) != codes.Usage {
 		t.Errorf("code = %s, want USAGE", codeOf(t, err))
 	}
-	if _, err := Amend(task, worker, "ok", nil, []string{"1: a", "2: b"}, 3000); err != nil {
+	if _, err := Amend(task, worker, "ok", nil, &[]string{"1: a", "2: b"}, 3000); err != nil {
 		t.Errorf("a fully cited amendment was refused: %v", err)
 	}
 	if len(task.EvidenceFor) != 2 {
@@ -233,7 +233,7 @@ func TestAmendBoundsItsOwnArguments(t *testing.T) {
 	} else if got := codeOf(t, err); got != codes.Usage {
 		t.Errorf("an over-long report: code = %s, want USAGE", got)
 	}
-	if _, err := Amend(task, worker, "ok", []string{strings.Repeat("b", MaxItem+1)}, nil, 3000); err == nil {
+	if _, err := Amend(task, worker, "ok", &[]string{strings.Repeat("b", MaxItem+1)}, nil, 3000); err == nil {
 		t.Error("an evidence entry over the §5.9 item cap was accepted")
 	} else if got := codeOf(t, err); got != codes.Usage {
 		t.Errorf("an over-long evidence entry: code = %s, want USAGE", got)
@@ -242,18 +242,54 @@ func TestAmendBoundsItsOwnArguments(t *testing.T) {
 	for i := range tooMany {
 		tooMany[i] = "make test: ok"
 	}
-	if _, err := Amend(task, worker, "ok", tooMany, nil, 3000); err == nil {
+	if _, err := Amend(task, worker, "ok", &tooMany, nil, 3000); err == nil {
 		t.Error("an evidence list over the §5.9 count cap was accepted")
 	} else if got := codeOf(t, err); got != codes.Usage {
 		t.Errorf("an over-long evidence list: code = %s, want USAGE", got)
 	}
 	longCite := []string{"1: " + strings.Repeat("c", MaxItem)}
-	if _, err := Amend(task, worker, "ok", nil, longCite, 3000); err == nil {
+	if _, err := Amend(task, worker, "ok", nil, &longCite, 3000); err == nil {
 		t.Error("an evidence-for entry over the §5.9 item cap was accepted")
 	} else if got := codeOf(t, err); got != codes.Usage {
 		t.Errorf("an over-long evidence-for entry: code = %s, want USAGE", got)
 	}
 	if task.Report != "the first report" || task.AmendCount != 0 {
 		t.Errorf("a refused amendment still landed: report %q, amend_count %d", task.Report, task.AmendCount)
+	}
+}
+
+// Absent and empty are different answers. A worker correcting only the wording
+// of its report must not lose the evidence a reviewer is reading — the run
+// that found this showed two entries going to none on `amend --report` alone,
+// which is the quiet wrong record this verb exists to stop. Naming the flag
+// with nothing in it still clears, because that is a thing the caller said.
+func TestAmendLeavesUnnamedListsAlone(t *testing.T) {
+	task, worker := reviewing(t)
+	task.Evidence = []string{"make test-full at 07ce055: EXIT=0", "go vet: clean"}
+	task.Validation = []Criterion{{Text: "one", Required: true}}
+	task.EvidenceFor = []Citation{{Criterion: 1, Text: "make test-full: EXIT=0"}}
+
+	if _, err := Amend(task, worker, "the corrected report", nil, nil, 3000); err != nil {
+		t.Fatalf("Amend: %v", err)
+	}
+	if len(task.Evidence) != 2 {
+		t.Errorf("evidence = %v; an amendment that named no --evidence emptied it", task.Evidence)
+	}
+	if len(task.EvidenceFor) != 1 {
+		t.Errorf("evidence_for = %v; an amendment that named no --evidence-for emptied it", task.EvidenceFor)
+	}
+	if task.Report != "the corrected report" {
+		t.Errorf("report = %q, want the corrected one", task.Report)
+	}
+
+	empty := []string{}
+	if _, err := Amend(task, worker, "cleared", &empty, nil, 4000); err != nil {
+		t.Fatalf("Amend with an empty list: %v", err)
+	}
+	if len(task.Evidence) != 0 {
+		t.Errorf("evidence = %v; naming --evidence with nothing in it is a deliberate clear", task.Evidence)
+	}
+	if len(task.EvidenceFor) != 1 {
+		t.Errorf("evidence_for = %v; clearing one list cleared the other", task.EvidenceFor)
 	}
 }

@@ -435,7 +435,7 @@ func Submit(t *Task, by Actor, report string, evidence, evidenceFor []string, no
 // beside the `submitted` one, and UpdatedAt moved — which is what makes §5.6's
 // --base-updated-at guard refuse an approve built on the report that was
 // replaced.
-func Amend(t *Task, by Actor, report string, evidence, evidenceFor []string, now int64) (Event, error) {
+func Amend(t *Task, by Actor, report string, evidence, evidenceFor *[]string, now int64) (Event, error) {
 	if strings.TrimSpace(report) == "" {
 		return Event{}, codes.New(codes.Usage, "a report is required")
 	}
@@ -459,28 +459,43 @@ func Amend(t *Task, by Actor, report string, evidence, evidenceFor []string, now
 	if err := bound("report", report, MaxText); err != nil {
 		return Event{}, err
 	}
-	if err := boundList("evidence", evidence, MaxItem, MaxItems); err != nil {
-		return Event{}, err
+	// A nil list is a list the caller did not name, and it is left alone. The
+	// alternative — replace everything, every time — meant `amend --report`
+	// silently emptied the evidence a reviewer was reading, which is the
+	// quiet wrong record this verb exists to stop. An EMPTY list is still a
+	// list: naming --evidence with nothing in it clears it, deliberately.
+	if evidence != nil {
+		if err := boundList("evidence", *evidence, MaxItem, MaxItems); err != nil {
+			return Event{}, err
+		}
 	}
-	if err := boundList("evidence-for", evidenceFor, MaxItem, MaxItems); err != nil {
-		return Event{}, err
+	if evidenceFor != nil {
+		if err := boundList("evidence-for", *evidenceFor, MaxItem, MaxItems); err != nil {
+			return Event{}, err
+		}
 	}
-	cites, err := parseCitations(evidenceFor, len(t.Validation))
-	if err != nil {
-		return Event{}, err
-	}
-	if err := coversRequired(t.Validation, cites); err != nil {
-		return Event{}, err
+	cites := t.EvidenceFor
+	if evidenceFor != nil {
+		parsed, err := parseCitations(*evidenceFor, len(t.Validation))
+		if err != nil {
+			return Event{}, err
+		}
+		if err := coversRequired(t.Validation, parsed); err != nil {
+			return Event{}, err
+		}
+		cites = parsed
 	}
 	t.Report = report
-	t.Evidence = evidence
+	if evidence != nil {
+		t.Evidence = *evidence
+	}
 	t.EvidenceFor = cites
 	t.AmendCount++
 	t.AmendedAt = now
 	t.UpdatedAt = now
 	return Event{Kind: KindAmended, Actor: by.Principal, At: now,
 		Detail: map[string]any{"amendment": t.AmendCount,
-			"evidence_count": len(evidence), "citation_count": len(cites)}}, nil
+			"evidence_count": len(t.Evidence), "citation_count": len(cites)}}, nil
 }
 
 // parseCitations reads the "<criterion>: what it printed" form both doors

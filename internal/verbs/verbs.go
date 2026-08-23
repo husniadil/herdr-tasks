@@ -154,14 +154,15 @@ var All = []Verb{
 			"the holder replaces the report and the evidence of a task waiting for a reviewer, and the " +
 			"submission itself — when it was submitted, by whom, from which session — does not move. " +
 			"The row records that it was amended and how many times, and the trail carries an `amended` " +
-			"event, so a reviewer sees the correction rather than learning about it in a message.",
+			"event, so a reviewer sees the correction rather than learning about it in a message. " +
+			"A list you do not name is left alone; naming one with nothing in it clears it.",
 		Gated:   "tasks.amend",
 		Who:     "The holder, or the operator.",
 		Mutates: true,
 		Args: []Arg{
 			idArg("The task id or number"),
 			{Name: "report", Type: String, Desc: "The corrected report, which replaces the one on the row", Required: true},
-			{Name: "evidence", Type: Strings, Desc: "A command you ran and what it printed, replacing what was submitted (repeatable)"},
+			{Name: "evidence", Type: Strings, Desc: "A command you ran and what it printed, replacing the whole list; leave it out to keep what is there (repeatable)"},
 			{Name: "evidence-for", Type: Strings, Desc: "Evidence for one acceptance criterion, as \"<criterion>: what it printed\" (repeatable)"},
 		},
 	},

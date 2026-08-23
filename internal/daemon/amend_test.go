@@ -184,3 +184,28 @@ func TestAmendIsRefusedOnceAVerdictIsIn(t *testing.T) {
 	mustFail(t, d, protocol.Request{Verb: "task.amend", PaneID: "wM:p2",
 		Args: map[string]any{"id": rejected.Task.ID, "report": "fixed"}}, codes.Conflict)
 }
+
+// The same rule at the door, where the distinction actually lives: `has` tells
+// an absent flag from an empty one, so `htask task amend 12 --report "…"`
+// keeps the evidence the row already carries.
+func TestAmendThroughTheDoorKeepsEvidenceTheCallerDidNotName(t *testing.T) {
+	d := newDaemon(t, nil)
+	task := submitted(t, d, "wM:p1", "done at 07ce055",
+		"make test-full at 07ce055: EXIT=0", "go vet: clean")
+	raw := mustCall(t, d, protocol.Request{Verb: "task.amend", PaneID: "wM:p1",
+		Args: map[string]any{"id": task.Task.ID, "report": "done at 9f738bf"}})
+	after := unmarshalTask(t, raw).Task
+	if len(after.Evidence) != 2 {
+		t.Errorf("evidence = %v; the door emptied a list the caller never named", after.Evidence)
+	}
+	if after.Report != "done at 9f738bf" {
+		t.Errorf("report = %q, want the corrected one", after.Report)
+	}
+
+	raw = mustCall(t, d, protocol.Request{Verb: "task.amend", PaneID: "wM:p1",
+		Args: map[string]any{"id": task.Task.ID, "report": "done, evidence withdrawn",
+			"evidence": []string{}}})
+	if ev := unmarshalTask(t, raw).Task.Evidence; len(ev) != 0 {
+		t.Errorf("evidence = %v; naming --evidence empty is a deliberate clear", ev)
+	}
+}
