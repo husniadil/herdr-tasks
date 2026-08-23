@@ -170,3 +170,34 @@ func TestAgentGetKeepsTheNameAndSessionOfAnUnknownHarness(t *testing.T) {
 		t.Fatalf("an unknown harness threw away what Herdr did answer: %+v", got)
 	}
 }
+
+// wedgedHerdr never answers, so `agent get` runs into its own deadline.
+func wedgedHerdr(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "herdr")
+	// `exec`, so the deadline kills the process holding the pipe rather than
+	// a shell whose child keeps it open — otherwise the wait outlives the
+	// timeout by the whole sleep.
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec sleep 20\n"), 0o755); err != nil {
+		t.Fatalf("write herdr: %v", err)
+	}
+	return path
+}
+
+// §3.4: "unknown" is the stamp for a fact Herdr ANSWERED it could not give —
+// a pane it does not know, a row with no `agent`. A call that timed out is
+// not that answer: Herdr said nothing at all, and turning silence into
+// "unknown" writes an answer nobody gave into the claim snapshot, which is
+// the same fallback §3.7 removed for `human`. TIMEOUT travels, the way
+// UNAVAILABLE already does.
+func TestAHerdrThatNeverAnsweredIsNotAnUnknownHarness(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	got, err := New(wedgedHerdr(t)).AgentGet("wF:p1")
+	if err == nil {
+		t.Fatalf("a timed-out call answered with a snapshot: %+v", got)
+	}
+	var ce *codes.Error
+	if !asCoded(err, &ce) || ce.Code != codes.Timeout {
+		t.Fatalf("err = %v, want a TIMEOUT", err)
+	}
+}

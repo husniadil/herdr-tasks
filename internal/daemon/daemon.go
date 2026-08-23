@@ -448,7 +448,15 @@ func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 	snap, err := d.Herdr.AgentGet(req.PaneID)
 	if err != nil {
 		// Herdr being unreachable does not turn an agent into a human; it
-		// turns its harness into "unknown", which §3.4 prefers to a guess.
+		// turns its harness into "unknown", which §3.4 prefers to a guess,
+		// and the verb still runs — a board that stopped because Herdr was
+		// slow would be worse than one that cannot name a harness. But the
+		// row it writes says "unknown" for a fact nobody was asked, so the
+		// reason is said out loud rather than left for someone to infer from
+		// a column (§10.3's habit, applied where there is no report to put
+		// it in).
+		fmt.Fprintf(os.Stderr, "tasks: herdr did not answer for %s, so its harness is unknown: %v\n",
+			req.PaneID, err)
 		return a, nil
 	}
 	a.Name, a.Harness, a.Session = snap.Name, snap.Harness, snap.Session

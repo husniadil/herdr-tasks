@@ -95,7 +95,13 @@ func (c *Client) AgentGet(pane string) (Agent, error) {
 	out, err := c.run(2*time.Second, "agent", "get", pane)
 	if err != nil {
 		var ce *codes.Error
-		if ok := asCoded(err, &ce); ok && ce.Code == codes.Unavailable {
+		// UNAVAILABLE and TIMEOUT are both "Herdr said nothing", and "unknown"
+		// is the stamp for a fact Herdr ANSWERED it could not give. Turning
+		// silence into it writes an answer nobody gave into the claim
+		// snapshot. What is left — UNEXPECTED, a non-zero exit — IS an answer:
+		// `agent get` on a pane Herdr does not know exits 3, and that is the
+		// case §3.4 wants "unknown" for.
+		if ok := asCoded(err, &ce); ok && (ce.Code == codes.Unavailable || ce.Code == codes.Timeout) {
 			return Agent{}, err
 		}
 		return Agent{PaneID: pane, Harness: "unknown"}, nil
