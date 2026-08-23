@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"path/filepath"
@@ -81,15 +80,11 @@ func TestBuildSkewIsSaidInItsOwnWords(t *testing.T) {
 // because the warning lived only on the one-shot path.
 func TestStreamWarnsAboutADifferentBuild(t *testing.T) {
 	skewWarned = sync.Once{}
-	var warned strings.Builder
-	saved := os.Stderr
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("pipe: %v", err)
-	}
-	os.Stderr = w
-	done := make(chan struct{})
-	go func() { io.Copy(&warned, r); close(done) }()
+	// Through the sink the client actually writes to, not through os.Stderr:
+	// a door that owns the terminal swaps the sink, and reading the file
+	// descriptor would only prove that this process's stderr is a pipe.
+	warned := &syncWriter{}
+	defer SetWarnings(warned)()
 
 	path := filepath.Join(shortDir(t), "tasks.sock")
 	t.Setenv("TASKS_STATE_DIR", filepath.Dir(path))
@@ -116,11 +111,6 @@ func TestStreamWarnsAboutADifferentBuild(t *testing.T) {
 		seen++
 		return nil
 	})
-	os.Stderr = saved
-	w.Close()
-	<-done
-	r.Close()
-
 	if err != nil {
 		t.Fatalf("a stream that ended on purpose returned %v", err)
 	}
@@ -194,4 +184,22 @@ func codeOfErr(err error) string {
 		return f.Code()
 	}
 	return ""
+}
+
+// syncWriter collects what the client wrote, from whichever goroutine wrote it.
+type syncWriter struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (w *syncWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.Write(p)
+}
+
+func (w *syncWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.b.String()
 }

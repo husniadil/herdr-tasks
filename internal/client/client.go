@@ -52,7 +52,7 @@ func Call(req protocol.Request) (json.RawMessage, error) {
 	if err := json.NewDecoder(bufio.NewReader(conn)).Decode(&resp); err != nil {
 		return nil, codes.Errorf(codes.Unavailable, "read the answer to %s: %v", req.Verb, err)
 	}
-	warnOnSkew(os.Stderr, resp.Fingerprint, resp.Build)
+	warnOnSkew(Warnings(), resp.Fingerprint, resp.Build)
 	if resp.Error != nil {
 		return nil, &Failure{Body: resp.Error}
 	}
@@ -62,6 +62,37 @@ func Call(req protocol.Request) (json.RawMessage, error) {
 // skewWarned keeps the warning to once per process. It is worth saying, but
 // not once per call in a loop.
 var skewWarned sync.Once
+
+// warnTo is where an out-of-band warning goes. Stderr is right for a door
+// whose stderr is a terminal the caller reads. It is wrong for one that OWNS
+// the terminal: the TUI holds the alternate screen, so a line written there
+// lands in the middle of a frame and is gone at the next redraw — the
+// operator sees a corrupted pane and never sees the warning.
+var (
+	warnMu sync.Mutex
+	warnTo io.Writer = os.Stderr
+)
+
+// Warnings is the current sink.
+func Warnings() io.Writer {
+	warnMu.Lock()
+	defer warnMu.Unlock()
+	return warnTo
+}
+
+// SetWarnings redirects out-of-band warnings and hands back the function that
+// puts the previous sink back.
+func SetWarnings(w io.Writer) func() {
+	warnMu.Lock()
+	prev := warnTo
+	warnTo = w
+	warnMu.Unlock()
+	return func() {
+		warnMu.Lock()
+		warnTo = prev
+		warnMu.Unlock()
+	}
+}
 
 // warnOnSkew says so when the answering daemon is not this door's equal. It
 // warns rather than refuses: the request has already been answered, and a
@@ -126,7 +157,7 @@ func Stream(req protocol.Request, fn func(json.RawMessage) error) error {
 			return codes.Errorf(codes.Unavailable,
 				"the daemon stopped streaming without saying it had finished: %v", err)
 		}
-		warnOnSkew(os.Stderr, resp.Fingerprint, resp.Build)
+		warnOnSkew(Warnings(), resp.Fingerprint, resp.Build)
 		if resp.Error != nil {
 			return &Failure{Body: resp.Error}
 		}

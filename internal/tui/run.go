@@ -2,9 +2,12 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -34,6 +37,12 @@ func (socketSender) Call(req protocol.Request) (json.RawMessage, error) { return
 
 // Run opens the TUI on a view and blocks until the operator leaves it.
 func Run(view View, base protocol.Request) error {
+	// The pane owns the alternate screen for as long as this runs, so the
+	// client's warnings are held rather than written into a frame they would
+	// corrupt and be redrawn out of. They are said on the way out, where
+	// there is a shell to read them: held, never dropped.
+	release := holdWarnings(os.Stderr)
+	defer release()
 	p := tea.NewProgram(&program{
 		model: New(view, base.Project),
 		send:  socketSender{},
@@ -41,6 +50,40 @@ func Run(view View, base protocol.Request) error {
 	}, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	_, err := p.Run()
 	return err
+}
+
+// holdWarnings redirects the client's out-of-band warnings into a buffer for
+// as long as the pane holds the screen. The function it returns restores the
+// previous sink and writes whatever was held to w.
+func holdWarnings(w io.Writer) func() {
+	held := &syncBuffer{}
+	restore := client.SetWarnings(held)
+	return func() {
+		restore()
+		if s := held.String(); s != "" {
+			fmt.Fprint(w, s)
+		}
+	}
+}
+
+// syncBuffer is a buffer several goroutines may write: the reads that produce
+// a warning run on bubbletea's command goroutines, and the flush runs on the
+// one that called Run.
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
 }
 
 // program is the thin bubbletea shell over the pure model: it translates

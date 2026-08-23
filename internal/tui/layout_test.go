@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
+	"github.com/husniadil/herdr-tasks/internal/client"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 )
 
@@ -99,5 +101,30 @@ func TestAShortPaneKeepsThePromptAndDropsTheBlankAboveIt(t *testing.T) {
 				t.Errorf("height %d: %q sits above the prompt and is not the separator", height, line)
 			}
 		}
+	}
+}
+
+// §11.6 with §13.3: a build-skew warning is worth saying and must not be said
+// onto a screen the pane owns. Written straight to the terminal under the
+// alternate screen it lands inside a frame and is gone at the next redraw:
+// the operator sees a corrupted pane and never sees the warning. It is held
+// while the pane is up and said on the way out, where a shell can show it.
+func TestTheWarningIsHeldWhileThePaneOwnsTheScreen(t *testing.T) {
+	was := client.Warnings()
+	var out strings.Builder
+	release := holdWarnings(&out)
+	if client.Warnings() == was {
+		t.Fatal("the pane left the client writing to the terminal it owns")
+	}
+	fmt.Fprint(client.Warnings(), "htask: this door speaks a different surface\n")
+	if out.String() != "" {
+		t.Fatal("the warning reached the terminal while the pane held the screen")
+	}
+	release()
+	if !strings.Contains(out.String(), "different surface") {
+		t.Errorf("the held warning was dropped rather than said on the way out: %q", out.String())
+	}
+	if client.Warnings() != was {
+		t.Error("leaving the pane did not put the previous sink back")
 	}
 }
