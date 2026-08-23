@@ -34,9 +34,9 @@ which contract's rules this daemon answers to sees a different answer than it
 did under 0.6.0. No verb and no error code moved with it, so a caller that does
 not read the revision has nothing to do about this one.
 
-`claimed_by_harness` is absent from a task nobody holds. Releasing, sweeping and
-cancelling clear the whole §3.4 claim snapshot instead of four of its five
-fields, so a row whose `claimed_by` is empty no longer carries the previous
+`claimed_by_harness` is absent from a task nobody holds. Releasing, sweeping,
+cancelling and approving clear the whole §3.4 claim snapshot instead of some of
+its five fields, so a row whose `claimed_by` is empty no longer carries the previous
 holder's harness beside it. The field is `omitempty`, so what a caller sees is
 the key disappearing rather than emptying. Nothing read it wrongly before —
 the human renderer checks `claimed_by` first and recusal turns on the session —

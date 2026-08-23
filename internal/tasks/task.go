@@ -587,7 +587,12 @@ func Approve(t *Task, by Actor, now int64) (Event, error) {
 	t.Status = StatusDone
 	t.ReviewedBy = by.Principal
 	t.CompletedAt = now
-	t.ClaimedBy, t.LeaseUntil = "", 0
+	// The whole §3.4 snapshot, not two of its five fields: a row whose
+	// claimed_by is empty must not still carry the holder's name, harness,
+	// session or claim time. SubmittedBy* stays — §6.6 recuses on it, and it
+	// is the board's answer to who produced this work.
+	t.ClaimedBy, t.ClaimedByName, t.ClaimedByHarness, t.ClaimedBySession = "", "", "", ""
+	t.ClaimedAt, t.LeaseUntil = 0, 0
 	t.UpdatedAt = now
 	return Event{Kind: KindApproved, Actor: by.Principal, At: now}, nil
 }

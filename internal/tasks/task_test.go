@@ -969,6 +969,17 @@ func TestLettingGoClearsTheWholeClaimSnapshot(t *testing.T) {
 			_, err := Cancel(task, a, "no longer needed", t0+9)
 			return err
 		}},
+		// Approve is a letting-go too: it closes the task and takes the claim
+		// with it. The reviewer is not the producer, because §6.6 recuses the
+		// session that did the work; SubmittedBy* stays, which is what §6.6
+		// reads and what the board answers "who submitted this" with.
+		{"approve", func(task *Task, a Actor) error {
+			if _, err := Submit(task, a, "report", nil, nil, t0+8); err != nil {
+				return err
+			}
+			_, err := Approve(task, agent("wF:p9", "claude"), t0+9)
+			return err
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			task := newTask()
@@ -992,6 +1003,11 @@ func TestLettingGoClearsTheWholeClaimSnapshot(t *testing.T) {
 			}
 			if task.ClaimedAt != 0 || task.LeaseUntil != 0 {
 				t.Errorf("%s left claimed_at %d / lease_until %d", tc.name, task.ClaimedAt, task.LeaseUntil)
+			}
+			// The submission snapshot is NOT part of this: §6.6 recuses on
+			// it, and the board answers "who submitted this" from it.
+			if task.Status == StatusDone && task.SubmittedBy == "" {
+				t.Errorf("%s cleared submitted_by; §6.6 recuses on the producer", tc.name)
 			}
 		})
 	}
