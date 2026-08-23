@@ -293,3 +293,31 @@ func TestAmendLeavesUnnamedListsAlone(t *testing.T) {
 		t.Errorf("evidence_for = %v; clearing one list cleared the other", task.EvidenceFor)
 	}
 }
+
+// The aim M21 was missing. Re-snapshotting the submitter on amend is invisible
+// while the amender IS the submitter, and it is not invisible when the
+// operator corrects an agent's row: the session §6.6 recuses on would become
+// the operator's empty one, and the agent that produced the work could then
+// approve it. So the case that has to be pinned is the amender who is somebody
+// else.
+func TestAmendByTheOperatorLeavesTheSubmittersSnapshot(t *testing.T) {
+	task, worker := reviewing(t)
+	operator := Actor{Principal: PrincipalHuman}
+	if _, err := Amend(task, operator, "the operator's correction", nil, nil, 3000); err != nil {
+		t.Fatalf("Amend by the operator: %v", err)
+	}
+	if task.SubmittedBy != worker.Principal {
+		t.Errorf("submitted_by = %q, want the agent that submitted it", task.SubmittedBy)
+	}
+	if task.SubmittedBySession != worker.Session {
+		t.Errorf("submitted_by_session = %q, want %q: §6.6 recuses on this field, so moving it "+
+			"would let the agent that produced the work review it", task.SubmittedBySession, worker.Session)
+	}
+	if task.SubmittedByHarness != worker.Harness {
+		t.Errorf("submitted_by_harness = %q, want %q", task.SubmittedByHarness, worker.Harness)
+	}
+	// The consequence, stated as the rule it protects.
+	if err := CheckRecusal(task, worker); err == nil {
+		t.Error("after an operator amendment the submitting agent may review its own work (§6.6)")
+	}
+}
