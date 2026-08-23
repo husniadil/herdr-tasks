@@ -21,6 +21,14 @@ type Request struct {
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	// As is the §3.2 escape hatch for cron, trigger and plugin principals.
 	As string `json:"as,omitempty"`
+	// Operator is the door saying that the PROCESS it runs in was started by
+	// a deliberate human act, which is what §3.7 requires before a paneless
+	// call is `human` rather than `none`. The CLI sets it always: one process
+	// per call, so its argv is that act. A server door sets it only when it
+	// was started with `--operator` (§7.5). It is a property of the door
+	// process, never of the call — no tool schema exposes it, and the door
+	// fills it in rather than copying it out of a request.
+	Operator bool `json:"operator,omitempty"`
 	// BaseUpdatedAt is the §5.6 optimistic guard.
 	BaseUpdatedAt int64 `json:"base_updated_at,omitempty"`
 	// Follow turns `events` into a subscription (§8.2).

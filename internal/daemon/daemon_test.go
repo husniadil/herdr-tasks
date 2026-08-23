@@ -61,11 +61,16 @@ func newDaemon(t *testing.T, cfg *config.Config) *Daemon {
 	return d
 }
 
+// call stands in for a CLI invocation, which is what most of this file means
+// by "the operator": one process per call, so its argv is the human act §3.7
+// requires before a paneless call is `human`. A test that wants the other
+// paneless caller — a server door nobody declared — calls d.Answer directly.
 func call(t *testing.T, d *Daemon, req protocol.Request) protocol.Response {
 	t.Helper()
 	if req.Project == "" {
 		req.Project = proj
 	}
+	req.Operator = true
 	return d.Answer(req)
 }
 
@@ -990,7 +995,7 @@ func TestConcurrentResolvesDispatchExactlyOnce(t *testing.T) {
 				defer wg.Done()
 				<-start
 				resps <- d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj,
-					Args: map[string]any{"id": id}})
+					Operator: true, Args: map[string]any{"id": id}})
 			}()
 		}
 		close(start)
@@ -1031,7 +1036,7 @@ func TestAFailedDispatchIsResolvedNotReRunnable(t *testing.T) {
 	task := createTask(t, d, "not in review")
 	id := parkOne(t, d, "tasks.approve", `{"id":"`+task.Task.ID+`"}`)
 
-	resp := d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Args: map[string]any{"id": id}})
+	resp := d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Operator: true, Args: map[string]any{"id": id}})
 	if resp.Error == nil {
 		t.Fatalf("the resolve reported success for a verb that failed: %s", resp.Result)
 	}
@@ -1042,7 +1047,7 @@ func TestAFailedDispatchIsResolvedNotReRunnable(t *testing.T) {
 		t.Fatalf("a failed dispatch left the row re-runnable (state %q)", got)
 	}
 
-	second := d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Args: map[string]any{"id": id}})
+	second := d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Operator: true, Args: map[string]any{"id": id}})
 	if second.Error == nil || second.Error.Code != codes.Conflict {
 		t.Fatalf("a second resolve of a decided row answered %+v, want CONFLICT", second.Error)
 	}
@@ -1057,7 +1062,7 @@ func TestAFailedParkedActionStaysVisible(t *testing.T) {
 	d := newDaemon(t, nil)
 	task := createTask(t, d, "not in review")
 	id := parkOne(t, d, "tasks.approve", `{"id":"`+task.Task.ID+`"}`)
-	d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Args: map[string]any{"id": id}})
+	d.Answer(protocol.Request{Verb: "parked.resolve", Project: proj, Operator: true, Args: map[string]any{"id": id}})
 
 	raw := mustCall(t, d, protocol.Request{Verb: "parked.list", Project: proj})
 	var res ParkedListResult
@@ -1607,4 +1612,64 @@ func eventNames(t *testing.T, d *Daemon, project string) []string {
 		out = append(out, e.Name)
 	}
 	return out
+}
+
+// §3.7: `human` stops being what a door falls back to when it knows nothing.
+// A request carrying no pane and no operator declaration is `none`, an
+// operator verb refuses it with FORBIDDEN, and the SAME request with the
+// declaration is permitted. d.Answer is called directly rather than through
+// `call`, because `call` stands in for a CLI invocation and sets the
+// declaration for every other test in this file.
+func TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal(t *testing.T) {
+	d := newDaemon(t, nil)
+	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj,
+		Args: map[string]any{"body": "an idea awaiting a decision"}})
+
+	undeclared := protocol.Request{Verb: "note.promote", Project: proj,
+		Args: map[string]any{"id": "1"}}
+	resp := d.Answer(undeclared)
+	if resp.Error == nil {
+		t.Fatalf("a door in no pane that was never declared promoted a note: %s", resp.Result)
+	}
+	if resp.Error.Code != codes.Forbidden {
+		t.Fatalf("code = %s (%s), want %s", resp.Error.Code, resp.Error.Message, codes.Forbidden)
+	}
+
+	// And the principal it derived is `none`, not `human` and not empty:
+	// doctor reports the caller back, which is how an operator checks which
+	// of their registrations speak for them (§7.5).
+	var report DoctorReport
+	json.Unmarshal(mustJSON(t, d.Answer(protocol.Request{Verb: "doctor", Project: proj})), &report)
+	if report.Principal != string(tasks.PrincipalNone) {
+		t.Fatalf("principal = %q, want %q", report.Principal, tasks.PrincipalNone)
+	}
+
+	declared := undeclared
+	declared.Operator = true
+	if resp := d.Answer(declared); resp.Error != nil {
+		t.Fatalf("the declared door was refused: %s: %s", resp.Error.Code, resp.Error.Message)
+	}
+}
+
+// A pane is not overruled by the declaration and does not need it: an agent
+// standing in a pane is that pane, declaration or none (§7.5's fourth
+// property, from the daemon's side).
+func TestTheDeclarationDoesNotOverruleAPane(t *testing.T) {
+	d := newDaemon(t, nil)
+	raw := mustJSON(t, d.Answer(protocol.Request{Verb: "note.add", Project: proj,
+		PaneID: "wF:p1", Operator: true,
+		Args: map[string]any{"body": "filed from a pane"}}))
+	var res NoteResult
+	json.Unmarshal(raw, &res)
+	if res.Note.Author != "agent:wF:p1" {
+		t.Fatalf("created_by = %q, want agent:wF:p1", res.Note.Author)
+	}
+}
+
+func mustJSON(t *testing.T, resp protocol.Response) json.RawMessage {
+	t.Helper()
+	if resp.Error != nil {
+		t.Fatalf("%s: %s", resp.Error.Code, resp.Error.Message)
+	}
+	return resp.Result
 }

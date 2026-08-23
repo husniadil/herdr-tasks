@@ -219,13 +219,17 @@ func request(verb string, args map[string]any) (protocol.Request, error) {
 		return protocol.Request{}, codes.Errorf(codes.Usage, "cannot resolve the project: %v", err)
 	}
 	return protocol.Request{
-		Verb:          verb,
-		Project:       proj,
-		AllProjects:   g.allProjects,
-		PaneID:        os.Getenv("HERDR_PANE_ID"),
-		TabID:         os.Getenv("HERDR_TAB_ID"),
-		WorkspaceID:   os.Getenv("HERDR_WORKSPACE_ID"),
-		As:            g.as,
+		Verb:        verb,
+		Project:     proj,
+		AllProjects: g.allProjects,
+		PaneID:      os.Getenv("HERDR_PANE_ID"),
+		TabID:       os.Getenv("HERDR_TAB_ID"),
+		WorkspaceID: os.Getenv("HERDR_WORKSPACE_ID"),
+		As:          g.as,
+		// §3.7: a CLI invocation is one process per call, so this argv IS the
+		// caller's own act. That is what lets a paneless CLI call be `human`
+		// where a paneless server door cannot be.
+		Operator:      true,
 		BaseUpdatedAt: g.baseUpdatedAt,
 		Follow:        g.follow,
 		Args:          args,

@@ -29,8 +29,15 @@ func (s Status) Terminal() bool { return s == StatusDone || s == StatusCancelled
 type Principal string
 
 const (
-	// PrincipalHuman is the operator: a call with no HERDR_PANE_ID (§3.2).
+	// PrincipalHuman is the operator: a paneless call the plugin can point at
+	// a deliberate human act for — a CLI invocation, or a door declared with
+	// --operator (§3.7).
 	PrincipalHuman Principal = "human"
+	// PrincipalNone is a caller the plugin cannot identify: a door standing
+	// in no pane that was never declared (§3.7). It is written into the
+	// ledger verbatim, because a row filed by nobody in particular saying so
+	// is the whole point of it not being filed under the operator.
+	PrincipalNone Principal = "none"
 	// PrincipalPlugin is the plugin acting on its own behalf: sweeps, hooks.
 	PrincipalPlugin Principal = "plugin:tasks"
 )

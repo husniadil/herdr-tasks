@@ -31,11 +31,11 @@ import (
 )
 
 // Version is the plugin version `htask version` and doctor print (§13.3).
-// The MCP tool list is semver-bound (§7.1) and 0.2.0 is the first release
-// whose tools are named by the verb alone, which a client with the old names
-// wired in cannot call — a major-shaped change carried in the minor, as a
-// 0.x version is allowed to.
-const Version = "0.2.0"
+// 0.2.0 named the MCP tools by the verb alone; 0.3.0 stops a paneless door
+// being the operator, which moves a value a shipped JSON field can hold. Both
+// are major-shaped changes carried in the minor, as a 0.x version is allowed
+// to.
+const Version = "0.3.0"
 
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in
@@ -363,6 +363,14 @@ func (d *Daemon) actor(req protocol.Request) (tasks.Actor, error) {
 		}
 	}
 	if req.PaneID == "" {
+		// §3.7: `human` is not the fallback for knowing nothing. A paneless
+		// call is the operator only where the door can point at the human act
+		// that started its process — the CLI's own argv, or `htask mcp
+		// --operator`. A door with neither is `none`, and the verbs this
+		// plugin reserves for `human` refuse it.
+		if !req.Operator {
+			return tasks.Actor{Principal: tasks.PrincipalNone}, nil
+		}
 		return tasks.Actor{Principal: tasks.PrincipalHuman}, nil
 	}
 	a := tasks.Actor{Principal: tasks.Principal("agent:" + req.PaneID), Harness: "unknown"}

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
@@ -150,7 +151,7 @@ func TestCLIAndMCPReturnTheSameDocument(t *testing.T) {
 	}
 
 	// The MCP path: the tool handler over the same caller.
-	srv := New(call)
+	srv := New(call, Options{})
 	clientSide := mcp.NewClient(&mcp.Implementation{Name: "parity-test", Version: "0"}, nil)
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -204,7 +205,7 @@ func TestCLIAndMCPReturnTheSameDocument(t *testing.T) {
 func TestMCPErrorsCarryTheContractCode(t *testing.T) {
 	testenv.SkipUnlessFull(t)
 	_, call := inProcessDaemon(t)
-	srv := New(call)
+	srv := New(call, Options{})
 	clientSide := mcp.NewClient(&mcp.Implementation{Name: "parity-test", Version: "0"}, nil)
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -259,9 +260,13 @@ func TestTheMCPDoorTakesNoIdentityFromTheProcessThatRanTheTests(t *testing.T) {
 	_, call := inProcessDaemon(t)
 	project := canonProject(t, "/tmp/p")
 
+	// `none`, not `human`: the harness cleared the ambient pane, and a door in
+	// no pane that nobody declared has no principal (§3.7). Before that rule
+	// this read `human`, which is the same evidence — nothing — read as the
+	// highest authority in the system.
 	anonymous := createThroughMCP(t, call, project, "created by nobody in particular")
-	if got := anonymous["created_by"]; got != "human" {
-		t.Fatalf("created_by = %v, want human: HERDR_PANE_ID reached the door from the process environment", got)
+	if got := anonymous["created_by"]; got != "none" {
+		t.Fatalf("created_by = %v, want none: HERDR_PANE_ID reached the door from the process environment", got)
 	}
 	for field, envVar := range map[string]string{
 		"pane_id": "HERDR_PANE_ID", "tab_id": "HERDR_TAB_ID", "workspace_id": "HERDR_WORKSPACE_ID",
@@ -285,7 +290,7 @@ func TestTheMCPDoorTakesNoIdentityFromTheProcessThatRanTheTests(t *testing.T) {
 // does and what is under test here.
 func createThroughMCP(t *testing.T, call Caller, project, title string) map[string]any {
 	t.Helper()
-	srv := New(call)
+	srv := New(call, Options{})
 	clientSide := mcp.NewClient(&mcp.Implementation{Name: "identity-test", Version: "0"}, nil)
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -456,7 +461,7 @@ func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 		t.Fatalf("the CLI door did not refuse: %+v", cliErr)
 	}
 
-	srv := New(call)
+	srv := New(call, Options{})
 	clientSide := mcp.NewClient(&mcp.Implementation{Name: "parity-test", Version: "0"}, nil)
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -488,10 +493,16 @@ func TestBothDoorsRefuseWithTheSameWords(t *testing.T) {
 	}
 }
 
-// mcpSession opens a real in-memory MCP client against the door.
+// mcpSession opens a real in-memory MCP client against an undeclared door,
+// which is what every test but the §7.5 ones wants.
 func mcpSession(t *testing.T, call Caller) *mcp.ClientSession {
+	return mcpSessionWith(t, call, Options{})
+}
+
+// mcpSessionWith is the same against a door started with the given options.
+func mcpSessionWith(t *testing.T, call Caller, opt Options) *mcp.ClientSession {
 	t.Helper()
-	srv := New(call)
+	srv := New(call, opt)
 	clientSide := mcp.NewClient(&mcp.Implementation{Name: "parity-test", Version: "0"}, nil)
 	ct, st := mcp.NewInMemoryTransports()
 	ctx := context.Background()
@@ -899,5 +910,136 @@ func TestGetAcrossProjectsThroughMCP(t *testing.T) {
 	}
 	if !strings.Contains(text(num), "only unique inside a project") {
 		t.Fatalf("the refusal does not say why: %s", text(num))
+	}
+}
+
+// §7.5, and the sentence that keeps the declaration from being `--as` with a
+// different spelling: it is read from how the door was STARTED and can never
+// arrive per call. Three things have to hold at once, so all three are here —
+// no schema offers it, a call that tries to carry it is refused, and a call
+// that tries to carry it does not reach the daemon carrying it either.
+func TestTheOperatorDeclarationNeverArrivesPerCall(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	for _, v := range verbs.MCPTools() {
+		props, _ := tool(v).InputSchema.(map[string]any)["properties"].(map[string]any)
+		for _, name := range []string{"operator", "as", "principal", "human"} {
+			if _, ok := props[name]; ok {
+				t.Errorf("tool %q offers %q as an argument; §7.5 forbids the declaration "+
+					"reaching a door through a call", v.MCP, name)
+			}
+		}
+	}
+
+	// What actually reached the daemon, recorded rather than inferred.
+	var seen []protocol.Request
+	var mu sync.Mutex
+	_, real := inProcessDaemon(t)
+	spy := func(req protocol.Request) (json.RawMessage, error) {
+		mu.Lock()
+		seen = append(seen, req)
+		mu.Unlock()
+		return real(req)
+	}
+	project := canonProject(t, "/tmp/p")
+
+	sess := mcpSession(t, spy)
+	res := callTool(t, sess, "create", map[string]any{
+		"title": "declared by the caller", "project": project, "operator": true})
+	if !res.IsError {
+		t.Fatalf("the door accepted a call carrying the declaration: %s", text(res))
+	}
+	if got := text(res); !strings.Contains(got, codes.Usage) || !strings.Contains(got, "operator") {
+		t.Fatalf("refused with %s, want USAGE naming operator", got)
+	}
+	mu.Lock()
+	reached := len(seen)
+	mu.Unlock()
+	if reached != 0 {
+		t.Fatalf("%d requests reached the daemon; the refusal happens at the door", reached)
+	}
+
+	// And an undeclared door sends the declaration false even when the same
+	// call, minus the rejected argument, succeeds.
+	if res := callTool(t, sess, "create", map[string]any{"title": "ordinary", "project": project}); res.IsError {
+		t.Fatalf("create: %s", text(res))
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(seen) != 1 {
+		t.Fatalf("%d requests reached the daemon, want 1", len(seen))
+	}
+	if seen[0].Operator {
+		t.Fatal("an undeclared door told the daemon it speaks for the operator")
+	}
+}
+
+// The other half: a door started WITH the declaration says so on every call,
+// and the operator verb it was refused before now goes through. This is the
+// door-side of §3.7 — the same tool call, the same daemon, two doors.
+func TestTheDeclaredDoorIsTheOperatorAndTheUndeclaredOneIsNot(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	_, call := inProcessDaemon(t)
+	project := canonProject(t, "/tmp/p")
+
+	for _, tc := range []struct {
+		name string
+		opt  Options
+		want string
+	}{
+		{"a door nobody declared", Options{}, "none"},
+		{"a door declared with --operator", Options{Operator: true}, "human"},
+	} {
+		sess := mcpSessionWith(t, call, tc.opt)
+		res := callTool(t, sess, "note_add", map[string]any{"body": "filed through " + tc.name, "project": project})
+		if res.IsError {
+			t.Fatalf("%s: note_add: %s", tc.name, text(res))
+		}
+		var added struct {
+			Note struct {
+				Author string `json:"author"`
+			} `json:"note"`
+		}
+		if err := json.Unmarshal([]byte(text(res)), &added); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if added.Note.Author != tc.want {
+			t.Fatalf("%s: author = %q, want %q", tc.name, added.Note.Author, tc.want)
+		}
+	}
+}
+
+// And the refusal an undeclared door meets says what would change it. A bare
+// FORBIDDEN is true and useless here: the caller is a harness with no shell,
+// so "only the operator promotes a note" leaves it nothing to do. Driven with
+// a stub daemon rather than a real one, because the operator verbs this fires
+// on are exactly the ones not yet on the door — the asymmetry §7.3's parity
+// MUST closes, in its own task.
+func TestAnUndeclaredDoorIsToldWhyItHasNoPrincipal(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	refuse := func(protocol.Request) (json.RawMessage, error) {
+		return nil, codes.New(codes.Forbidden, "only the operator promotes a note")
+	}
+	conflict := func(protocol.Request) (json.RawMessage, error) {
+		return nil, codes.New(codes.Conflict, "note is dropped")
+	}
+	project := canonProject(t, "/tmp/p")
+	args := map[string]any{"body": "an idea", "project": project}
+
+	got := text(callTool(t, mcpSessionWith(t, refuse, Options{}), "note_add", args))
+	for _, want := range []string{codes.Forbidden, "only the operator promotes a note", "--operator", "§3.7"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the refusal does not say %q: %s", want, got)
+		}
+	}
+	// A declared door is the operator, so nothing is added to its refusals.
+	if got := text(callTool(t, mcpSessionWith(t, refuse, Options{Operator: true}), "note_add", args)); strings.Contains(got, "--operator") {
+		t.Errorf("a declared door was told to declare itself: %s", got)
+	}
+	// And only FORBIDDEN is explained. Every other code has nothing to do
+	// with which principal the caller is.
+	if got := text(callTool(t, mcpSessionWith(t, conflict, Options{}), "note_add", args)); strings.Contains(got, "--operator") {
+		t.Errorf("a CONFLICT was answered with an identity hint: %s", got)
 	}
 }

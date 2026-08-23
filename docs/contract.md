@@ -1,6 +1,16 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.7.0. Date: 2026-08-23.
+Status: binding. Version: 0.8.0. Date: 2026-08-23.
+
+Changes in 0.8.0: §3.2 states the process-bound identity rule by name, and
+§3.7 stops `human` being what a door falls back to when it knows nothing. A
+door standing in no Herdr pane that was not started with the §7.5 operator
+declaration has NO principal — the literal `none` — and every verb reserved
+for the operator refuses it with `FORBIDDEN`. §7.5 specifies the declaration:
+read once from the server command, never from a call. §7.3's parity MUST and
+its `--as` exclusion are rewritten to rest on that one rule; in 0.7.0 the
+exclusion's stated reason also condemned the MUST it stood beside. §3.1 gains
+the `none` row and §3.6 is scoped to the CLI invocations it was written for.
 
 Changes in 0.7.0: §7.3 makes MCP and the CLI both first-class and requires a
 plugin's door to serve every verb its CLI serves; the tool-count guidance is
@@ -129,12 +139,27 @@ revision:
 | `cron` | job id | a schedule job acting on its own |
 | `trigger` | trigger id | a webhook / watcher firing |
 | `plugin` | plugin short name | a plugin acting on its own behalf (sweeps, hooks) |
+| `none` | (none; the literal `none`) | a caller the plugin cannot identify: a door in no pane that was never declared (§3.7) |
 
-§3.2 A caller's principal is derived, never declared. A CLI or MCP call made
-from a process whose environment carries `HERDR_PANE_ID` is `agent:<that id>`.
-A call without `HERDR_PANE_ID` is `human`. A call that wants to act as `cron`,
+§3.2 A caller's principal is derived, never declared. Derivation reads the
+calling PROCESS — the environment it was started with, and for a server door
+the command it was started with — and never a claim the call itself carries.
+A CLI or MCP call made from a process whose environment carries
+`HERDR_PANE_ID` is `agent:<that id>`. A call that wants to act as `cron`,
 `trigger`, or `plugin` MUST pass an explicit `--as <principal>` flag, and a
-plugin MAY refuse `--as` for principals it does not own.
+plugin MAY refuse `--as` for principals it does not own. A call with no pane
+and no declared principal is settled by §3.7.
+
+**The process-bound identity rule.** A door's principal is fixed when the door
+process starts and cannot be learned from a call. A CLI invocation is one
+process per call, so for the CLI the two are one fact: the environment that
+process was started with IS the caller's own, and its argv is the caller's own
+act. A server door outlives every call it serves, so its startup speaks for
+whoever started it and for nobody else; a long-lived door standing in no pane
+knows nothing about who is calling it, and MUST NOT read that from the call.
+Every rule about which verbs a door may serve, and every transport a door may
+grow, is a consequence of this rule and MUST be designed against it rather
+than around it.
 
 §3.3 Child processes inherit `HERDR_PANE_ID`. A subagent, a shell, or a second
 `claude` spawned from inside a pane is the same principal as the pane. This is
@@ -159,9 +184,27 @@ The boundary is the local user account: whoever can open the socket is trusted
 as the user. A plugin MUST document this in its README and MUST create its
 state dir and socket with mode 0700/0600.
 
-§3.6 Agents outside Herdr-managed panes (a `claude` in a plain terminal) are
-`human` to every plugin. This is a deliberate limit of this revision, not a
-bug to work around.
+§3.6 An agent outside a Herdr-managed pane (a `claude` in a plain terminal)
+running a CLI invocation is `human` to every plugin. This is a deliberate
+limit of this revision, not a bug to work around: a CLI process is one process
+per call (§3.2), and there is nothing else in it to read. It says nothing
+about a server door that agent may have registered, which §3.7 settles.
+
+§3.7 `human` is never the fallback for knowing nothing. Absence of evidence is
+not evidence of the highest-authority principal in the system. Every other
+principal comes from somewhere — an agent from a pane Herdr vouches for, a
+`cron`, `trigger` or `plugin` from an explicit `--as` — and `human` MUST come
+from somewhere too. A paneless call is `human` only where the plugin can point
+at the deliberate human act that started the process:
+
+- a CLI invocation, whose argv is that act (§3.2, §3.6); or
+- a server door started with the operator declaration of §7.5.
+
+A door with neither has NO principal. Its principal is the literal `none`, and
+a plugin MUST refuse every verb it reserves for `human` with `FORBIDDEN`
+(§6.3). `none` is not exempt from recusal (§6.6), and it is written into the
+ledger verbatim, so a row created by a caller the plugin could not identify
+says so rather than being filed under the operator.
 
 ## §4 Scope: project and workspace
 
@@ -305,19 +348,26 @@ that belongs on one door and not the other. A verb reachable only by shell is
 unreachable to a harness that has no shell, and which verbs those were was an
 accident of a tool count rather than a decision anyone made about authority.
 
-Parity grants no authority the CLI does not already grant. Both doors are the
-same binary, run by the same user, against the same daemon, and §3.2 derives
-the principal identically for either. Anything a caller can do through a new
-tool, it could already do by running the CLI subcommand of the same name. A
-verb the plugin means to withhold from agents is withheld by the §9 policy
-gate, which both doors pass through, never by leaving it off one door.
+Parity grants no authority, because the process-bound identity rule (§3.2)
+settles authority before parity is reached. A door's principal is fixed before
+any call arrives: a door in a pane is that pane's agent, a door started with
+the §7.5 operator declaration is the operator, and a door that is neither has
+no principal and is refused every operator verb by §3.7. Which of the three a
+door is cannot be changed by anything a call says. So a verb is safe on the
+door whatever it does, and the operator verbs a tool count happened to leave
+off are safe there too. A verb the plugin means to withhold from a principal
+is withheld by the §9 policy gate, which both doors pass through, never by
+leaving it off one door.
 
-Parity is over VERBS, not over the CLI's global flags. `--as` (§3.2) stays
-CLI-only, and the reason is the caller parity exists for: the no-new-authority
-argument holds only because the same caller could already run the CLI, and a
-harness with no shell cannot. Serving `--as` on the door would hand exactly
-that caller an identity claim it has no other way to make, which is new
-authority rather than the same authority through a second door.
+Parity is over VERBS, not over the CLI's global flags, and the exclusion rests
+on the same rule rather than on an exception to it. `--as` (§3.2) stays
+CLI-only because it is an identity claim carried BY a call, and a long-lived
+door cannot attribute a call to anyone: it would be told who it is by the
+caller it is supposed to be identifying. On the CLI the same flag is
+process-bound like everything else, because a CLI invocation is one process
+per call. The operator declaration of §7.5 is the door's counterpart and is
+not `--as` by another name, for exactly this reason: it travels with the
+process, so the answer is settled before any caller arrives.
 
 A plugin whose door excludes `--as` MUST pin that exclusion with a test.
 Recording the reason in a table beside the other globals says what was
@@ -328,6 +378,33 @@ parity.
 
 §7.4 Tool results are the same JSON as `--json` CLI output. Errors are tool
 errors carrying the §6.3 code, never JSON-RPC protocol errors.
+
+§7.5 The operator declaration. A plugin's `<name> mcp` MUST accept a flag,
+spelled `--operator`, declaring that this door speaks for the operator, and
+MUST NOT accept that declaration by any other route. Four properties make it
+a declaration rather than a claim:
+
+- **Read once, from the server command.** A plugin reads it when the process
+  starts. It MUST NOT appear as a tool argument, a tool-call field, or
+  anything else a request can carry, and a call that tries to carry it is
+  refused with `USAGE` like any other argument no verb declares (§6.1). This
+  is the process-bound identity rule (§3.2) applied: a door that could be told
+  at call time that it speaks for the operator is a door with no identity at
+  all.
+- **A deliberate human act, performed once.** What the operator types into a
+  client's server configuration is the record of it. It is written when the
+  server is registered, not per session and not per call, and a human who
+  never wrote it never granted anything.
+- **Recorded by the plugin.** `<name> doctor` (§10.3) already prints the
+  calling principal, so a doctor call through a declared door answers `human`
+  and one through an undeclared door answers `none`. That is how an operator
+  checks which of their registrations speak for them.
+- **Never an escalation.** A door started inside a Herdr pane is that pane's
+  agent (§3.2), so the declaration would be an agent claiming to be the
+  operator. A plugin MUST refuse to start a declared door that carries
+  `HERDR_PANE_ID`, with `FORBIDDEN`, rather than silently preferring one.
+
+The declaration answers only the paneless case §3.7 leaves with no principal.
 
 ## §8 Events and loose coupling
 

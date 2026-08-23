@@ -11,6 +11,7 @@ import (
 	"math"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -49,8 +50,19 @@ const Instructions = "herdr-tasks is the task backlog and notes board for agents
 // real socket; a test swaps in something that answers in-process.
 type Caller func(protocol.Request) (json.RawMessage, error)
 
+// Options is what the door was STARTED with, which under the process-bound
+// identity rule (§3.2) is the only place a door's identity may come from.
+// There is one option and it is not a general-purpose bag: everything else a
+// door needs, it derives per call.
+type Options struct {
+	// Operator is §7.5's declaration: this door speaks for the operator.
+	// Read once from `htask mcp --operator` and never from a tool call, which
+	// is what keeps it from being --as with a different spelling.
+	Operator bool
+}
+
 // New builds the MCP server with the pinned tool list.
-func New(call Caller) *mcp.Server {
+func New(call Caller, opt Options) *mcp.Server {
 	if call == nil {
 		call = client.Call
 	}
@@ -61,14 +73,24 @@ func New(call Caller) *mcp.Server {
 		Description: "Tasks, claims and notes for a Herdr fleet",
 	}, &mcp.ServerOptions{Instructions: Instructions})
 	for _, v := range verbs.MCPTools() {
-		s.AddTool(tool(v), handlerFor(v, call))
+		s.AddTool(tool(v), handlerFor(v, call, opt))
 	}
 	return s
 }
 
 // Serve runs the server on stdio until the client disconnects (§7.1).
-func Serve(ctx context.Context, call Caller) error {
-	return New(call).Run(ctx, &mcp.StdioTransport{})
+func Serve(ctx context.Context, call Caller, opt Options) error {
+	// §7.5's fourth property: a door inside a pane is that pane's agent, so a
+	// declaration there is an agent claiming to be the operator. Refusing to
+	// start says so once, loudly, rather than quietly preferring one of the
+	// two identities on every call that follows.
+	if opt.Operator && os.Getenv("HERDR_PANE_ID") != "" {
+		return codes.Errorf(codes.Forbidden,
+			"--operator declares this door speaks for the operator, but it is starting inside "+
+				"Herdr pane %s, which makes it that pane's agent (§3.2); the declaration is for "+
+				"a door in no pane (§7.5)", os.Getenv("HERDR_PANE_ID"))
+	}
+	return New(call, opt).Run(ctx, &mcp.StdioTransport{})
 }
 
 // tool renders one registry entry as an MCP tool. The schema is built from the
@@ -123,7 +145,7 @@ func jsonType(t string) string {
 }
 
 // handlerFor turns a tool call into the same daemon call the CLI makes.
-func handlerFor(v verbs.Verb, call Caller) mcp.ToolHandler {
+func handlerFor(v verbs.Verb, call Caller, opt Options) mcp.ToolHandler {
 	return func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args := map[string]any{}
 		if len(req.Params.Arguments) > 0 {
@@ -154,10 +176,14 @@ func handlerFor(v verbs.Verb, call Caller) mcp.ToolHandler {
 			PaneID:        os.Getenv("HERDR_PANE_ID"),
 			TabID:         os.Getenv("HERDR_TAB_ID"),
 			WorkspaceID:   os.Getenv("HERDR_WORKSPACE_ID"),
-			Args:          args,
+			// From the door's own startup, never from args: §7.5 says the
+			// declaration may not arrive per call, and this is the line that
+			// makes that true rather than intended.
+			Operator: opt.Operator,
+			Args:     args,
 		})
 		if err != nil {
-			return errorResult(err), nil
+			return errorResult(withDeclarationHint(err, opt)), nil
 		}
 		var structured any
 		if uerr := json.Unmarshal(raw, &structured); uerr != nil {
@@ -196,6 +222,11 @@ func errorResult(err error) *mcp.CallToolResult {
 	}
 }
 
+// argOperator is not an argument. It is named here so that checkArgs can
+// refuse it BY name, because a reserved word nothing spells out is one a
+// later edit spells differently.
+const argOperator = "operator"
+
 // The names of the shared arguments every tool takes, mirroring the CLI's
 // global flags. They are constants because tool() declares them and checkArgs
 // enforces them, and a typo in one place would make the door publish a promise
@@ -218,6 +249,17 @@ const (
 // priority 2.9 became 2. The CLI refuses both at parse.
 func checkArgs(v verbs.Verb, args map[string]any) error {
 	for _, name := range sortedNames(args) {
+		// §7.5: the operator declaration is read from how this door was
+		// started and never from a call. The daemon would refuse an argument
+		// no verb declares anyway, but leaving it to the daemon means the
+		// refusal is generic and stops being a refusal at all the day a verb
+		// declares an argument by that name. The door owns this one.
+		if name == argOperator {
+			return codes.Errorf(codes.Usage,
+				"%q is not an argument: a door speaks for the operator because of how it was "+
+					"started, never because a call says so (§7.5). Start the server with "+
+					"--operator instead", argOperator)
+		}
 		var want string
 		switch name {
 		case argProject:
@@ -342,8 +384,9 @@ var Globals = map[string]Global{
 		Property: argBaseUpdatedAt,
 		Only:     func(v verbs.Verb) bool { return v.Mutates },
 	},
-	"as": {Excluded: "§3.2: agent and human principals are derived, never declared, " +
-		"and an MCP caller has no pane to derive one from"},
+	"as": {Excluded: "§7.3: an identity claim carried BY a call, which the process-bound " +
+		"identity rule (§3.2) forbids a long-lived door to read; the door's own identity " +
+		"comes from how it was started, and --operator (§7.5) is the startup counterpart"},
 	"json": {Excluded: "§7.1: a tool call already answers with a structured document, " +
 		"so there is no prose mode to switch off"},
 	"follow": {Excluded: "§7.1: a tool call answers once; a stream is not a tool call"},
@@ -362,4 +405,33 @@ func GlobalsFor(v verbs.Verb) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// withDeclarationHint says WHY an undeclared door was refused. A door with no
+// principal (§3.7) meets the operator verbs as a bare FORBIDDEN, and the
+// message the daemon writes — "only the operator promotes a note" — is true
+// and tells the caller nothing about the one thing that would change it. The
+// door is the surface that knows both facts, so it is the surface that says
+// them.
+func withDeclarationHint(err error, opt Options) error {
+	if opt.Operator || os.Getenv("HERDR_PANE_ID") != "" {
+		return err
+	}
+	var coded Coded
+	var ce *codes.Error
+	switch {
+	case errors.As(err, &coded):
+		if coded.Code() != codes.Forbidden {
+			return err
+		}
+	case errors.As(err, &ce):
+		if ce.Code != codes.Forbidden {
+			return err
+		}
+	default:
+		return err
+	}
+	return codes.Errorf(codes.Forbidden, "%s. This door stands in no Herdr pane and was "+
+		"not started with --operator, so it has no principal (§3.7); the operator declares "+
+		"a door once, in the client's server configuration (§7.5)", strings.TrimRight(err.Error(), "."))
 }

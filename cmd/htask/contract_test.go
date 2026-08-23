@@ -248,3 +248,94 @@ func gapRecorded(t *testing.T, declared, vendored string) bool {
 	}
 	return false
 }
+
+// contractSection returns one section of the vendored contract with its
+// whitespace collapsed: from the anchor that opens it to the next anchor at
+// the same or a higher level. Collapsed, because the document is hard-wrapped
+// at around 76 columns and a sentence this file wants to read straddles two
+// or three lines wherever an edit last left it.
+func contractSection(t *testing.T, anchor string) string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	lines := strings.Split(strings.ReplaceAll(string(body), "\r\n", "\n"), "\n")
+	start := -1
+	for i, line := range lines {
+		if m := contractAnchor.FindStringSubmatch(line); m != nil && m[1] == anchor {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		t.Fatalf("%s defines no %s", contractFile, anchor)
+	}
+	end := len(lines)
+	for i := start + 1; i < len(lines); i++ {
+		if contractAnchor.MatchString(lines[i]) {
+			end = i
+			break
+		}
+	}
+	return strings.Join(strings.Fields(strings.Join(lines[start:end], " ")), " ")
+}
+
+// §3.2 gained a NAMED rule, and the name is the whole point of it: a
+// consequence with a name is one the next person can be pointed AT before
+// they design a transport or a tool list around it, rather than one they
+// rediscover afterwards. This pins the name and the three clauses that carry
+// it, because prose that names a rule and then does not state it reads as a
+// rule and holds nothing.
+func TestSection32NamesTheProcessBoundIdentityRule(t *testing.T) {
+	body := contractSection(t, "§3.2")
+	const rule = "The process-bound identity rule"
+	if !strings.Contains(body, rule) {
+		t.Fatalf("§3.2 does not name %q; a consequence nobody can cite by name is one "+
+			"the next transport design meets after it is written, not before", rule)
+	}
+	for _, phrase := range []string{
+		"fixed when the door process starts",
+		"cannot be learned from a call",
+		"one process per call",
+		"outlives every call it serves",
+	} {
+		if !strings.Contains(body, phrase) {
+			t.Errorf("§3.2 names the rule but does not state it: %q is missing", phrase)
+		}
+	}
+}
+
+// §7.3's parity MUST and its `--as` exclusion are one argument or they are
+// two, and 0.7.0 shipped them as two: the MUST put every verb on the door
+// while the exclusion said a shell-less caller must not gain authority it has
+// no other way to reach — which is what the operator verbs the MUST added
+// were. This fails if a later edit keeps either half without the rule they
+// now share, or without the other half.
+func TestParityAndTheAsExclusionRestOnTheSameArgument(t *testing.T) {
+	body := contractSection(t, "§7.3")
+	parity := strings.Contains(body, "MUST serve every verb its CLI serves")
+	as := strings.Contains(body, "`--as` (§3.2) stays CLI-only")
+	rule := strings.Contains(body, "process-bound identity rule")
+	if parity != as {
+		t.Fatalf("§7.3 states the parity MUST (%v) and the `--as` exclusion (%v) "+
+			"separately; they answer the same question and neither stands without the other",
+			parity, as)
+	}
+	if (parity || as) && !rule {
+		t.Fatalf("§7.3 states the parity MUST and the `--as` exclusion without resting " +
+			"either on the process-bound identity rule (§3.2); that is the shape 0.7.0 " +
+			"shipped, where the exclusion's reason also condemned the MUST")
+	}
+	// And the argument itself, not merely its name: every verb is safe on the
+	// door BECAUSE the door's principal is settled before a call arrives, and
+	// `--as` is excluded BECAUSE it is the one identity claim a call carries.
+	for _, phrase := range []string{
+		"fixed before any call arrives",
+		"identity claim carried BY a call",
+	} {
+		if !strings.Contains(body, phrase) {
+			t.Errorf("§7.3 cites the rule but does not apply it: %q is missing", phrase)
+		}
+	}
+}

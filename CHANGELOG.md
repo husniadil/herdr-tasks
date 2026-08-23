@@ -5,6 +5,31 @@ the shared plugin contract makes the CLI, the MCP tool list, the JSON shapes
 and the error codes stable within a minor and changeable between minors with an
 entry here, so every entry says what moved and what a caller does about it.
 
+## 0.3.0 — 2026-08-23
+
+Breaking for one caller: an MCP door registered in a harness that stands in no
+Herdr pane. Such a door is `none`, a caller with no principal, and every verb
+reserved for the operator refuses it with `FORBIDDEN`. In 0.2.0 it was
+`human`, the operator, because §3.2 read a missing `HERDR_PANE_ID` that way.
+
+Declare such a door once, where it is registered, by starting it as
+`htask mcp --operator`. The flag is read when the server starts and never from
+a tool call; a call that passes `operator` is refused with `USAGE`, and a
+declared door that starts inside a Herdr pane refuses to start at all.
+
+Nothing changes for the CLI, or for a door running inside a pane. A CLI
+invocation is one process per call, so `htask note promote 12` from a plain
+terminal is the operator exactly as before.
+
+The JSON shape did not change; the values did. `created_by`, `author`, `actor`
+and `principal` can now hold `none`, which no earlier release could produce. A
+consumer matching on the principal set should read an unknown value as "not
+identified" rather than falling through to a default.
+
+The vendored contract moves to 0.8.0 for the §3.2, §3.7, §7.3 and §7.5
+amendments behind this. The declared revision stays at 0.6.0 while §7.3's
+parity MUST is open; see `docs/contract-notes.md`.
+
 ## 0.2.0 — 2026-08-21
 
 Breaking, MCP only. A tool is now named by its verb alone: `create`, `list`,

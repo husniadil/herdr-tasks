@@ -270,9 +270,25 @@ Deviations worth naming up front:
 - **§7.1 / §13.3** — an MCP tool is named by its verb alone: `claim`, `submit`,
   `list`, `note_add`. The server registers as `herdr-tasks`, and a client
   namespaces the tools under that label, so the plugin's identity is said once
-  where a client reads it. That tool list is semver-bound, so this binary is
-  **0.2.0** — `htask version` and `htask doctor` print it, and a client with
+  where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
+  binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
+  The binary is **0.3.0** since §3.7 changed which principal a paneless door
+  derives; the tool list itself has not moved since 0.2.0.
+- **§3.7 / §7.5** — `human` is not what a door falls back to when it knows
+  nothing. A `htask mcp` door standing in a Herdr pane is that pane's agent;
+  one standing in no pane has NO principal — `htask doctor` through it prints
+  `none` — and every verb reserved for the operator refuses it. A door that
+  IS the operator says so once, in the client's server configuration:
+
+  ```
+  htask mcp --operator
+  ```
+
+  It is read when the server starts and never from a tool call, so no request
+  can claim it, and a door started with it inside a pane refuses to start
+  rather than let an agent hold the operator's seat. A CLI invocation needs
+  nothing: one process per call means its argv is already the human act.
 - **§8.4** — the manifest reacts to `pane.closed` and `pane.exited`, both
   running `scripts/on-pane-gone.sh`, which sweeps the leases of the pane the
   event names. It self-filters by construction rather than by a check:

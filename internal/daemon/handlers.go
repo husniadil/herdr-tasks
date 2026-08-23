@@ -560,7 +560,11 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	// re-run a cron's verb as the operator, who is recusal-exempt.
 	if pane, ok := strings.CutPrefix(p.Subject, "agent:"); ok {
 		rerun.PaneID = pane
-	} else if p.Subject != string(tasks.PrincipalHuman) {
+	} else if p.Subject == string(tasks.PrincipalHuman) {
+		// §3.7: `human` with no pane is reproducible only by a process that
+		// speaks for the operator, which is what parked the action.
+		rerun.Operator = true
+	} else if p.Subject != string(tasks.PrincipalNone) {
 		rerun.As = p.Subject
 	}
 	actor, err := d.actor(rerun)

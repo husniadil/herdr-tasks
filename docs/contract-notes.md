@@ -416,9 +416,10 @@ shell can approve a task and cannot promote a note. That is the gap the
 amendment names and it is open here from the moment the text landed.
 
 The declaration therefore lags on purpose: `daemon.ContractVersion` and the
-README stay at **0.6.0** while `docs/contract.md` states **0.7.0**. Declaring a
-revision is a conformance claim and no test can make it; declaring 0.7.0 on the
-day the text was written would claim a door that does not exist yet.
+README stay at **0.6.0** while `docs/contract.md` now states **0.8.0**.
+Declaring a revision is a conformance claim and no test can make it; declaring
+0.7.0 on the day the text was written would claim a door that does not exist
+yet, and 0.8.0 carries that same open MUST forward.
 `TestTheDeclaredRevisionIsTheVendoredOne` was taught this one shape and no
 other, and it enforces both halves rather than describing them: the declared
 revision must be strictly LOWER than the vendored one, and the gap must be
@@ -444,6 +445,39 @@ as happily if a later edit mapped `as` to a property. The reason is recorded;
 nothing holds it. §7.3 now requires the pin instead of citing one, and adding
 it is the door task's work alongside the parity gap above. A contract is the
 one document that may not cite a guarantee that is not there.
+
+## 0.8.0 answers §3.2 and leaves §7.3's parity gap where it was
+
+0.7.0 amended §7.3 while the identity question under it was still open, and
+the two texts did not sit together: the MUST put every verb on every door,
+including the operator verbs, while the `--as` exclusion beside it gave as its
+reason that a shell-less harness must not gain authority it has no other way
+to reach. A paneless harness derived to `human` under the old §3.2, so the
+MUST handed it exactly that. 0.8.0 closes the contradiction from the identity
+side rather than by taking verbs off a door.
+
+What moved, and what answers it here:
+
+| § | what 0.8.0 says | what answers it |
+|---|---|---|
+| §3.2 | the process-bound identity rule, by name: a door's principal is fixed when the process starts and cannot be learned from a call; a CLI invocation is one process per call, a server door outlives every call it serves | `TestSection32NamesTheProcessBoundIdentityRule` in `cmd/htask/contract_test.go` pins the name and the four clauses that carry it, through a new `contractSection` helper that reads one § with its hard wrapping collapsed |
+| §3.7 | `human` is never the fallback for knowing nothing; a paneless door with no declaration is the literal `none`, and verbs reserved for the operator refuse it with `FORBIDDEN` | `tasks.PrincipalNone`; `Daemon.actor` in `internal/daemon/daemon.go` returns it when `PaneID` is empty and the request carries no declaration; `TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal` drives `note.promote` both ways and reads the principal back out of `doctor`. `protocol.Request.Operator` is how a door says which it is, and `cmd/htask/root.go` sets it unconditionally because a CLI process is one process per call |
+| §7.5 | the operator declaration: `--operator` on the server command, read once, never per call, never inside a pane | `cmd/htask/mcp.go` declares it on the `mcp` command alone and not as a persistent flag; `mcpdoor.Options` carries it from `Serve` into every handler; `Serve` refuses to start a declared door that carries `HERDR_PANE_ID`; `checkArgs` refuses the word `operator` as an argument BY NAME, at the door, rather than letting the daemon's generic unknown-argument check stand in for it. `TestTheOperatorDeclarationNeverArrivesPerCall` holds all three — no schema offers it, a call carrying it is refused with `USAGE` before any request is built, and an undeclared door sends `false` — and `TestTheDeclaredDoorIsTheOperatorAndTheUndeclaredOneIsNot` runs the same tool call through both doors |
+| §7.3 | the parity MUST and the `--as` exclusion rest on the process-bound identity rule instead of on two arguments that contradicted each other | `TestParityAndTheAsExclusionRestOnTheSameArgument` fails if either half stands without the other, or if either stands without the rule; the `as` entry in `mcpdoor.Globals` now records the rule rather than the old "no pane to derive one from" reason |
+
+The parity gap above is untouched by this. This plugin still serves 13 of its
+30 verbs and every operator verb is still off the door, so the sharpest
+symptom note 60 measured — a paneless harness that can approve a task and
+cannot promote a note — is still here. What changed is that it is now safe to
+close: a door that reaches those verbs is either a pane's agent, a declared
+operator, or `none`, and `none` is refused them. Closing it is the door task's
+work and it may now start.
+
+One consequence recorded rather than left to be rediscovered. `mcpdoor` grew
+`withDeclarationHint`, which appends the missing declaration to a `FORBIDDEN`
+an undeclared door meets. No verb on the door fires it today, for the same
+reason the gap is open: the operator verbs are not there yet. It is tested
+against a stub caller, and the first real caller arrives with parity.
 
 §7.1's `serves MCP over stdio` was read and deliberately left alone. A door
 being first-class is a statement about which verbs it serves, not about how
