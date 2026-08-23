@@ -1830,6 +1830,13 @@ func TestHolderRefusalNamesTheCallerAndRefusesTheWorkaround(t *testing.T) {
 		if !strings.Contains(msg, "release") || !strings.Contains(msg, "expire") {
 			t.Errorf("%s: refusal must name what to do instead: %q", verb.name, msg)
 		}
+		// A dropped verb or a stray argument leaves Go's "%!(EXTRA ...)" in an
+		// operator-facing refusal, and the substring checks above still pass
+		// because the principals appear inside that garbage. A mutation proved
+		// exactly that, so well-formedness is pinned rather than assumed.
+		if strings.Contains(msg, "%!") {
+			t.Errorf("%s: refusal carries a formatting artifact: %q", verb.name, msg)
+		}
 	}
 }
 
@@ -1857,5 +1864,8 @@ func TestClaimConflictNamesTheCallerAndRefusesTheWorkaround(t *testing.T) {
 	}
 	if !strings.Contains(msg, "release") || !strings.Contains(msg, "expire") {
 		t.Errorf("claim conflict must name what to do instead: %q", msg)
+	}
+	if strings.Contains(msg, "%!") {
+		t.Errorf("claim conflict carries a formatting artifact: %q", msg)
 	}
 }
