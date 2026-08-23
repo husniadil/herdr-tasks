@@ -650,7 +650,8 @@ this direction reaches them is a decision on their boards, not this one.
 
 ## The 0.9.0 sweep: every MUST, and the test that fails without it
 
-The entry above recorded that nothing had audited this plugin against 0.9.0's
+The entry above headed "0.9.0 binds a MUST to a test, and this repository did
+not yet meet it" recorded that nothing had audited this plugin against 0.9.0's
 rule. This is that audit, run against contract text 0.10.0 with the
 declaration left at 0.6.0 (moving it is a separate decision, taken with this
 answer and the §7.3 `--as` pin both in hand).
