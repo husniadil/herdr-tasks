@@ -367,3 +367,24 @@ func TestTheExternalConsumerSectionStaysTrue(t *testing.T) {
 		t.Errorf("%s is named by the section and the manifest and is not in the repository: %v", script, err)
 	}
 }
+
+// The contract binds a MUST to a test that fails without it. The skill is
+// where the worker who writes the report meets that obligation, in the words
+// a worker acts on: name the test that pins each claim, and name it in the
+// report rather than leaving the reviewer to reconstruct the mapping. Pinned
+// here for the same reason the rule exists — a paragraph of advice nothing
+// checks is the shape the finding was about.
+func TestTheSkillTeachesWhichTestPinsWhichClaim(t *testing.T) {
+	doc := docFiles(t)[filepath.Join("skills", "tasks", "SKILL.md")]
+	flat := strings.Join(strings.Fields(doc), " ")
+	for _, phrase := range []string{
+		"Every property your report claims needs a named test",
+		"which test pins which claim",
+		"a test that FAILS when the behaviour is deleted",
+		"either write that test or drop the sentence from the report",
+	} {
+		if !strings.Contains(flat, phrase) {
+			t.Errorf("skills/tasks/SKILL.md does not teach the claim-to-test mapping: %q is missing", phrase)
+		}
+	}
+}

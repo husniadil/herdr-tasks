@@ -438,10 +438,10 @@ shell can approve a task and cannot promote a note. That is the gap the
 amendment names and it is open here from the moment the text landed.
 
 The declaration therefore lags on purpose: `daemon.ContractVersion` and the
-README stay at **0.6.0** while `docs/contract.md` now states **0.8.0**.
+README stay at **0.6.0** while `docs/contract.md` now states **0.9.0**.
 Declaring a revision is a conformance claim and no test can make it; declaring
 0.7.0 on the day the text was written would claim a door that does not exist
-yet, and 0.8.0 carries that same open MUST forward.
+yet, and 0.8.0 and 0.9.0 each carry that same open MUST forward.
 `TestTheDeclaredRevisionIsTheVendoredOne` was taught this one shape and no
 other, and it enforces both halves rather than describing them: the declared
 revision must be strictly LOWER than the vendored one, and the gap must be
@@ -525,3 +525,23 @@ in the right order.
 being first-class is a statement about which verbs it serves, not about how
 bytes reach it; the transport question a first-class surface raises is recorded
 separately and is not answered by anything in 0.7.0.
+
+## 0.9.0 binds a MUST to a test, and this repository does not yet meet it
+
+The preamble now says a MUST is not satisfied by code that behaves correctly
+today, only by a test that FAILS when the behaviour is removed. That is a
+conformance requirement over every other MUST in the document, and nothing has
+audited this plugin against it. The two tests written with the amendment,
+`TestAMustIsNotSatisfiedUntilATestFailsWithoutIt` and
+`TestTheSkillTeachesWhichTestPinsWhichClaim`, pin the amendment's own text and
+nothing else; they do not establish that every MUST here has a pin, and they
+are not evidence that it does.
+
+So the gap is recorded rather than closed: the sweep that names each MUST and
+the test that fails without it is its own task, and until it runs, this plugin
+follows 0.9.0's rule for new work without claiming conformance for old. The
+declaration stays where the 0.7.0 entry above left it. Deliberately out of
+scope of the amendment and named here so nobody reads their absence as a
+decision: a repo-level scanner that walks for unguarded refusals, and the
+verification lane's mutation condition, which lives in a sibling plugin and
+belongs on that board.

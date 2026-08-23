@@ -339,3 +339,64 @@ func TestParityAndTheAsExclusionRestOnTheSameArgument(t *testing.T) {
 		}
 	}
 }
+
+// contractParagraph returns the blank-line-delimited paragraph containing
+// needle, flattened the way contractSection flattens a section, together with
+// the byte offset the paragraph starts at. The offset is what lets a test ask
+// WHERE in the document a sentence lives, which for a rule aimed at a drafter
+// is half of what the rule is.
+func contractParagraph(t *testing.T, needle string) (string, int) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	body := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	at := 0
+	for _, para := range strings.SplitAfter(body, "\n\n") {
+		if strings.Contains(strings.Join(strings.Fields(para), " "), needle) {
+			return strings.Join(strings.Fields(para), " "), at
+		}
+		at += len(para)
+	}
+	t.Fatalf("%s has no paragraph containing %q", contractFile, needle)
+	return "", 0
+}
+
+// The finding this pins is that three tasks in a row shipped a documented
+// refusal with nothing that fails when the refusal goes: the MECHANISM got a
+// test because a criterion asked for it, and the GUARD got prose. A guard is
+// exactly the code nobody exercises in normal operation, so no other test
+// catches it either. The contract now says once, generally, what §7.5 had
+// said about one clause. This pins the sentence AND its position: a rule a
+// drafter meets after the sections it governs is an appendix, and the whole
+// point of this one is that it is read before a MUST is written.
+func TestAMustIsNotSatisfiedUntilATestFailsWithoutIt(t *testing.T) {
+	const def = "A MUST is a conformance requirement"
+	para, at := contractParagraph(t, def)
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	first := bytes.Index(raw, []byte("\n## §1 "))
+	if first < 0 {
+		t.Fatalf("%s has no §1 heading; the document is not being read", contractFile)
+	}
+	if at > first {
+		t.Fatalf("the paragraph defining MUST sits at byte %d, after §1 at byte %d; "+
+			"a rule about how a MUST is satisfied belongs where a drafter meets it, "+
+			"not behind the sections it governs", at, first)
+	}
+
+	for _, phrase := range []string{
+		"is not satisfied by code that behaves correctly today",
+		"a test that FAILS when the behaviour is removed",
+		"binds a refusal and a guard exactly as it binds a mechanism",
+		"cannot name the test that fails without a MUST",
+	} {
+		if !strings.Contains(para, phrase) {
+			t.Errorf("the paragraph defining MUST does not state the evidence rule: %q is missing", phrase)
+		}
+	}
+}

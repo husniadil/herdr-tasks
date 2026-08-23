@@ -1,6 +1,13 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.8.0. Date: 2026-08-23.
+Status: binding. Version: 0.9.0. Date: 2026-08-23.
+
+Changes in 0.9.0: the preamble binds a MUST to a test that fails without it.
+Three tasks in a row shipped a documented refusal with nothing behind it: the
+mechanism got a test because a criterion asked for it, and the guard got
+prose, a comment, sometimes a log line. §7.5 had already said this about one
+clause; 0.9.0 says it once, generally, where a drafter meets it rather than in
+an appendix, so a new MUST is written knowing what will be asked of it.
 
 Changes in 0.8.0: §3.2 states the process-bound identity rule by name, and
 §3.7 stops `human` being what a door falls back to when it knows nothing. A
@@ -70,6 +77,14 @@ Sections are numbered so tests and READMEs can cite them (`§4.2`). A MUST is a
 conformance requirement; a SHOULD is the default that a plugin may deviate from
 with a written reason in its README. Later versions are additive only once a
 section is marked stable.
+A MUST or a MUST NOT here is not satisfied by code that behaves correctly
+today; it is satisfied by a test that FAILS when the behaviour is removed.
+This binds a refusal and a guard exactly as it binds a mechanism, and the
+guard is the half that gets missed: it is the code nobody exercises in normal
+operation, so when it goes nothing else catches it, and prose saying it
+refuses reads to both a reviewer and its own author as evidence that it does.
+A plugin that cannot name the test that fails without a MUST does not conform
+to that MUST, however the code reads.
 
 Not covered by this contract, on purpose: backward compatibility with the
 tools these plugins replace; Telegram or any chat gateway; a web dashboard;

@@ -70,6 +70,20 @@ citation or the submit is refused with `USAGE` naming the ones you left. A
 citation whose number is not in the list is refused the same way, and nothing
 is written: the task is still yours, still `doing`.
 
+### Name the test that pins each claim
+
+Every property your report claims needs a named test, and the report says
+which test pins which claim. Write the mapping as `<the claim> — pinned by
+<TestName>`, in `--evidence-for` when the claim answers a criterion and in
+`--report` otherwise. Stating it is yours, not the reviewer's to reconstruct.
+
+The claim that gets missed is always the reassuring one: "it refuses X", "it
+never Y", "a broken Z reads as a failure". A refusal is the code nobody runs
+in normal operation, so nothing else fails when it goes, and a sentence saying
+it refuses reads as proof that it does. It is a claim. If you cannot name a
+test that FAILS when the behaviour is deleted, you have not verified it —
+either write that test or drop the sentence from the report.
+
 ## Through MCP instead of the CLI
 
 The same verbs are MCP tools on the `herdr-tasks` server, named by the verb
