@@ -401,10 +401,22 @@ or archived, with a timestamp and an event.
 ## Development
 
 ```sh
-make test        # the fast loop: the state machine, the store, the vocabulary
-make test-full   # the gate: the above plus the daemon, the socket, the fake
-                 # herdr, with -race and a cross-compile vet of the other OS
+make test          # the fast loop: the state machine, the store, the vocabulary
+make test-full     # the gate: the above plus the daemon, the socket, the fake
+                   # herdr, with -race and a cross-compile vet of the other OS
+make e2e           # layer 3 ad hoc: the built binary against a real headless
+                   # herdr. Skips loudly where there is no Herdr to run.
+make release-check # the release gate: test-full, then layer 3 with a Herdr
+                   # REQUIRED — a skip fails it
 ```
+
+Layer 3 is deliberately out of `test-full`, because CI has no Herdr and a
+machine without one must still have a green gate. That leaves it able to sit
+red unnoticed, so it has one place where it must be green: `make release-check`
+on the machine cutting the tag. Run it before a release tag, and after any
+change to `internal/herdrclient` or the pane lifecycle. `HTASK_E2E_REQUIRED=1`
+is what turns layer 3's loud skips into failures, so a release cannot be
+satisfied by a suite that proved nothing.
 
 Tests never touch your live Herdr, config or state: state and config dirs are
 temp dirs and `herdr` is a fake on PATH (§12.3). Every test cites the contract

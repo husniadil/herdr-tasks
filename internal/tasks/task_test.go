@@ -260,15 +260,19 @@ func TestApproveRecusesTheSameSessionInADifferentPane(t *testing.T) {
 
 // §6.6: the blip case, and the reason unknown matches unknown. A pane that
 // claimed while Herdr could not answer must not approve its own work later.
+// "Herdr could not answer" is a whole unanswered snapshot, so the harness of
+// both actors here is "unknown" too — the stamp §3.4 requires when there is
+// no reply to read, and the one signal sessionOf has that a session is
+// unresolved rather than legitimately absent.
 func TestApproveRecusesWhenBothSessionsAreUnknown(t *testing.T) {
 	task := newTask()
-	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: "claude"}
+	blind := Actor{Principal: "agent:wF:p1", Name: "peer", Harness: "unknown"}
 	mustClaim(t, task, blind)
 	mustSubmit(t, task, blind)
 	if task.SubmittedBySession != "unknown" {
 		t.Fatalf("precondition: submitted_by_session = %q", task.SubmittedBySession)
 	}
-	other := Actor{Principal: "agent:wF:p9", Name: "peer", Harness: "codex"}
+	other := Actor{Principal: "agent:wF:p9", Name: "peer", Harness: "unknown"}
 	if got := codeOf(t, mustErr(Approve(task, other, t0+20))); got != codes.Forbidden {
 		t.Fatalf("code = %q, want FORBIDDEN", got)
 	}
@@ -858,5 +862,34 @@ func TestTouchRefusesOnceTheWorkIsSubmitted(t *testing.T) {
 	mustClaim(t, doing, a)
 	if _, err := Touch(doing, a, t0+12, lease); err != nil {
 		t.Fatalf("touch on a doing task: %v", err)
+	}
+}
+
+// §3.4: the third fact is "the native session reference if Herdr has one,
+// otherwise null". Herdr answering with a harness and no `agent_session` is an
+// answer, and absence is what it says: the row must be empty, not the string
+// "unknown". "unknown" is §3.4's stamp for the fact Herdr could NOT answer,
+// and writing it here would record absence as a value — the mistake §3.7
+// removed for `human`. §6.6 recuses on this field, so a row that cannot tell
+// "there is no session" from "we could not identify the session" is deciding
+// who may review whom on a fiction.
+func TestClaimRecordsAnAbsentAgentSessionAsAbsentNotUnknown(t *testing.T) {
+	task := newTask()
+	// Herdr answered: the harness is a fact, and this agent has no session.
+	answered := agentIn("wF:p1", "codex", "")
+	mustClaim(t, task, answered)
+	if task.ClaimedBySession != "" {
+		t.Fatalf("claimed_by_session = %q, want empty: Herdr reported no agent_session", task.ClaimedBySession)
+	}
+	mustSubmit(t, task, answered)
+	if task.SubmittedBySession != "" {
+		t.Fatalf("submitted_by_session = %q, want empty: Herdr reported no agent_session", task.SubmittedBySession)
+	}
+	// And absence must not recuse a different pane the way unknown does: two
+	// agents Herdr answered for, neither carrying a session, are two
+	// reviewers (§6.6, which recuses on the harness no more than on nothing).
+	other := agentIn("wF:p9", "claude", "")
+	if _, err := Approve(task, other, t0+20); err != nil {
+		t.Fatalf("a different pane with no session may review: %v", err)
 	}
 }

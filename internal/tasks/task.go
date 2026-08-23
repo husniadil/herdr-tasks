@@ -632,18 +632,30 @@ func CheckCycle(taskID string, deps []string, edges map[string][]string) error {
 	return nil
 }
 
-// sessionOf is §3.4's "store unknown rather than guess" for the fact §6.6 now
-// turns on. Only an agent principal has an agent_session: a human and a
-// declared principal (cron, trigger, plugin) have no pane and no session, and
-// get "" so that CheckRecusal never compares them against an unresolved one.
-// An agent whose session Herdr could not report is "unknown", and unknown
-// matches unknown, which recuses.
+// sessionOf records §3.4's third fact for the field §6.6 turns on. Only an
+// agent principal has an agent_session: a human and a declared principal
+// (cron, trigger, plugin) have no pane and no session, and get "" so that
+// CheckRecusal never compares them against an unresolved one.
+//
+// The two ways an agent can lack a session are NOT the same fact, and §3.4
+// separates them. Herdr answering with no `agent_session` is an answer, and
+// the third fact is then "null" — recorded as empty, because writing
+// "unknown" there would put absence down as a value, which is exactly what
+// §3.7 stopped doing for `human`. "unknown" is §3.4's stamp for a fact Herdr
+// could NOT report, and the one signal that a snapshot never landed is the
+// harness: `Daemon.actor` seeds "unknown" and only overwrites it from a reply
+// Herdr actually gave. So an unresolved harness means an unresolved session,
+// and §6.6's unknown-matches-unknown still recuses the pane that claimed
+// during a Herdr blip and resumed elsewhere.
 func sessionOf(a Actor) string {
 	if a.Principal.Kind() != "agent" {
 		return ""
 	}
 	if a.Session == "" {
-		return "unknown"
+		if a.Harness == "" || a.Harness == "unknown" {
+			return "unknown"
+		}
+		return ""
 	}
 	return a.Session
 }

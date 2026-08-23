@@ -153,6 +153,28 @@ Two further shape notes, from the same pass:
   at all in this Herdr, so §3.4's third fact is legitimately null there. The
   end-to-end test asserts the snapshot stays empty rather than inventing one.
 
+### §3.4 and §6.6 — absent is not unresolved
+
+§3.4's third bullet says the session is the native reference "if Herdr has
+one … otherwise null", and §3.4's "store unknown rather than guess" sentence is
+about the *harness*. §6.6 then says an `agent_session` "the plugin could not
+resolve" is stored as unknown. Read together those are two different facts, not
+one rule stated twice: Herdr answering with no `agent_session` is an ANSWER and
+records null, while a snapshot that never landed records unknown. `sessionOf`
+in `internal/tasks/task.go` had collapsed them and stamped `"unknown"` for
+both, which wrote absence down as a value — the mistake §3.7 removed for
+`human` — in the one field §6.6 recuses on.
+
+The signal separating them is the harness: `Daemon.actor` seeds `"unknown"` and
+overwrites it only from a reply Herdr gave, so an unresolved harness means an
+unresolved session and §6.6's unknown-matches-unknown blip case still recuses.
+Pinned by `TestClaimRecordsAnAbsentAgentSessionAsAbsentNotUnknown` in
+`internal/tasks/task_test.go`, inside `make test-full`. It was
+`TestAgentGetSnapshotIsTakenFromRealHerdrAtClaim` in layer 3 that caught it,
+and layer 3 is not in the gate, which is why the pin lives in layer 1.
+
+No contract text needed amending: both paragraphs are right as written.
+
 ## §11.5 — proving lease release when a pane dies, end to end
 
 Both halves are now proved against a real headless Herdr, and they are

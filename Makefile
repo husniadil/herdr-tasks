@@ -1,4 +1,4 @@
-.PHONY: build test test-full e2e install clean
+.PHONY: build test test-full e2e release-check install clean
 
 BIN := bin/htask
 
@@ -58,6 +58,17 @@ test-full:
 # and it skips loudly, naming what was missing, rather than passing quietly.
 e2e: build
 	go test -tags e2e -count=1 -v ./internal/e2e/...
+
+# The release gate, and the answer to "what is `make e2e` FOR". Nothing on a
+# push runs layer 3 — CI has no Herdr — so it is run here, on the machine that
+# cuts the tag, and a release is not cut until this is green.
+#
+# HTASK_E2E_REQUIRED=1 is the difference between this and `make e2e`: ad hoc,
+# a missing Herdr is a loud skip; here it is a FAILURE. A gate that a skip can
+# satisfy reports green on a suite that proved nothing, which is how layer 3
+# was allowed to sit red and unrun for a day.
+release-check: test-full build
+	HTASK_E2E_REQUIRED=1 go test -tags e2e -count=1 -v ./internal/e2e/...
 
 install:
 	go install ./cmd/htask

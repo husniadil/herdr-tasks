@@ -84,7 +84,7 @@ func startWorld(t *testing.T) *world {
 	w.server = exec.Command(herdr, "server")
 	w.server.Env, w.server.Stdout, w.server.Stderr = w.env, log, log
 	if err := w.server.Start(); err != nil {
-		t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: cannot start `%s server`: %v", herdr, err)
+		unavailable(t, "cannot start `%s server`: %v", herdr, err)
 	}
 	t.Cleanup(w.stop)
 	deadline := time.Now().Add(20 * time.Second)
@@ -163,6 +163,19 @@ func copyBinary(t *testing.T, from, to string) string {
 	return to
 }
 
+// unavailable reports that layer 3 could not run. Ad hoc, on a machine that
+// may have no Herdr, that is a loud skip: the suite says what was missing
+// rather than passing quietly. On the release path it is a FAILURE, because a
+// release gate that can be satisfied by a skip is not a gate — set
+// HTASK_E2E_REQUIRED=1 (what `make release-check` does) to demand a real run.
+func unavailable(t *testing.T, format string, args ...any) {
+	t.Helper()
+	if os.Getenv("HTASK_E2E_REQUIRED") == "1" {
+		t.Fatalf("layer 3 (§12.1) REQUIRED but unavailable: "+format, args...)
+	}
+	t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: "+format, args...)
+}
+
 // herdrBinary resolves the Herdr under test the way §11.1 says, and skips
 // loudly when there is none to run.
 func herdrBinary(t *testing.T) string {
@@ -171,13 +184,14 @@ func herdrBinary(t *testing.T) string {
 	if bin == "" {
 		found, err := exec.LookPath("herdr")
 		if err != nil {
-			t.Skip("layer 3 (§12.1) SKIPPED LOUDLY: no `herdr` on PATH and no HERDR_BIN_PATH; " +
+			unavailable(t, "no `herdr` on PATH and no HERDR_BIN_PATH; "+
 				"nothing here was proved. Install Herdr, or run `make test-full` for layers 1 and 2.")
+			return ""
 		}
 		bin = found
 	}
 	if err := exec.Command(bin, "--version").Run(); err != nil {
-		t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: `%s --version` will not run (%v); nothing here was proved.", bin, err)
+		unavailable(t, "`%s --version` will not run (%v); nothing here was proved.", bin, err)
 	}
 	return bin
 }
@@ -195,7 +209,7 @@ func htBinary(t *testing.T) string {
 	}
 	bin := filepath.Join(wd, "..", "..", "bin", "htask")
 	if _, err := os.Stat(bin); err != nil {
-		t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: no built binary at %s; run `make build` first.", bin)
+		unavailable(t, "no built binary at %s; run `make build` first.", bin)
 	}
 	return bin
 }
@@ -406,10 +420,10 @@ func (w *world) linkPlugin() {
 	w.t.Helper()
 	root := repoRoot(w.t)
 	if _, err := os.Stat(filepath.Join(root, "bin", "htask")); err != nil {
-		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: the manifest's reactions run ./bin/htask, which is not built: %v", err)
+		unavailable(w.t, "the manifest's reactions run ./bin/htask, which is not built: %v", err)
 	}
 	if _, err := w.tryHerdr("plugin", "link", root); err != nil {
-		w.t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: this herdr cannot link a local plugin: %v", err)
+		unavailable(w.t, "this herdr cannot link a local plugin: %v", err)
 	}
 	w.t.Cleanup(func() { w.tryHerdr("plugin", "unlink", "herdr-tasks") })
 }
