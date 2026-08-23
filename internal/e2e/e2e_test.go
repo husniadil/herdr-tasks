@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -245,6 +246,82 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 		if !strings.Contains(blob, k) {
 			t.Fatalf("the event trail is missing %q: %s", k, blob)
 		}
+	}
+}
+
+// §12.1 layer 3, §5.6: the guard that refuses a decision built on a report
+// that moved. A reviewer reads a report, decides, and approves with the
+// updated_at they read; if an amendment landed in between, the approve must be
+// REFUSED rather than land on words the reviewer never saw. Amend moves
+// UpdatedAt for exactly this reason (the doc comment on tasks.Amend says so),
+// and until now only layers 1 and 2 had seen it do that.
+//
+// This sits BESIDE TestLifecycleAmendBeforeApproveThroughRealHerdr rather than
+// extending it, deliberately. That test's approve is the happy path — the
+// reviewer sees the amended report — and it ends `done`. A refusal needs an
+// approve that does not land, followed by one that does, so folding both in
+// would make one test hold two different questions and make a failure
+// ambiguous about which one broke.
+func TestStaleApproveIsRefusedAfterAmendThroughRealHerdr(t *testing.T) {
+	w := startWorld(t)
+	pane := w.pane("stale")
+	w.beAgent(pane, "claude", "builder")
+
+	created := w.htask("task", "create", "a report a reviewer will read twice")
+	id, _ := created["task"].(map[string]any)["id"].(string)
+
+	w.mustInPane(pane, "task", "claim", id)
+	w.mustInPane(pane, "task", "submit", id, "--report", "first draft", "--evidence", "make test: FAIL")
+
+	// What the reviewer read. Everything below turns on this value being the
+	// one the row carried BEFORE the amendment.
+	submitted := w.task(id)
+	stale, ok := submitted["updated_at"].(float64)
+	if !ok || stale == 0 {
+		t.Fatalf("no updated_at to guard on after submit: %v", submitted["updated_at"])
+	}
+
+	w.mustInPane(pane, "task", "amend", id,
+		"--report", "second draft, the gate is green now",
+		"--evidence", "make test: ok")
+
+	fresh, _ := w.task(id)["updated_at"].(float64)
+	if fresh == stale {
+		t.Fatalf("amend left updated_at at %v; the guard below has nothing to catch", stale)
+	}
+
+	// Half one: the decision built on the replaced report is refused, with the
+	// code §5.6 names and the §6.3 status that goes with it.
+	doc, status := w.htStatus("task", "approve", id,
+		"--base-updated-at", strconv.FormatInt(int64(stale), 10))
+	e, _ := doc["error"].(map[string]any)
+	if e == nil {
+		t.Fatalf("an approve carrying the stale updated_at was accepted: %v", sprint(doc))
+	}
+	if e["code"] != "CONFLICT" {
+		t.Fatalf("the stale approve failed with %v, want CONFLICT (§5.6)", e["code"])
+	}
+	if status != 6 {
+		t.Fatalf("the stale approve exited %d, want 6 for CONFLICT (§6.3)", status)
+	}
+	if still := w.task(id); still["status"] != "review" {
+		t.Fatalf("the refused approve still moved the task to %v, want review", still["status"])
+	}
+
+	// Half two: the row was approvable all along — the refusal was the guard
+	// doing its job, not the task being stuck. The reviewer re-reads and
+	// approves with the value the row carries now.
+	doc, status = w.htStatus("task", "approve", id,
+		"--base-updated-at", strconv.FormatInt(int64(fresh), 10))
+	if status != 0 {
+		t.Fatalf("the approve carrying the current updated_at exited %d: %v", status, sprint(doc))
+	}
+	done, _ := doc["task"].(map[string]any)
+	if done == nil || done["status"] != "done" {
+		t.Fatalf("after the fresh approve the task is %v, want done", sprint(doc))
+	}
+	if got := done["report"]; got != "second draft, the gate is green now" {
+		t.Fatalf("the approving read saw report %v, want the amended one", got)
 	}
 }
 
