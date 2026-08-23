@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -388,9 +389,10 @@ func inProcessDaemon(t *testing.T) (*daemon.Daemon, Caller) {
 
 type callFailure struct{ body *protocol.ErrorBody }
 
-func (c *callFailure) Error() string   { return c.body.Code + ": " + c.body.Message }
-func (c *callFailure) Code() string    { return c.body.Code }
-func (c *callFailure) Message() string { return c.body.Message }
+func (c *callFailure) Error() string    { return c.body.Code + ": " + c.body.Message }
+func (c *callFailure) Code() string     { return c.body.Code }
+func (c *callFailure) Message() string  { return c.body.Message }
+func (c *callFailure) ParkedID() string { return c.body.ParkedID }
 
 func text(res *mcp.CallToolResult) string {
 	if len(res.Content) == 0 {
@@ -946,6 +948,40 @@ func TestGetAcrossProjectsThroughMCP(t *testing.T) {
 	}
 	if !strings.Contains(text(num), "only unique inside a project") {
 		t.Fatalf("the refusal does not say why: %s", text(num))
+	}
+}
+
+// §9.3 / §6.1: a parked DENIED carries parked_id through this door as well as
+// the CLI's envelope. Without it an agent is told it was refused and never
+// told the id of the row that could unblock it.
+func TestParkedIDReachesTheMCPErrorEnvelope(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	d, call := inProcessDaemon(t)
+	path := filepath.Join(t.TempDir(), "gate")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho '{\"decision\":\"defer\",\"reason\":\"ask first\"}'\n"), 0o755); err != nil {
+		t.Fatalf("write gate: %v", err)
+	}
+	d.Reload(&config.Config{LeaseSeconds: 900, SweepSeconds: 60, GateCommand: []string{path}})
+	sess := mcpSession(t, call)
+	res := callTool(t, sess, "create", map[string]any{"title": "parked work"})
+	if !res.IsError {
+		t.Fatalf("the gate deferred and the door reported success: %s", text(res))
+	}
+	var body struct {
+		Error struct {
+			Code     string `json:"code"`
+			Message  string `json:"message"`
+			ParkedID string `json:"parked_id"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &body); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if body.Error.Code != codes.Denied {
+		t.Fatalf("code = %q, want DENIED", body.Error.Code)
+	}
+	if body.Error.ParkedID == "" {
+		t.Fatalf("the MCP error envelope dropped parked_id: %s", text(res))
 	}
 }
 

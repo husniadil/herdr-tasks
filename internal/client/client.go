@@ -136,6 +136,10 @@ func (f *Failure) Error() string { return f.Body.Code + ": " + f.Body.Message }
 // Code is the §6.3 code.
 func (f *Failure) Code() string { return f.Body.Code }
 
+// ParkedID is the §9.3 id of the action the policy gate deferred, empty when
+// this failure is not a parked DENIED.
+func (f *Failure) ParkedID() string { return f.Body.ParkedID }
+
 // Message is the daemon's text for the failure, without the code prefix.
 func (f *Failure) Message() string { return f.Body.Message }
 

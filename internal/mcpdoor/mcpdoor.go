@@ -213,6 +213,13 @@ type Coded interface {
 	Message() string
 }
 
+// Parked is a DENIED that names the action the policy gate deferred (§9.3).
+// The socket client's failure carries it; so does anything else speaking for
+// the daemon.
+type Parked interface {
+	ParkedID() string
+}
+
 // errorResult is §7.4: a failure is a tool error carrying the §6.3 code, never
 // a JSON-RPC protocol error.
 func errorResult(err error) *mcp.CallToolResult {
@@ -225,7 +232,15 @@ func errorResult(err error) *mcp.CallToolResult {
 	case errors.As(err, &ce):
 		code, message = ce.Code, ce.Message
 	}
-	body, _ := json.Marshal(map[string]any{"error": map[string]string{"code": code, "message": message}})
+	fields := map[string]string{"code": code, "message": message}
+	// §9.3: a parked DENIED is only resolvable by whoever can name the row,
+	// and the CLI already forwards this id. A door that dropped it told an
+	// agent its call was refused and hid the one thing that could unblock it.
+	var parked Parked
+	if errors.As(err, &parked) && parked.ParkedID() != "" {
+		fields["parked_id"] = parked.ParkedID()
+	}
+	body, _ := json.Marshal(map[string]any{"error": fields})
 	return &mcp.CallToolResult{
 		IsError: true,
 		Content: []mcp.Content{&mcp.TextContent{Text: string(body)}},
