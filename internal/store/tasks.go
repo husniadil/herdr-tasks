@@ -335,6 +335,10 @@ func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
 		}
 		held = append(held, r)
 	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, wrap(err)
+	}
 	rows.Close()
 	out := make([]string, 0, len(held))
 	for _, r := range held {
@@ -518,14 +522,25 @@ func scanTask(sc scanner) (*tasks.Task, error) {
 		return nil, err
 	}
 	t.Description = desc.String
-	if validation.Valid && validation.String != "" {
-		_ = json.Unmarshal([]byte(validation.String), &t.Validation)
-	}
-	if evidence.Valid && evidence.String != "" {
-		_ = json.Unmarshal([]byte(evidence.String), &t.Evidence)
-	}
-	if evidenceFor.Valid && evidenceFor.String != "" {
-		_ = json.Unmarshal([]byte(evidenceFor.String), &t.EvidenceFor)
+	// Fail loud: a column this store wrote as JSON that does not read back as
+	// JSON is a corrupt row, and swallowing it hands the caller a task whose
+	// criteria or evidence silently vanished.
+	for _, col := range []struct {
+		name string
+		raw  sql.NullString
+		into any
+	}{
+		{"validation", validation, &t.Validation},
+		{"evidence", evidence, &t.Evidence},
+		{"evidence_for", evidenceFor, &t.EvidenceFor},
+	} {
+		if !col.raw.Valid || col.raw.String == "" {
+			continue
+		}
+		if err := json.Unmarshal([]byte(col.raw.String), col.into); err != nil {
+			return nil, codes.Errorf(codes.Unexpected,
+				"task %s: %s is not readable JSON: %v", t.ID, col.name, err)
+		}
 	}
 	t.DiscoveredFrom = discovered.String
 	t.ClaimedBy = tasks.Principal(claimedBy.String)

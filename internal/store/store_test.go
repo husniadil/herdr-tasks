@@ -1783,3 +1783,56 @@ func TestMigrationAddsFoldedAndKeepsOldNotesReadable(t *testing.T) {
 		t.Fatalf("code = %q, want CONFLICT", codeOf(t, err))
 	}
 }
+
+// Fail loud: a JSON column that does not read back as JSON is a corrupt row.
+// Swallowing the decode handed the caller a task with no acceptance criteria
+// and no evidence, which reads exactly like a task that never had any.
+func TestScanTaskRefusesUnreadableJSONColumns(t *testing.T) {
+	s := open(t)
+	task := create(t, s, "has criteria")
+	for _, col := range []string{"validation", "evidence", "evidence_for"} {
+		if _, err := s.db.Exec("UPDATE tasks SET "+col+" = ? WHERE id = ?", "{not json", task.ID); err != nil {
+			t.Fatalf("corrupt %s: %v", col, err)
+		}
+		_, err := s.GetTask(proj, task.ID)
+		if err == nil {
+			t.Fatalf("%s: a corrupt column read back as a task", col)
+		}
+		if !strings.Contains(err.Error(), col) {
+			t.Fatalf("%s: the failure does not name the column: %v", col, err)
+		}
+		if _, err := s.db.Exec("UPDATE tasks SET "+col+" = NULL WHERE id = ?", task.ID); err != nil {
+			t.Fatalf("restore %s: %v", col, err)
+		}
+	}
+}
+
+// A scan loop that never asks rows.Err() reports "this pane held nothing"
+// when the truth is "the read broke half way", which is the silent-success
+// failure the sweep exists to avoid. SweepLeases checks; so must this.
+func TestReleaseByPaneChecksTheRowsError(t *testing.T) {
+	s := open(t)
+	raw, err := os.ReadFile("tasks.go")
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	start := strings.Index(string(raw), "func (s *Store) ReleaseByPane")
+	if start < 0 {
+		t.Fatal("ReleaseByPane is not in tasks.go any more")
+	}
+	end := strings.Index(string(raw)[start:], "\n}\n")
+	if !strings.Contains(string(raw)[start:start+end], "rows.Err()") {
+		t.Fatal("ReleaseByPane scans its rows without ever checking rows.Err()")
+	}
+	// And it still does what it did: a pane's held lease comes back.
+	task := create(t, s, "held")
+	if _, err := s.TaskTransition(proj, task.ID, 0, func(tk *tasks.Task) (tasks.Event, error) {
+		return tasks.Claim(tk, tasks.Actor{Principal: "agent:wF:p9"}, tick(t), 900_000)
+	}); err != nil {
+		t.Fatalf("claim: %v", err)
+	}
+	released, err := s.ReleaseByPane("wF:p9", tick(t))
+	if err != nil || len(released) != 1 {
+		t.Fatalf("ReleaseByPane = %v, %v; want the one lease", released, err)
+	}
+}
