@@ -64,3 +64,29 @@ func TestDeletingANoteLeavesItsTrailStanding(t *testing.T) {
 		t.Errorf("%d events for a deleted note, want the %d it had", len(after), len(before))
 	}
 }
+
+// §5.8: `dump --json` prints the WHOLE store, so a column the parked queue
+// carries is a column the dump carries. The tab, the workspace and the scope
+// a deferred call was made with are what §9.3 re-runs it as, and a dump that
+// dropped them would describe a queue that resolves differently from the one
+// on disk.
+func TestDumpCarriesEveryColumnAParkedActionHolds(t *testing.T) {
+	s := open(t)
+	if _, err := s.Park(Parked{Project: proj, Subject: "agent:wF:p1", Verb: "tasks.claim",
+		Target: "1", Payload: "{}", TabID: "wF:t3", WorkspaceID: "wF", AllProjects: true},
+		tick(t)); err != nil {
+		t.Fatalf("Park: %v", err)
+	}
+	d, err := s.Dump()
+	if err != nil {
+		t.Fatalf("Dump: %v", err)
+	}
+	if len(d.Parked) != 1 {
+		t.Fatalf("%d parked rows in the dump, want 1", len(d.Parked))
+	}
+	got := d.Parked[0]
+	if got.TabID != "wF:t3" || got.WorkspaceID != "wF" || !got.AllProjects {
+		t.Errorf("the dump lost what the call was made with: tab %q workspace %q all_projects %v",
+			got.TabID, got.WorkspaceID, got.AllProjects)
+	}
+}
