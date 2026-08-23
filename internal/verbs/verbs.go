@@ -50,12 +50,12 @@ type Verb struct {
 	Args []Arg
 	// Gated is the §9.4 verb name passed to the policy gate. Empty means this
 	// verb is not offered to the gate, which is NOT the same as "changes
-	// nothing": twelve verbs that write carry no gate name, three of them
+	// nothing": thirteen verbs that write carry no gate name, three of them
 	// destructive. A Mutates verb with no Gated must say why in Ungated.
 	Gated string
 	// Ungated is why a verb that writes passes no name to the policy gate.
-	// Required exactly when Mutates is true and Gated is empty, so the twelve
-	// cannot quietly become thirteen.
+	// Required exactly when Mutates is true and Gated is empty, so the thirteen
+	// cannot quietly become fourteen.
 	Ungated string
 	// Who is the principal rule: who may call this verb. Every verb that
 	// writes states one, because the alternative is a rule of "whoever asked"
@@ -441,6 +441,21 @@ var All = []Verb{
 		Name: "dump", CLI: []string{"dump"}, MCP: "dump",
 		Short:       "Print the whole store as JSON, every project included (§3.5)",
 		AllProjects: true,
+	},
+	{
+		Name: "stop", CLI: []string{"stop"}, MCP: "stop",
+		Short: "Stop the daemon",
+		Long: "The daemon answers this call and then ends itself the way SIGTERM ends it (§2.5):\n" +
+			"it stops accepting, lets the calls already in flight finish, and gives up the socket\n" +
+			"and the lock. The next call starts a fresh one, so this is how the plugin is turned\n" +
+			"off rather than how work is stopped.",
+		Who: "The operator, from a process with no pane. A call from a pane is REFUSED, and not on " +
+			"the ground that the caller is not the operator (§3.7): one daemon serves every pane of " +
+			"this user (§2.3), so ending it takes the board away from panes that never asked, which " +
+			"is not the operator's to grant away on their behalf — the same ground `sweep --pane` " +
+			"refuses another pane's leases on.",
+		Ungated: "the gate is how the operator holds a verb back from an agent, and this verb reaches no agent to hold back",
+		Mutates: true,
 	},
 }
 

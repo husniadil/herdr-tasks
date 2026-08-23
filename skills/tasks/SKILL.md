@@ -139,7 +139,7 @@ dots turned into underscores: `list`, `get`, `claim`, `touch`, `release`,
 `archive`, `delete`, `note_add`, `note_list`, `note_get`, `note_update`,
 `note_discuss`, `note_verdict`, `note_promote`, `note_fold`, `note_unfold`,
 `note_keep`, `note_drop`, `note_delete`, `parked_list`, `parked_resolve`,
-`events`, `sweep`, `doctor`, `dump`. Nothing is on the CLI alone, so a harness
+`events`, `sweep`, `doctor`, `dump`, `stop`. Nothing is on the CLI alone, so a harness
 with no terminal loses no verb. Your client shows them under the server's own
 label, which is what tells you whose `claim` you are calling.
 
@@ -277,6 +277,12 @@ htask task cancel 12 --reason …   htask task archive 12
 htask events --follow             htask doctor
 htask dump --json                 htask --help
 ```
+
+`htask stop` ends the daemon, and it is **not yours to call**: one daemon
+serves every pane of this user, so stopping it takes the board away from every
+other agent. It is refused from a pane, and the refusal is not something to
+work around — ask the operator, who runs it from their own shell or from the
+workspace action.
 
 Add `--json` to any verb for one machine-readable document; without it the
 output is prose and is not meant to be parsed. Errors carry a code —

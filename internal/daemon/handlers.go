@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/config"
 	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
@@ -60,6 +61,7 @@ func init() {
 		"sweep":  hSweep,
 		"doctor": hDoctor,
 		"dump":   hDump,
+		"stop":   hStop,
 	}
 }
 
@@ -791,4 +793,37 @@ func verbFromGated(gated string) (verbs.Verb, bool) {
 		}
 	}
 	return verbs.Verb{}, false
+}
+
+// StopResult is what `stop` answers with. The answer is written first and the
+// daemon ends after it, so a caller that got this document knows the shutdown
+// began rather than guessing from a closed socket.
+type StopResult struct {
+	Stopping bool   `json:"stopping"`
+	PID      int    `json:"pid"`
+	Socket   string `json:"socket"`
+}
+
+// hStop ends the daemon. The refusal below is NOT the operator-verb refusal
+// §3.7 removed — it does not rest on the caller not being the operator. One
+// daemon serves every pane of this user (§2.3), so ending it takes the board
+// away from panes that never asked, and that is the authority §3.7 keeps
+// refusing: not the operator's to grant away on someone else's behalf, the
+// same ground `sweep --pane` refuses another pane's leases on.
+func hStop(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	if by.Principal != tasks.PrincipalHuman {
+		if req.PaneID != "" {
+			return nil, codes.Errorf(codes.Forbidden,
+				"you are %s, and stop is not accepted from a pane: one daemon serves every pane of "+
+					"this user (§2.3), so ending it takes the board away from panes that never asked — "+
+					"which is not this pane's to do, and not the operator's to do on their behalf. "+
+					"Stop it from a shell outside Herdr, or run scripts/stop.sh", by.Principal)
+		}
+		return nil, codes.Errorf(codes.Forbidden,
+			"stop is not accepted from %s: the daemon is the operator's own process, and only a call "+
+				"this plugin can point a deliberate human act at ends it (§3.7) — a CLI invocation, or "+
+				"an MCP door started with --operator", by.Principal)
+	}
+	d.Halt()
+	return StopResult{Stopping: true, PID: os.Getpid(), Socket: config.SocketPath()}, nil
 }

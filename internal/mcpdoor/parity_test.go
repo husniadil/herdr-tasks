@@ -63,6 +63,7 @@ var pinnedTools = []string{
 	"doctor",
 	"sweep",
 	"dump",
+	"stop",
 }
 
 // bareName is the §7.1 name for a registry verb: the verb alone, with dots as

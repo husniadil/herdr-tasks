@@ -33,7 +33,7 @@ var CallTimeout = 30 * time.Second
 // Call sends one request and returns the answer. It starts the daemon if none
 // is listening.
 func Call(req protocol.Request) (json.RawMessage, error) {
-	conn, err := dialOrStart()
+	conn, err := dialOrStart(req.Verb)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +106,7 @@ func warnOnSkew(w io.Writer, got string, build verbs.Build) {
 // Stream sends one request and hands every answer to fn until the daemon stops
 // or fn returns an error. This is `events --follow` (§8.2).
 func Stream(req protocol.Request, fn func(json.RawMessage) error) error {
-	conn, err := dialOrStart()
+	conn, err := dialOrStart(req.Verb)
 	if err != nil {
 		return err
 	}
@@ -157,10 +157,29 @@ func (f *Failure) ParkedID() string { return f.Body.ParkedID }
 // Message is the daemon's text for the failure, without the code prefix.
 func (f *Failure) Message() string { return f.Body.Message }
 
-func dialOrStart() (net.Conn, error) {
+// Live reports whether a daemon is listening, without starting one. It is
+// what a door asks before `stop`: there is nothing to stop, and no daemon to
+// ask what that means.
+func Live() bool {
+	conn, err := net.DialTimeout("unix", config.SocketPath(), 300*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+func dialOrStart(verb string) (net.Conn, error) {
 	path := config.SocketPath()
 	if conn, err := net.DialTimeout("unix", path, 300*time.Millisecond); err == nil {
 		return conn, nil
+	}
+	// Autostart is §2.2 for a verb that has work for the daemon. `stop` has
+	// the opposite: starting one in order to stop it leaves the caller having
+	// paid for a daemon they asked to be rid of, and the answer would say a
+	// shutdown happened that nobody needed.
+	if verb == "stop" {
+		return nil, codes.Errorf(codes.Unavailable, "no daemon is listening on %s", path)
 	}
 	if err := start(); err != nil {
 		return nil, err

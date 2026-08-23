@@ -133,7 +133,7 @@ where a verb appeared in both, the name, the arguments and the result shape
 were identical because both doors are generated from one registry
 (`internal/verbs`).
 
-Since 0.10.0 there is no subset and no narrowing rule: every one of the 33
+Since 0.10.0 there is no subset and no narrowing rule: every one of the 34
 verbs is a CLI subcommand and an MCP tool, so §6.1 and §7.3 say the same thing
 and neither has to give. The one registry and the parity test survive
 unchanged and are what the entry was really about — `TestCLIAndMCPSurfacesDoNotDrift`
@@ -426,7 +426,7 @@ here is the half of the rule this plugin answers:
 | §7.1 (0.4.0) | a tool is named by its verb alone, no plugin prefix, because the client's registration label already namespaces it | `internal/verbs/verbs.go` carries the bare `MCP` names; `pinnedTools` in `internal/mcpdoor/parity_test.go` pins them and `TestTheServerNameCarriesTheIdentityAndTheToolsDoNot` refuses any plugin lead; `daemon.Version` is `0.2.0` for the semver-bound list that moved |
 | §5.5 | an events table named after its entity table, written in the same transaction | `internal/store/schema.go:82` `tasks_events`, `:113` `notes_events`, with §5.5's columns; `internal/store/tasks.go:31-51` opens the transaction, appends the event, commits |
 | §5.9 | write-time text bounds with `USAGE`, and a render-time clamp that says what it dropped | `internal/tasks/bounds.go`; `TestEveryTaskFreeTextFieldIsBounded`, `TestEveryNoteFreeTextFieldIsBounded`; the clamp is `internal/daemon/goal.go`, with `TestGoalSaysWhenItDroppedCriteria` and `TestGoalClipsRatherThanOverflows` |
-| §6.1 / §7.3 (0.10.0) | CLI total, MCP total, one registry, a parity test that fails in both directions | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestEveryVerbIsOnBothDoors`, `TestEveryCLIVerbReachesTheMCPDoor`; 33 verbs, 33 tools. The `roughly 8–16` budget this row asserted until 0.10.0, and `TestMCPToolCountStaysSmall` which held it, are both gone — see the §6.1 entry above |
+| §6.1 / §7.3 (0.10.0) | CLI total, MCP total, one registry, a parity test that fails in both directions | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestEveryVerbIsOnBothDoors`, `TestEveryCLIVerbReachesTheMCPDoor`; 34 verbs, 34 tools. The `roughly 8–16` budget this row asserted until 0.10.0, and `TestMCPToolCountStaysSmall` which held it, are both gone — see the §6.1 entry above |
 | §8.4 spelling | Herdr event names spelled as its schema prints them | `internal/herdrclient/client.go:173` matches either spelling, which is right for a document whose halves disagree; the manifest takes dots because Herdr validates it against dots — the entry above records which is which |
 | §8.4 reaction | `[[events]]` is usable; a reaction self-filters, is idempotent, and complements the sweep | `herdr-plugin.toml` declares `pane.closed` and `pane.exited`; `scripts/on-pane-gone.sh` sweeps by pane, which is both by construction; `TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` drives it against a real Herdr |
 | §11.2 | the schema document's shape, and the flat form too | `internal/herdrclient/client.go` reads `schemas.request.oneOf[].properties.method` and `schemas.event.$defs.EventKind`, and the flat `{requests, events}` form; the protocol number is read for `doctor` and never pinned; `TestSchemaListsCapabilities` |
@@ -514,7 +514,7 @@ door, so there is no absence left for it to read a reason out of.
 What holds the clause NOW, and what the paragraph above should be read
 against, is `TestEveryVerbIsOnBothDoors` in `internal/verbs` and
 `TestEveryCLIVerbReachesTheMCPDoor` in `internal/mcpdoor`: nothing may be
-absent from either door, in either direction. The door serves all 33 verbs,
+absent from either door, in either direction. The door serves all 34 verbs,
 so the parity half of the 0.7.0 gap is CLOSED. The declaration half is closed
 too: `daemon.ContractVersion` and the README state 0.10.0, the revision the
 vendored document states, and the four revisions between were audited by the
@@ -562,7 +562,7 @@ note 60 measured — a paneless harness that could approve a task and could not
 promote a note — was still here. What 0.8.0 changed is that it became safe to
 close: a door that reaches those verbs is either a pane's agent, a declared
 operator, or `none`, and its principal is settled before any call arrives.
-0.10.0 closed it; the door serves all 33 verbs, and `none` is no longer
+0.10.0 closed it; the door serves all 34 verbs, and `none` is no longer
 refused an operator verb, it is recorded as having performed one.
 
 One consequence recorded rather than left to be rediscovered. `mcpdoor` grew
@@ -958,3 +958,37 @@ alone: `TestTheInstructionsDoNotSendAgentsToTheCLIForMissingVerbs` reads the
 instructions off a live session and fails on any wording claiming a verb is
 absent from this door, so the stale claim cannot return unnoticed. This item
 is therefore no longer "not a pin" — it is one.
+
+## §3.7 with §2.3 — why `stop` refuses a pane, and why that is not the refusal 0.10.0 removed
+
+`stop` ends the daemon. It is the 34th verb, it is on both doors, and it is
+the first verb in this plugin that refuses a principal at the door rather than
+at the §9 gate. §3.7 forbids exactly one shape of refusal — "a plugin MUST NOT
+refuse an operator verb on the ground that the caller is not the operator" —
+and this is not that ground, so the entry is here rather than as a divergence.
+
+The ground is the sentence §3.7 ends on: "An authority that is not the
+operator's to grant away does not become advisory with it." There is one
+daemon per user (§2.3) and it serves every pane, every project and every door
+on the machine. A pane that ends it takes the board away from panes that never
+asked and are not its to answer for — the same reason `sweep --pane` refuses
+another pane's leases to a caller who is not that pane, which no answer the
+operator gives makes right. What §3.7 makes advisory is the operator's own
+authority over the BOARD; the daemon's lifetime is not a board decision, and
+what is being protected is the other panes, not the operator's prerogative.
+
+Consequences recorded rather than left to be rediscovered:
+
+- The verb carries no gate name. The gate is how the operator holds a verb
+  back from an agent, and `stop` reaches no agent to hold back — the ungated
+  count in `internal/verbs` moved from twelve to thirteen with this.
+- `stop` writes no event, so §3.7's `on_behalf_of_operator` mark has nothing
+  to attach to and nothing is owed there.
+- No door starts a daemon in order to stop it: `internal/client` skips §2.2's
+  autostart for this verb alone. The CLI turns "nothing was listening" into
+  exit 0, because the state `stop` asks for already holds and
+  `scripts/stop.sh` runs where the daemon may or may not be up; the MCP door,
+  which has no exit status to carry that difference, is told `UNAVAILABLE`.
+- The refusal is bypassable by anything that can send a signal, and nothing
+  here pretends otherwise. What it buys is that an agent reaching for the
+  board's own surface is told no rather than finding out afterwards.

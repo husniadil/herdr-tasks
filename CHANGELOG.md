@@ -7,6 +7,18 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+One new verb on both doors, `htask stop` / the `stop` MCP tool: the daemon
+answers the call and then ends itself the way SIGTERM ends it — stop accepting,
+finish what is in flight, give up the socket and the lock (§2.5). The tool list
+goes from 33 to 34, so a client that pins it gains an entry; nothing shipped
+changes meaning. `scripts/stop.sh` now runs it instead of `pkill`, which is why
+a call in flight is finished rather than cut. Two things a caller should know:
+`stop` is REFUSED with `FORBIDDEN` from a pane, because one daemon serves every
+pane of this user (§2.3) and ending it takes the board away from panes that
+never asked; and no door starts a daemon in order to stop it — `htask stop`
+with nothing listening prints that and exits 0, while the MCP tool answers
+`UNAVAILABLE`.
+
 The declared contract revision is now 0.10.0, up from 0.6.0. It is the value
 `doctor --json` reports as `contract`, and a caller that reads it to decide
 which contract's rules this daemon answers to sees a different answer than it

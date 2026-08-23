@@ -18,7 +18,12 @@ herdr plugin install husniadil/herdr-tasks
 
 The manifest's `[[build]]` step compiles `bin/htask` on install, and `[[startup]]`
 starts the daemon. Herdr has no shutdown hook, so the **Stop the tasks daemon**
-workspace action is the way to turn it off.
+workspace action is the way to turn it off; it runs `htask stop`, which asks
+the daemon to end rather than signalling it — the call is answered first, then
+the daemon stops accepting, finishes what is in flight, and gives up the socket
+and the lock (§2.5). `htask stop` with nothing listening says so and exits 0.
+It is refused from a pane: one daemon serves every pane of this user (§2.3),
+so ending it takes the board away from panes that never asked.
 
 Then link the agent skill, which the install does not place for you:
 

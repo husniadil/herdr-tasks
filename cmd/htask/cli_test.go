@@ -1809,3 +1809,80 @@ func TestTheBinaryServesTheViewUnderTheContractsName(t *testing.T) {
 		t.Errorf("`htask tui --help` names no `tui` command: %q", stdout+stderr)
 	}
 }
+
+// §2.5: `htask stop` with nothing listening is not a failure. The state it
+// asks for already holds, and scripts/stop.sh runs on machines where the
+// daemon may or may not be up — a non-zero exit there would report a failure
+// for the outcome the caller wanted. It must also not START a daemon in order
+// to stop it, which §2.2's autostart would otherwise do.
+func TestStopWithNoDaemonSaysSoAndStartsNothing(t *testing.T) {
+	w := newWorld(t)
+	stdout, stderr, status := w.run(w.env(), "stop")
+	if status != 0 {
+		t.Fatalf("exit %d: %s%s", status, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "no daemon was running") {
+		t.Errorf("stdout = %q, want it to say no daemon was running", stdout)
+	}
+	sock := filepath.Join(w.state, "tasks.sock")
+	if conn, err := net.DialTimeout("unix", sock, 300*time.Millisecond); err == nil {
+		conn.Close()
+		t.Fatalf("stop started a daemon on %s in order to stop it", sock)
+	}
+}
+
+// §2.5 with §6.2: the same call in --json is one document of the stop shape,
+// so a machine caller reads the same field either way.
+func TestStopWithNoDaemonAnswersInTheStopShape(t *testing.T) {
+	w := newWorld(t)
+	doc := w.json(w.env(), "stop")
+	if doc["stopping"] != false {
+		t.Errorf("stopping = %v, want false", doc["stopping"])
+	}
+	if doc["socket"] == "" || doc["socket"] == nil {
+		t.Errorf("the answer does not name the socket it looked for: %v", doc)
+	}
+}
+
+// §2.5: the daemon answers `stop` and then gives up the socket, so the CLI's
+// own exit is not what ends it — the next dial finds nothing.
+func TestStopEndsTheRunningDaemon(t *testing.T) {
+	w := newWorld(t)
+	w.daemonUp()
+	stdout, stderr, status := w.run(w.env(), "stop")
+	if status != 0 {
+		t.Fatalf("exit %d: %s%s", status, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "is stopping") {
+		t.Errorf("stdout = %q, want it to say the daemon is stopping", stdout)
+	}
+	sock := filepath.Join(w.state, "tasks.sock")
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(sock); os.IsNotExist(err) {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("the socket %s is still there after stop", sock)
+}
+
+// §2.3 with §3.7: an agent in a pane is refused, and told where the call can
+// be made from instead.
+func TestStopIsRefusedFromAPaneAtTheCLI(t *testing.T) {
+	w := newWorld(t)
+	w.daemonUp()
+	stdout, stderr, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "stop")
+	if status != codes.Exit(codes.Forbidden) {
+		t.Fatalf("exit %d, want %d: %s%s", status, codes.Exit(codes.Forbidden), stdout, stderr)
+	}
+	if !strings.Contains(stderr, "not accepted from a pane") {
+		t.Errorf("stderr = %q", stderr)
+	}
+	sock := filepath.Join(w.state, "tasks.sock")
+	if conn, err := net.DialTimeout("unix", sock, 300*time.Millisecond); err != nil {
+		t.Fatalf("a refused stop still ended the daemon: %v", err)
+	} else {
+		conn.Close()
+	}
+}

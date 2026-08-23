@@ -97,6 +97,13 @@ func renderHuman(v verbs.Verb, raw json.RawMessage, now int64) error {
 			}
 		}
 		return nil
+	case "stop":
+		var res daemon.StopResult
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return err
+		}
+		fmt.Printf("the daemon on %s is stopping (pid %d)\n", res.Socket, res.PID)
+		return nil
 	case "dump":
 		out, err := json.MarshalIndent(json.RawMessage(raw), "", "  ")
 		if err != nil {

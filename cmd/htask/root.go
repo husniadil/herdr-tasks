@@ -12,6 +12,7 @@ import (
 
 	"github.com/husniadil/herdr-tasks/internal/client"
 	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/config"
 	"github.com/husniadil/herdr-tasks/internal/daemon"
 	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
@@ -183,6 +184,9 @@ func buildVerb(v verbs.Verb) *cobra.Command {
 		if v.Name == "events" && g.follow {
 			return runStream(v, req)
 		}
+		if v.Name == "stop" && !client.Live() {
+			return reportNoDaemon()
+		}
 		return run(v, req)
 	}
 	return cmd
@@ -235,6 +239,23 @@ func request(verb string, args map[string]any) (protocol.Request, error) {
 		Follow:        g.follow,
 		Args:          args,
 	}, nil
+}
+
+// reportNoDaemon answers `htask stop` when nothing is listening. `stop` asks
+// for a state rather than for work, and that state already holds, so this
+// exits 0: scripts/stop.sh is run on a machine where the daemon may or may
+// not be up, and a non-zero exit there would be a failure report for the
+// outcome the caller wanted. It is the door's answer because there is no
+// daemon to ask; the MCP door, which has no exit status to carry the
+// difference, is told UNAVAILABLE by the client instead.
+func reportNoDaemon() error {
+	if g.jsonOut {
+		out, _ := json.Marshal(daemon.StopResult{Socket: config.SocketPath()})
+		fmt.Println(string(out))
+		return nil
+	}
+	fmt.Println("no daemon was running")
+	return nil
 }
 
 func run(v verbs.Verb, req protocol.Request) error {

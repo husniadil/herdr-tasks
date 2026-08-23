@@ -65,6 +65,24 @@ type Daemon struct {
 
 	mu       sync.Mutex
 	watchers map[chan store.Event]struct{}
+
+	// halt is closed by the `stop` verb and is the only shutdown this daemon
+	// asks of itself. Serve treats it exactly as it treats a cancelled
+	// context, so `stop` and SIGTERM end the process down the same path
+	// (§2.5) rather than through a second one nobody exercises.
+	haltOnce sync.Once
+	halt     chan struct{}
+}
+
+// Halt asks Serve to stop accepting and end once the calls already in flight
+// have been answered. It is idempotent: two `stop` calls that race are one
+// shutdown, not a second close of a closed channel.
+func (d *Daemon) Halt() {
+	d.haltOnce.Do(func() {
+		if d.halt != nil {
+			close(d.halt)
+		}
+	})
 }
 
 // Cfg is the configuration as of now.
@@ -90,6 +108,7 @@ func New(s *store.Store, cfg *config.Config, h *herdrclient.Client) *Daemon {
 		gate:     gate.New(cfg.GateCommand),
 		Now:      func() int64 { return time.Now().UnixMilli() },
 		watchers: map[chan store.Event]struct{}{},
+		halt:     make(chan struct{}),
 	}
 }
 
@@ -166,23 +185,42 @@ func Listen(path, lock string) (net.Listener, error) {
 // Serve accepts connections until ctx is done. Each connection carries one
 // request and its answer, except `events --follow`, which streams.
 func (d *Daemon) Serve(ctx context.Context, ln net.Listener) error {
+	// The `stop` verb ends the daemon by the same path a signal does: it
+	// closes d.halt, this cancels the context every connection and the sweep
+	// loop already watch, and the listener closes. A second shutdown path
+	// would be one nobody exercises until the day it matters.
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-ctx.Done():
+		case <-d.halt:
+		}
+		stop()
 		ln.Close()
 	}()
 	go d.sweepLoop(ctx)
+	// Every accepted connection is counted, so the answer to the `stop` call
+	// itself is written before the process is allowed to leave: a shutdown
+	// that raced its own reply would look to the caller like a daemon that
+	// died mid-request.
+	var live sync.WaitGroup
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
-				return nil
-			}
-			if errors.Is(err, net.ErrClosed) {
+			// Add and Wait are both on this goroutine, so nothing can join
+			// the group after the wait begins.
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
+				live.Wait()
 				return nil
 			}
 			return err
 		}
-		go d.serveConn(ctx, conn)
+		live.Add(1)
+		go func() {
+			defer live.Done()
+			d.serveConn(ctx, conn)
+		}()
 	}
 }
 
