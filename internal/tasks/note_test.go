@@ -487,3 +487,26 @@ func NoteDiscussed(t *testing.T, n *Note) *Note {
 	}
 	return n
 }
+
+// §5: a re-opened discussion carries no verdict, and a reason is half of a
+// verdict. NoteDiscuss cleared the verdict and the question and left the
+// reason behind, so a note back in triage still held "not worth doing" with
+// nothing that had proposed it — invisible in `note get`, which prints a
+// reason only beside its verdict, but shipped over --json and still matched by
+// `note list --query`, which searches the body and the verdict reason.
+func TestReopeningTriageLeavesNoReasonBehind(t *testing.T) {
+	n := newNote(t)
+	if _, err := NoteVerdict(NoteDiscussed(t, n), human, VerdictDrop, "not worth doing", t0+2); err != nil {
+		t.Fatalf("verdict: %v", err)
+	}
+	if n.Reason == "" {
+		t.Fatal("the verdict recorded no reason, so this proves nothing")
+	}
+	if _, err := NoteDiscuss(n, human, t0+3); err != nil {
+		t.Fatalf("discuss: %v", err)
+	}
+	if n.Verdict != "" || n.Question != "" || n.Reason != "" {
+		t.Errorf("re-opened triage kept verdict %q question %q reason %q",
+			n.Verdict, n.Question, n.Reason)
+	}
+}

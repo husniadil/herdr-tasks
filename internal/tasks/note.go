@@ -173,7 +173,12 @@ func NoteDiscuss(n *Note, by Actor, now int64) (Event, error) {
 		return Event{}, codes.Errorf(codes.Conflict, "note is %s", n.Status)
 	}
 	n.Status = NoteDiscussing
-	n.Verdict, n.Question = "", ""
+	// The reason goes with the verdict it belonged to. It is half of a
+	// proposal, so leaving it leaves a note in triage holding the words of a
+	// verdict that has just been erased — invisible in `note get`, which
+	// prints a reason only beside its verdict, and shipped over --json and
+	// matched by `note list --query` all the same.
+	n.Verdict, n.Question, n.Reason = "", "", ""
 	n.UpdatedAt = now
 	return Event{Kind: KindNoteDiscussing, Actor: by.Principal, At: now}, nil
 }
@@ -286,7 +291,12 @@ func NoteFold(n *Note, by Actor, taskID, taskProject, holder string, now int64) 
 // NoteUnfold is the way back from a fold that was a mistake, without deleting
 // the row: the note returns to the inbox, undecided again and promotable on
 // its own. The triage it already had — its verdict and reason — stays, because
-// the fold is the only thing being undone.
+// the fold is the only thing being undone: the verdict is a record of triage
+// that really happened, and dropping it destroys that record to tidy up a
+// label. `note get` renders it as a proposed verdict beside a status of
+// inbox, which reads as a proposal still standing; that is a wording question,
+// not a reason to lose the triage. `note discuss` is the way back into triage
+// from the inbox, and it clears both.
 //
 // A promoted note does not unfold. The task was made from its body, so there
 // is nothing to return it to that would not leave the task without the note it
