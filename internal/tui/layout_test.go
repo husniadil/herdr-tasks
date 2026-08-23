@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/husniadil/herdr-tasks/internal/protocol"
@@ -69,5 +70,34 @@ func TestTickDoesNotStackReadsOnAWedgedDaemon(t *testing.T) {
 	_, cmd := p.Update(tickMsg{})
 	if cmd == nil || !p.loading {
 		t.Fatal("the tick after an answer did not read again")
+	}
+}
+
+// §11.6: the prompt is what the operator is typing into, so it is the last
+// thing the layout gives up. On a pane short enough that only one chrome row
+// survives, the budget was spent from the top — which kept the blank line
+// that separates the prompt from the body and dropped the prompt itself. The
+// operator then typed into a line that was not on the screen.
+func TestAShortPaneKeepsThePromptAndDropsTheBlankAboveIt(t *testing.T) {
+	// From 6 up: below that panelRows leaves the prompt no row at all, which
+	// is the deliberate floor that keeps the body one row, not this bug.
+	for height := 6; height <= 10; height++ {
+		m := New(ViewBoard, "/repo")
+		m.Height = height
+		m.Prompt = &Prompt{Label: "reason", Value: "because"}
+		f := frameOf(m, 0)
+		if len(f.prompt) == 0 {
+			t.Errorf("height %d: the prompt row was dropped entirely", height)
+			continue
+		}
+		last := f.prompt[len(f.prompt)-1]
+		if !strings.Contains(last, "reason") {
+			t.Errorf("height %d: the chrome rows %q carry no prompt", height, f.prompt)
+		}
+		for _, line := range f.prompt[:len(f.prompt)-1] {
+			if strings.TrimSpace(line) != "" {
+				t.Errorf("height %d: %q sits above the prompt and is not the separator", height, line)
+			}
+		}
 	}
 }

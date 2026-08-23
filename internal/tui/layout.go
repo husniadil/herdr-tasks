@@ -234,7 +234,18 @@ func frameOf(m Model, now int64) frame {
 	// are looking at. Both are BOUNDED, and what does not fit is scrolled to.
 	var f frame
 	if m.Prompt != nil {
-		f.prompt = clampLines([]string{"", promptLine(*m.Prompt, m.Width)}, promptCap)
+		// The prompt is the last chrome to go, so a cap of one row keeps the
+		// prompt and drops the blank that separates it from the body.
+		// Trimming the pair from the END did the opposite: on a short pane the
+		// separator survived and the operator typed into a line that was not
+		// on the screen.
+		line := promptLine(*m.Prompt, m.Width)
+		switch {
+		case promptCap >= 2:
+			f.prompt = []string{"", line}
+		case promptCap == 1:
+			f.prompt = []string{line}
+		}
 	}
 	if detailCap > 0 {
 		// One of the panel's rows is the blank line that separates it from
@@ -608,16 +619,6 @@ func fitLines(lines []string, n, off int) []string {
 		out = append(out, "")
 	}
 	return out[:n]
-}
-
-func clampLines(lines []string, n int) []string {
-	if n < 0 {
-		n = 0
-	}
-	if len(lines) > n {
-		return lines[:n]
-	}
-	return lines
 }
 
 // clampWidth keeps a line inside the pane, measured in cells. bubbletea cuts

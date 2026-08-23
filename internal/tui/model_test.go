@@ -1842,7 +1842,7 @@ func TestTheDetailPanelIsBoundedToHalfTheBody(t *testing.T) {
 	}
 }
 
-// §11.6: what the panel cannot fit is scrolled to, not lost. clampLines cut
+// §11.6: what the panel cannot fit is scrolled to, not lost. A flat clamp cut
 // the bottom off a long report and there was no gesture that reached it — the
 // evidence a reviewer needs was on the screen the operator could not get to.
 func TestEveryLineOfALongDetailCanBeScrolledTo(t *testing.T) {
