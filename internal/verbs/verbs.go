@@ -36,9 +36,14 @@ type Verb struct {
 	// CLI is the subcommand path, e.g. {"task", "claim"}.
 	CLI []string
 	// MCP is the tool name: the verb alone, with dots as underscores
-	// (§7.1). Empty means CLI-only: §7.3
-	// says keep the tool count small and let the skill teach the rest.
+	// (§7.1). Empty keeps the verb off the MCP door, and NotMCP then says why.
 	MCP string
+	// NotMCP is why a verb the CLI carries is not published as a tool.
+	// Required exactly when MCP is empty. §7.3 sets no tool budget, so there
+	// is no count an absence can appeal to: a verb the agent surface does not
+	// carry is either a decision someone wrote down or an omission. A reason
+	// that only restates the absence is not one.
+	NotMCP string
 	// Short is the one-line help both doors show.
 	Short string
 	// Long is the CLI's longer help, when a verb needs one.
@@ -178,7 +183,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.cancel", CLI: []string{"task", "cancel"},
+		Name: "task.cancel", CLI: []string{"task", "cancel"}, MCP: "cancel",
 		Short:   "End a task that will not be done",
 		Gated:   "tasks.cancel",
 		Who:     "The holder or the operator while claimed; anyone while unclaimed — the same rule release and submit apply.",
@@ -189,7 +194,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.update", CLI: []string{"task", "update"},
+		Name: "task.update", CLI: []string{"task", "update"}, MCP: "update",
 		Short:   "Edit a live task",
 		Gated:   "tasks.update",
 		Who:     "Anyone, while the task is not terminal.",
@@ -205,6 +210,9 @@ var All = []Verb{
 	},
 	{
 		Name: "task.archive", CLI: []string{"task", "archive"},
+		NotMCP: "archive decides what everyone sees on the board by default, and a " +
+			"default view is the operator's to arrange. An agent that wants a " +
+			"finished task out of its way already has `list --status done`.",
 		Short:   "Hide a finished task from the default list",
 		Who:     "Anyone, and only a terminal task.",
 		Ungated: "hiding a finished task changes no work and is reversible",
@@ -213,6 +221,9 @@ var All = []Verb{
 	},
 	{
 		Name: "task.delete", CLI: []string{"task", "delete"},
+		NotMCP: "§5.7: delete removes the row itself, and a board an agent can " +
+			"erase from is not a record. The reversible ending an agent needs " +
+			"is `cancel`, which is on the door.",
 		Short:   "Remove a task that was never claimed",
 		Long:    "Only a never-claimed task is deleted (§5.7). Everything else is cancelled or archived.",
 		Who:     "Anyone, and only a task that was never claimed (§5.7).",
@@ -240,12 +251,12 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.get", CLI: []string{"note", "get"},
+		Name: "note.get", CLI: []string{"note", "get"}, MCP: "note_get",
 		Short: "Read one note in full",
 		Args:  []Arg{idArg("The note id or number")},
 	},
 	{
-		Name: "note.update", CLI: []string{"note", "update"},
+		Name: "note.update", CLI: []string{"note", "update"}, MCP: "note_update",
 		Short: "Fix the wording of a note",
 		Long: "The author fixes their own note and the operator fixes anyone's, until the\n" +
 			"operator has decided it. A decided note is what was decided on, so its\n" +
@@ -259,7 +270,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.discuss", CLI: []string{"note", "discuss"},
+		Name: "note.discuss", CLI: []string{"note", "discuss"}, MCP: "note_discuss",
 		Short:   "Open or re-open triage on a note",
 		Who:     "Anyone.",
 		Ungated: "opening a triage is how an agent volunteers; a gate here would stop the board being worked",
@@ -323,6 +334,9 @@ var All = []Verb{
 	},
 	{
 		Name: "note.keep", CLI: []string{"note", "keep"},
+		NotMCP: "keep is one of the operator's two verdicts on a note (§5.7). An " +
+			"agent reaches the same board through `note_verdict`, which " +
+			"proposes; deciding is what stays with the operator.",
 		Short:   "File a note as approved but not now (operator only)",
 		Who:     "The operator only.",
 		Ungated: "filing a note for later puts nothing on the board; note.promote is gated because it does create a task, which a freeze can usefully hold",
@@ -334,6 +348,9 @@ var All = []Verb{
 	},
 	{
 		Name: "note.drop", CLI: []string{"note", "drop"},
+		NotMCP: "drop is the operator's other verdict, and rejecting a peer's idea " +
+			"outright is the decision `note_verdict` exists to keep out of an " +
+			"agent's hands.",
 		Short:   "Reject a note (operator only)",
 		Who:     "The operator only.",
 		Ungated: "rejecting a note ends it where it stands and creates no work; note.promote is gated because it does create a task, which a freeze can usefully hold",
@@ -345,6 +362,10 @@ var All = []Verb{
 	},
 	{
 		Name: "note.delete", CLI: []string{"note", "delete"},
+		NotMCP: "§5.7: delete removes the note rather than deciding it, so an agent " +
+			"holding it could erase a rival's idea more cheaply than arguing " +
+			"with it. `note_verdict` is the door's way to say the same thing on " +
+			"the record.",
 		Short:   "Remove a note that is still in the inbox",
 		Who:     "The author, or the operator, and only an inbox note (§5.7).",
 		Ungated: "an inbox note is pre-decision, and its author or the operator removing it decides nothing",
@@ -352,11 +373,15 @@ var All = []Verb{
 		Args:    []Arg{idArg("The note id or number")},
 	},
 	{
-		Name: "parked.list", CLI: []string{"parked", "list"},
+		Name: "parked.list", CLI: []string{"parked", "list"}, MCP: "parked_list",
 		Short: "List actions the policy gate deferred",
 	},
 	{
 		Name: "parked.resolve", CLI: []string{"parked", "resolve"},
+		NotMCP: "§9.3: resolve runs or refuses an action the policy gate deferred, " +
+			"which is the operator overruling the gate. A door reachable by the " +
+			"agent the gate stopped would be the gate answering to its own " +
+			"subject.",
 		Short:   "Run or reject a deferred action (operator only)",
 		Long:    "Resolving re-runs the verb under the original subject, never the resolver's (§9.3).",
 		Who:     "The operator only (§9.3).",
@@ -387,6 +412,10 @@ var All = []Verb{
 	},
 	{
 		Name: "sweep", CLI: []string{"sweep"},
+		NotMCP: "the daemon sweeps lapsed leases on its own, so an agent has " +
+			"nothing to call this for; the manual form takes --pane and " +
+			"releases another pane's claim, which is the operator's " +
+			"intervention when a worker is gone.",
 		Short:   "Release leases that have lapsed, or every lease a pane holds",
 		Long:    "The daemon does this on a timer (§11.5). Run it by hand, or from a Herdr\nevent reaction, when a pane died and its work should return to the queue now.",
 		Who:     "With --pane: that pane, or the operator. Without: anyone, and it releases only leases that are already expired.",
@@ -398,6 +427,9 @@ var All = []Verb{
 	},
 	{
 		Name: "dump", CLI: []string{"dump"},
+		NotMCP: "§3.5: dump prints the whole store, every project included, and the " +
+			"door is scoped to one project on purpose. It is the operator's " +
+			"debugging verb at their own terminal.",
 		Short: "Print the whole store as JSON",
 	},
 }

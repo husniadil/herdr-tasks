@@ -58,3 +58,21 @@ func TestEachUngatedReasonIsAboutItsOwnVerb(t *testing.T) {
 		seen[v.Ungated] = v.Name
 	}
 }
+
+// §7.3: a verb the CLI carries and the MCP door does not is a decision about
+// authority, and a decision is only a decision once it is written down. With
+// the tool budget gone there is no count left to appeal to, so the registry
+// must carry the reason itself.
+func TestEveryCLIOnlyVerbSaysWhy(t *testing.T) {
+	for _, v := range All {
+		switch {
+		case v.MCP == "" && v.NotMCP == "":
+			t.Errorf("verb %q is absent from the MCP door with no reason recorded; §7.3 has no tool budget to justify that", v.Name)
+		case v.MCP != "" && v.NotMCP != "":
+			t.Errorf("verb %q is both published as %q and recorded as absent", v.Name, v.MCP)
+		}
+	}
+	if len(MCPTools()) == 0 {
+		t.Fatal("no verb is published on the MCP door at all")
+	}
+}

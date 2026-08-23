@@ -39,12 +39,18 @@ var pinnedTools = []string{
 	"approve",
 	"reject",
 	"goal",
+	"cancel",
+	"update",
 	"note_add",
 	"note_list",
+	"note_get",
+	"note_update",
+	"note_discuss",
 	"note_verdict",
 	"note_promote",
 	"note_fold",
 	"note_unfold",
+	"parked_list",
 	"events",
 	"doctor",
 }
@@ -73,18 +79,37 @@ func TestMCPToolListIsPinned(t *testing.T) {
 // is how `note_promote` came to be a verb a harness with no shell could not
 // reach — an accident of a count rather than a decision about authority.
 //
-// This does NOT yet assert full parity: the door serves the verbs the CLI
-// serves for notes and tasks, not every verb, and closing that gap is the door
-// task README's declared revision is waiting on. What it does hold is that a
-// count never again decides which door a verb reaches.
+// This holds over the whole registry, not a named few: every verb is either
+// published as a tool or carries the reason it is not, and a reason that only
+// restates the absence is not one. The registry test enforces the first half;
+// this one enforces it from the door's side and reads the reasons.
 func TestNoToolBudgetDecidesWhichDoorAVerbReaches(t *testing.T) {
-	for _, name := range []string{"note.promote", "note.fold", "note.unfold"} {
-		v, ok := verbs.ByName(name)
-		if !ok {
-			t.Fatalf("%s is not in the registry", name)
+	published := map[string]bool{}
+	for _, v := range verbs.MCPTools() {
+		published[v.Name] = true
+	}
+	for _, v := range verbs.All {
+		if published[v.Name] {
+			if v.NotMCP != "" {
+				t.Errorf("%s is on the door and also records why it is not", v.Name)
+			}
+			continue
 		}
-		if v.MCP == "" {
-			t.Errorf("%s is on the CLI and not on the MCP door; §7.3 has no tool budget to justify that", name)
+		if v.NotMCP == "" {
+			t.Errorf("%s is on the CLI and not on the MCP door with no reason recorded; §7.3 has no tool budget to justify that", v.Name)
+			continue
+		}
+		// A reason that says only "it is not on the door" restates the
+		// absence. A reason names the authority the absence protects, so it
+		// has to say something the door itself does not already say.
+		low := strings.ToLower(v.NotMCP)
+		for _, empty := range []string{"not on the mcp door", "not an mcp tool", "cli only", "cli-only"} {
+			if strings.Contains(low, empty) {
+				t.Errorf("%s records %q, which restates the absence rather than giving a reason for it", v.Name, v.NotMCP)
+			}
+		}
+		if len(v.NotMCP) < 40 {
+			t.Errorf("%s records %q, which is too short to be the decision §7.3 asks for", v.Name, v.NotMCP)
 		}
 	}
 	// The old rule's ceiling was 16. Passing it is the point: a door that
