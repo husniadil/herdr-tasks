@@ -214,6 +214,46 @@ var untaught = map[string]string{
 	"task.update --depends-on":  "named in the skill's Everything-else roundup, which points rather than teaches",
 }
 
+// toolCalls reads the `<tool> { "arg": ... }` blocks a document shows, and
+// answers with the REGISTRY verb name each one names and the arguments it
+// passes. A tool is named by its bare verb (§7.1), so the lookup is over
+// verbs.MCPTools rather than over the dotted socket name.
+func toolCalls(doc string) map[string][]string {
+	byTool := map[string]string{}
+	for _, v := range verbs.MCPTools() {
+		byTool[v.MCP] = v.Name
+	}
+	out := map[string][]string{}
+	call := regexp.MustCompile(`(?m)^\s*([a-z_]+)\s+\{`)
+	key := regexp.MustCompile(`"([a-z][a-z-]*)"\s*:`)
+	for _, m := range call.FindAllStringSubmatchIndex(doc, -1) {
+		tool := doc[m[2]:m[3]]
+		name, ok := byTool[tool]
+		if !ok {
+			continue
+		}
+		// The object runs to its matching brace; a doc block is small, so a
+		// depth count over the rest of the file is enough and stops at zero.
+		depth, end := 0, m[1]-1
+		for i := m[1] - 1; i < len(doc); i++ {
+			switch doc[i] {
+			case '{':
+				depth++
+			case '}':
+				depth--
+			}
+			if depth == 0 {
+				end = i
+				break
+			}
+		}
+		for _, k := range key.FindAllStringSubmatch(doc[m[1]-1:end+1], -1) {
+			out[name] = append(out[name], k[1])
+		}
+	}
+	return out
+}
+
 // §6.1 in the direction the docs kept getting wrong: a flag a verb OFFERS is a
 // flag the docs have to teach, once the docs have taken on that verb at all.
 // Verbs no document shows are out of scope — README says `htask --help` lists
@@ -222,6 +262,18 @@ var untaught = map[string]string{
 func TestDocsTeachEveryFlagOfTheVerbsTheyShow(t *testing.T) {
 	shown := map[string]map[string]bool{}
 	for _, doc := range docFiles(t) {
+		// A tool call teaches an argument as surely as a --flag does, and the
+		// docs lead with tool calls now: §7.3 makes both doors first-class, so
+		// a guard that only reads shell lines would hold the documents in the
+		// shape of the surface it happens to know.
+		for name, args := range toolCalls(doc) {
+			if shown[name] == nil {
+				shown[name] = map[string]bool{}
+			}
+			for _, a := range args {
+				shown[name][a] = true
+			}
+		}
 		for _, line := range commandLines(doc) {
 			fields := strings.Fields(quoted.ReplaceAllString(line, `""`))
 			for _, cmd := range splitCommands(fields) {

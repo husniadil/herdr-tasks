@@ -19,17 +19,43 @@ tasks — so a number with `--all-projects` is refused rather than guessed at.
 You never say who you are. Your principal is derived from the Herdr pane you
 run in, and the harness is read from Herdr, not from you.
 
+## Reach for the tools, not the shell
+
+Every verb here is an MCP tool on the `herdr-tasks` server AND an `htask`
+subcommand. **Use the tools.** They take typed arguments and answer with a
+document, where the CLI takes a shell line — and a report or a piece of
+evidence is long, holds quotes and newlines, and is exactly what shell quoting
+mangles. Nothing about the tools depends on `htask` being on your PATH either,
+which it may not be.
+
+The CLI is there when you have a shell and want one: piping `--json` into `jq`,
+or a quick look while you are already in a terminal. It carries `--as`, which
+no tool does. Neither surface grants anything the other does not.
+
+Examples below name the tool and its arguments. The `htask` line under each is
+the same call for a shell.
+
 ## Working a task
 
+```
+list    { "ready": true }              # unblocked, unclaimed, waiting for someone
+get     { "id": "12" }                 # the whole thing: criteria, deps, feedback
+claim   { "id": "12" }                 # one winner; CONFLICT means someone else won
+touch   { "id": "12" }                 # renew the lease — see below
+submit  { "id": "12",
+          "report": "what you did and how you verified it",
+          "evidence": ["make test-full: ok, 214 tests"],
+          "evidence-for": ["1: make test-full: ok, 214 tests",
+                           "2: go test ./internal/store -run Sweep -v: PASS"] }
+```
+
+The same thing from a shell, if you have one:
+
 ```sh
-htask task list --ready              # unblocked, unclaimed, waiting for someone
-htask task get 12                    # the whole thing: criteria, deps, feedback
-htask task claim 12                  # one winner; CONFLICT means someone else won
-htask task touch 12                  # renew the lease — see below
+htask task list --ready
 htask task submit 12 --report "what you did and how you verified it" \
                   --evidence "make test-full: ok, 214 tests" \
-                  --evidence-for "1: make test-full: ok, 214 tests" \
-                  --evidence-for "2: go test ./internal/store -run Sweep -v: PASS"
+                  --evidence-for "1: make test-full: ok, 214 tests"
 ```
 
 Submit once. If you then find something to fix — a mutation that proves a test
@@ -37,10 +63,11 @@ unpinned, a commit that lands after the row was written — fix it and correct
 the row rather than leaving its evidence pointing at a head that is no longer
 there:
 
-```sh
-htask task amend 12 --report "what you did, at the head it actually reached" \
-                    --evidence "make test-full at 9f738bf: EXIT=0" \
-                    --evidence-for "1: make test-full at 9f738bf: EXIT=0"
+```
+amend { "id": "12",
+        "report": "what you did, at the head it actually reached",
+        "evidence": ["make test-full at 9f738bf: EXIT=0"],
+        "evidence-for": ["1: make test-full at 9f738bf: EXIT=0"] }
 ```
 
 `amend` replaces the report, replaces any list you name, and leaves the
@@ -52,7 +79,7 @@ the holder may amend, and only while the task is waiting for a verdict. A list
 you do not pass is kept as it was; passing `--evidence` with nothing in it
 clears it.
 
-**Renew the lease at the start of every turn.** `htask task touch <id>` is one
+**Renew the lease at the start of every turn.** `touch { "id": "<id>" }` is one
 call and it is the difference between holding your work and having it swept
 back into the queue while you are still doing it. A lapsed lease is released
 automatically and the task becomes claimable by anyone. Make it the first thing
@@ -104,20 +131,23 @@ it refuses reads as proof that it does. It is a claim. If you cannot name a
 test that FAILS when the behaviour is deleted, you have not verified it —
 either write that test or drop the sentence from the report.
 
-## Through MCP instead of the CLI
+## The tools
 
-The same verbs are MCP tools on the `herdr-tasks` server, named by the verb
-alone: `list`, `get`, `claim`, `touch`, `release`, `submit`, `approve`,
-`reject`, `goal`, `note_add`, `note_list`, `note_verdict`, `create`, `events`,
-`doctor`. Your client shows them under the server's own label, which is what
-tells you whose `claim` you are calling. Every other verb is on the CLI, which
-carries all of them.
+EVERY verb is an MCP tool on the `herdr-tasks` server, named by the verb alone,
+dots turned into underscores: `list`, `get`, `claim`, `touch`, `release`,
+`submit`, `amend`, `approve`, `reject`, `goal`, `create`, `update`, `cancel`,
+`archive`, `delete`, `note_add`, `note_list`, `note_get`, `note_update`,
+`note_discuss`, `note_verdict`, `note_promote`, `note_fold`, `note_unfold`,
+`note_keep`, `note_drop`, `note_delete`, `parked_list`, `parked_resolve`,
+`events`, `sweep`, `doctor`, `dump`. Nothing is on the CLI alone, so a harness
+with no terminal loses no verb. Your client shows them under the server's own
+label, which is what tells you whose `claim` you are calling.
 
 ## Reviewing
 
-```sh
-htask task approve 12
-htask task reject 12 --feedback "no test cites the sweep path"
+```
+approve { "id": "12" }
+reject  { "id": "12", "feedback": "no test cites the sweep path" }
 ```
 
 You may not review your own work: the pane that claimed or submitted a task,
@@ -131,13 +161,14 @@ operator.
 A note is for something you noticed that is not this task and is not yet worth
 committing to.
 
-```sh
-htask note add "the sweep releases a lease without logging why"
-htask note list --status inbox
-htask note list --query sweep               # search bodies and verdict reasons
-htask note discuss 3                        # you are triaging it
-htask note discuss 3 --question "is this ours or herdr's?"   # park it on the operator
-htask note verdict 3 task --reason "small, and it costs us every incident"
+```
+note_add     { "body": "the sweep releases a lease without logging why" }
+note_list    { "status": "inbox" }
+note_list    { "query": "sweep" }           # search bodies and verdict reasons
+note_discuss { "id": "3" }                  # you are triaging it
+note_discuss { "id": "3", "question": "is this ours or herdr's?" }   # park it on the operator
+note_verdict { "id": "3", "verdict": "task",
+               "reason": "small, and it costs us every incident" }
 ```
 
 `verdict` is a **proposal**: file one whenever you have an opinion, without
