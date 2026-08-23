@@ -114,18 +114,32 @@ Leases are still also freed by the bounded timer §11.5 allows and by the
 reconciliation sweep at daemon start. The hook makes the common case immediate
 instead of up to a lease-length late.
 
-## §6.1 — parity between a small MCP surface and the full CLI
+## §6.1 — parity between a small MCP surface and the full CLI (0.2.0-draft to 0.6.0; superseded)
 
-§6.1 says every verb is a CLI subcommand **and** a matching MCP tool. §7.3 says
+**Historical.** This entry records how the two clauses were read while §7.3
+still asked for a tool budget. 0.7.0 removed the budget and 0.10.0 removed the
+last reason a verb had for staying off the door, so the reading below is not
+this plugin's any more. What replaced it is at the end of this entry. Kept
+because a conformance record that deletes its own earlier readings cannot be
+checked against the binaries that shipped under them.
+
+§6.1 said every verb is a CLI subcommand **and** a matching MCP tool. §7.3 said
 keep the MCP tool count to roughly 8–16 and push rarely used verbs to the CLI.
-Read literally, together, they cannot both hold for a plugin with 30 verbs.
+Read literally, together, they could not both hold for a plugin with 30 verbs.
 
-This plugin reads §7.3 as the narrowing rule and §6.1 as the no-drift rule:
-every verb is a CLI subcommand; a chosen subset is also an MCP tool; and where
-a verb appears in both, the name, the arguments and the result shape are
-identical because both doors are generated from one registry
-(`internal/verbs`). The parity test enumerates both surfaces and fails on any
-difference, including a tool taking an argument the CLI does not.
+This plugin read §7.3 as the narrowing rule and §6.1 as the no-drift rule:
+every verb was a CLI subcommand; a chosen subset was also an MCP tool; and
+where a verb appeared in both, the name, the arguments and the result shape
+were identical because both doors are generated from one registry
+(`internal/verbs`).
+
+Since 0.10.0 there is no subset and no narrowing rule: every one of the 32
+verbs is a CLI subcommand and an MCP tool, so §6.1 and §7.3 say the same thing
+and neither has to give. The one registry and the parity test survive
+unchanged and are what the entry was really about — `TestCLIAndMCPSurfacesDoNotDrift`
+still fails on any difference between the two surfaces, including a tool
+taking an argument the CLI does not, and `TestEveryVerbIsOnBothDoors` with
+`TestEveryCLIVerbReachesTheMCPDoor` now fail on an absence from either.
 
 ## §5.5 — `<entity>_events` table naming
 
@@ -412,7 +426,7 @@ here is the half of the rule this plugin answers:
 | §7.1 (0.4.0) | a tool is named by its verb alone, no plugin prefix, because the client's registration label already namespaces it | `internal/verbs/verbs.go` carries the bare `MCP` names; `pinnedTools` in `internal/mcpdoor/parity_test.go` pins them and `TestTheServerNameCarriesTheIdentityAndTheToolsDoNot` refuses any plugin lead; `daemon.Version` is `0.2.0` for the semver-bound list that moved |
 | §5.5 | an events table named after its entity table, written in the same transaction | `internal/store/schema.go:82` `tasks_events`, `:113` `notes_events`, with §5.5's columns; `internal/store/tasks.go:31-51` opens the transaction, appends the event, commits |
 | §5.9 | write-time text bounds with `USAGE`, and a render-time clamp that says what it dropped | `internal/tasks/bounds.go`; `TestEveryTaskFreeTextFieldIsBounded`, `TestEveryNoteFreeTextFieldIsBounded`; the clamp is `internal/daemon/goal.go`, with `TestGoalSaysWhenItDroppedCriteria` and `TestGoalClipsRatherThanOverflows` |
-| §6.1 / §7.3 | CLI total, MCP a pinned subset of roughly 8–16, one registry, a parity test | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestMCPToolCountStaysSmall`; 15 tools today |
+| §6.1 / §7.3 (0.10.0) | CLI total, MCP total, one registry, a parity test that fails in both directions | `internal/verbs/verbs.go` is the one registry; `TestCLIAndMCPSurfacesDoNotDrift`, `TestMCPToolListIsPinned`, `TestEveryVerbIsOnBothDoors`, `TestEveryCLIVerbReachesTheMCPDoor`; 32 verbs, 32 tools. The `roughly 8–16` budget this row asserted until 0.10.0, and `TestMCPToolCountStaysSmall` which held it, are both gone — see the §6.1 entry above |
 | §8.4 spelling | Herdr event names spelled as its schema prints them | `internal/herdrclient/client.go:173` matches either spelling, which is right for a document whose halves disagree; the manifest takes dots because Herdr validates it against dots — the entry above records which is which |
 | §8.4 reaction | `[[events]]` is usable; a reaction self-filters, is idempotent, and complements the sweep | `herdr-plugin.toml` declares `pane.closed` and `pane.exited`; `scripts/on-pane-gone.sh` sweeps by pane, which is both by construction; `TestClosingAPaneReleasesItsLeasesWithoutBeingAsked` drives it against a real Herdr |
 | §11.2 | the schema document's shape, and the flat form too | `internal/herdrclient/client.go` reads `schemas.request.oneOf[].properties.method` and `schemas.event.$defs.EventKind`, and the flat `{requests, events}` form; the protocol number is read for `doctor` and never pinned; `TestSchemaListsCapabilities` |
@@ -459,17 +473,25 @@ own task, and it is what closes this entry.
 `TestMCPToolCountStaysSmall` is gone, earlier than this entry said it would
 be. It asserted the 8–16 range of a §7.3 sentence 0.7.0 removed, and it stood
 until a verb had to be on both doors: the note-fold task put `note_promote`,
-`note_fold` and `note_unfold` on the door, which is 18 tools, and the stale
-test would have failed the change it was written to allow. What replaced it is
-`TestNoToolBudgetDecidesWhichDoorAVerbReaches`, which holds those three verbs
-on both doors and says in its own comment that this is not yet full parity.
-The door serves 18 of 30 verbs now; six note verbs and every remaining
-operator verb are still CLI-only, so the gap above is narrower and open.
+`note_fold` and `note_unfold` on the door, which was 18 tools, and the stale
+test would have failed the change it was written to allow. Its successor,
+`TestNoToolBudgetDecidesWhichDoorAVerbReaches`, held those three verbs on both
+doors while saying in its own comment that this was not yet full parity, and
+it is gone too: 0.10.0 removed the last reason a verb had for staying off the
+door, so there is no absence left for it to read a reason out of.
+
+What holds the clause NOW, and what the paragraph above should be read
+against, is `TestEveryVerbIsOnBothDoors` in `internal/verbs` and
+`TestEveryCLIVerbReachesTheMCPDoor` in `internal/mcpdoor`: nothing may be
+absent from either door, in either direction. The door serves all 32 verbs,
+so the parity half of the 0.7.0 gap is CLOSED. What stays open in this entry
+is only the declaration: `daemon.ContractVersion` is 0.6.0 against a document
+that states 0.10.0, and no one has audited the four revisions between them.
 
 One thing survives the amendment and should not be read as an oversight. The
 `--as` pin does not exist. §7.3's first draft cited
-`TestAsStaysOffTheMCPDoor` as holding it; `grep -rn TestAsStaysOffTheMCPDoor
---include=*.go .` returns nothing. What exists is
+`TestAsStaysOffTheMCPDoor`, which does not exist and never did — `grep -rn
+TestAsStaysOffTheMCPDoor --include=*.go .` returns nothing. What exists is
 `internal/mcpdoor/mcpdoor.go:345`, where `as` carries an `Excluded` reason
 citing §3.2, and `cmd/htask/render_test.go:186-193`, which asserts only that
 every global has exactly one of `Property` or `Excluded` — it would pass just
@@ -497,13 +519,14 @@ What moved, and what answers it here:
 | §7.5 | the operator declaration: `--operator` on the server command, read once, never per call, never inside a pane | `cmd/htask/mcp.go` declares it on the `mcp` command alone and not as a persistent flag; `mcpdoor.Options` carries it from `Serve` into every handler; `checkArgs` refuses the word `operator` as an argument BY NAME, at the door, rather than letting the daemon's generic unknown-argument check stand in for it. `TestTheOperatorDeclarationNeverArrivesPerCall` holds all three — no schema offers it, a call carrying it is refused with `USAGE` before any request is built, and an undeclared door sends `false` — and `TestTheDeclaredDoorIsTheOperatorAndTheUndeclaredOneIsNot` runs the same tool call through both doors. The fourth property is two requirements with a test each: `Daemon.actor` resolves the pane before it reads the declaration, held by `TestAnInPaneDeclaredDoorIsStillThePanesAgent`, which also asserts the door really sent both facts so the test cannot pass on a door that quietly dropped the flag; and `Serve` refuses to START a declared door carrying `HERDR_PANE_ID`, held by `TestServeRefusesADeclaredDoorInsideAPane` across all four combinations of pane and declaration |
 | §7.3 | the parity MUST and the `--as` exclusion rest on the process-bound identity rule instead of on two arguments that contradicted each other | `TestParityAndTheAsExclusionRestOnTheSameArgument` fails if either half stands without the other, or if either stands without the rule; the `as` entry in `mcpdoor.Globals` now records the rule rather than the old "no pane to derive one from" reason |
 
-The parity gap above is untouched by this. This plugin still serves 13 of its
-30 verbs and every operator verb is still off the door, so the sharpest
-symptom note 60 measured — a paneless harness that can approve a task and
-cannot promote a note — is still here. What changed is that it is now safe to
+The parity gap above was untouched by this. At 0.8.0 this plugin served 13 of
+its 30 verbs and every operator verb was off the door, so the sharpest symptom
+note 60 measured — a paneless harness that could approve a task and could not
+promote a note — was still here. What 0.8.0 changed is that it became safe to
 close: a door that reaches those verbs is either a pane's agent, a declared
-operator, or `none`, and `none` is refused them. Closing it is the door task's
-work and it may now start.
+operator, or `none`, and its principal is settled before any call arrives.
+0.10.0 closed it; the door serves all 32 verbs, and `none` is no longer
+refused an operator verb, it is recorded as having performed one.
 
 One consequence recorded rather than left to be rediscovered. `mcpdoor` grew
 `withDeclarationHint`, which appends the missing declaration to a `FORBIDDEN`
@@ -597,10 +620,12 @@ The `NotMCP` field is gone rather than kept empty. Every one of the eight
 reasons it held said a form of "this authority is the operator's", so none of
 them survived the amendment, and a field with no valid reason left to hold is
 dead weight the next drafter would fill in badly. The two tests task 77 added
-to police those reasons — `TestEveryCLIOnlyVerbSaysWhy` and
-`TestNoToolBudgetDecidesWhichDoorAVerbReaches` — are replaced by the stronger
-pair named earlier in this file's 0.7.0 entry: nothing may be absent, in
-either direction, so there is no reason left to police.
+to police those reasons — `TestEveryCLIOnlyVerbSaysWhy` in `internal/verbs`
+and `TestNoToolBudgetDecidesWhichDoorAVerbReaches` in `internal/mcpdoor` —
+are gone with it, replaced one for one by `TestEveryVerbIsOnBothDoors` and
+`TestEveryCLIVerbReachesTheMCPDoor`. Those ask for more, not less: nothing may
+be absent from either door, in either direction, so there is no absence left
+for a reason to justify.
 
 Sibling plugins are deliberately untouched. herdr-mail's `retire` and `dump`
 and herdr-dispatch's `stop` are CLI-only for reasons of their own, and whether

@@ -5,6 +5,41 @@ the shared plugin contract makes the CLI, the MCP tool list, the JSON shapes
 and the error codes stable within a minor and changeable between minors with an
 entry here, so every entry says what moved and what a caller does about it.
 
+## 0.5.0 — 2026-08-23
+
+Additive for every caller; nothing shipped changes meaning. An agent gains
+verbs it was refused before, so a caller that relied on those refusals to keep
+an agent out has to move that rule into the policy gate (§9).
+
+Ten new MCP tools, which is every verb the door did not carry: `archive`,
+`delete`, `note_keep`, `note_drop`, `note_delete`, `parked_resolve`, `sweep`
+and `dump`. §7.3 admits no CLI-only verb, so the CLI and the MCP door now
+serve the same 32 verbs. No tool was renamed or removed; the names already on
+the list have not moved since 0.2.0.
+
+`note promote`, `note fold`, `note unfold`, `note keep`, `note drop` and
+`parked resolve` no longer refuse a principal that is not the operator. The
+authority is still the operator's; it is advice an agent confirms with the
+user before acting, and the plugin does not check that the confirmation
+happened. A caller that wants one of these verbs genuinely withheld from a
+principal configures the policy gate to deny it — that was always where
+withholding belonged, and it is now the only place it lives.
+
+Two new `--json` fields, both added and neither repurposed. An event whose
+verb is the operator's carries `detail.on_behalf_of_operator: true` when the
+actor is not the operator; the actor itself is always the calling principal
+and is never recorded as `human`. A parked action carries `resolved_by`, the
+principal that ran or rejected it, which §9.3 needs because resolving re-runs
+the verb under the ORIGINAL subject.
+
+CLI help and MCP tool descriptions now carry a `Who:` line saying who may call
+a verb and what an agent owes before calling it. Same text on both doors, from
+the one registry.
+
+The store moves to schema version 8 for the `resolved_by` column. A store this
+daemon has opened is refused by an older one, which is the §5.2 rule and not
+new.
+
 ## 0.4.0 — 2026-08-23
 
 Additive for every caller; nothing shipped changes meaning.

@@ -2,6 +2,7 @@ package main_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -413,6 +414,172 @@ func TestTheSkillTeachesTheConfirmationDuty(t *testing.T) {
 	} {
 		if !strings.Contains(flat, phrase) {
 			t.Errorf("skills/tasks/SKILL.md does not teach the confirmation duty §3.7 relies on: %q is missing", phrase)
+		}
+	}
+}
+
+// A doc that cites a test by name is making a promise about what is enforced,
+// and the citation is the only thing a reader can check it by. This task was
+// rejected for one: docs/contract-notes.md named a test as the current
+// guarantee for §7.3 in the same commit that deleted it, thirty lines below a
+// paragraph asserting the opposite fact. Nothing was red, because no test
+// reads the docs' citations.
+//
+// A citation is allowed to name a test that no longer exists — this file is a
+// conformance record, and deleting its earlier readings would make it
+// uncheckable against the binaries that shipped under them. What it may not
+// do is name one SILENTLY: the SENTENCE carrying the citation has to say the
+// test is gone, so a reader meets the citation and its status in one breath.
+//
+// Sentence, not paragraph, and that is the whole aim of this test. The
+// paragraph that got this task rejected opened with "TestMCPToolCountStaysSmall
+// is gone" and then, four sentences later, named its successor as what holds
+// today — in a commit that deleted the successor too. A marker anywhere in the
+// paragraph would have passed it.
+func TestEveryTestCitedInTheDocsExistsOrIsMarkedGone(t *testing.T) {
+	live := liveTestNames(t)
+	// Words that make a paragraph a record of something that was, rather than
+	// a claim about what holds now.
+	// Deliberately NOT "replaced": "X is replaced by Y" marks X as gone, but
+	// "what replaced it is Y" asserts Y is live, and the sentence that got
+	// this task rejected was the second kind. A marker word has to mean gone
+	// in every sentence it can appear in, or it excuses the citation it was
+	// meant to catch.
+	past := []string{"gone", "deleted", "no longer exists", "does not exist",
+		"no longer", "returns nothing", "superseded", "was removed", "is removed"}
+
+	// NOT docFiles: that set is README, the skill and the contract, and the
+	// file this test exists for — the conformance record — was never in it,
+	// which is the reason nothing was red. Every tracked markdown file is
+	// scanned, because a citation is a promise wherever it is written.
+	for name, doc := range everyMarkdownFile(t) {
+		for _, sentence := range sentences(doc) {
+			lower := strings.ToLower(sentence)
+			marked := false
+			for _, w := range past {
+				if strings.Contains(lower, w) {
+					marked = true
+					break
+				}
+			}
+			for _, cited := range citedTests.FindAllStringSubmatch(sentence, -1) {
+				if live[cited[1]] || marked {
+					continue
+				}
+				t.Errorf("%s cites %s as something that holds, and no such test exists. "+
+					"Either the citation is stale, or this sentence has to say the test is gone:\n  %s",
+					name, cited[1], sentence)
+			}
+		}
+	}
+}
+
+// citedTests matches a backticked Go test name in prose.
+var citedTests = regexp.MustCompile("`(Test[A-Za-z0-9_]+)`")
+
+// liveTestNames is every test function this repository defines.
+func liveTestNames(t *testing.T) map[string]bool {
+	t.Helper()
+	out, err := exec.Command("git", "-C", filepath.Join("..", ".."), "ls-files", "*_test.go").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	decl := regexp.MustCompile(`(?m)^func (Test[A-Za-z0-9_]+)\(`)
+	names := map[string]bool{}
+	for _, f := range strings.Fields(string(out)) {
+		body, err := os.ReadFile(filepath.Join("..", "..", f))
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		for _, m := range decl.FindAllStringSubmatch(string(body), -1) {
+			names[m[1]] = true
+		}
+	}
+	if len(names) == 0 {
+		t.Fatal("no test functions found; the scan is not reading the tree")
+	}
+	return names
+}
+
+// sentences splits flattened prose on sentence ends and on the cell walls of a
+// markdown table, which is one line but many claims.
+func sentences(doc string) []string {
+	flat := strings.Join(strings.Fields(doc), " ")
+	for _, sep := range []string{". ", "; ", " | ", ": "} {
+		flat = strings.ReplaceAll(flat, sep, "\x00")
+	}
+	out := []string{}
+	for _, s := range strings.Split(flat, "\x00") {
+		if s = strings.TrimSpace(s); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// everyMarkdownFile reads every tracked .md file in the repository.
+func everyMarkdownFile(t *testing.T) map[string]string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", filepath.Join("..", ".."), "ls-files", "*.md").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	docs := map[string]string{}
+	for _, f := range strings.Fields(string(out)) {
+		body, err := os.ReadFile(filepath.Join("..", "..", f))
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		docs[f] = string(body)
+	}
+	if len(docs) == 0 {
+		t.Fatal("no markdown files found; the scan is not reading the tree")
+	}
+	if _, ok := docs[filepath.Join("docs", "contract-notes.md")]; !ok {
+		t.Fatal("docs/contract-notes.md is not in the scan; it is the file this test was written for")
+	}
+	return docs
+}
+
+// The other half of the same rejection. Alongside the dead citation, the same
+// entry asserted "the door serves 18 of 30 verbs now" and "every remaining
+// operator verb is still CLI-only", thirty lines below a paragraph saying the
+// opposite. `TestEveryVerbIsOnBothDoors` makes both unconditionally false, so
+// a doc that says them is not out of date, it is wrong.
+//
+// Only PRESENT-tense assertion shapes are listed. This file is a conformance
+// record and has to be able to say what was true at 0.7.0, so the discipline
+// this enforces is "write history in the past tense", which is a discipline a
+// reader benefits from anyway. `--as` is a flag rather than a verb and sibling
+// plugins are not this one, so a sentence naming either is left alone.
+func TestNoDocClaimsThisPluginsDoorIsPartial(t *testing.T) {
+	// Every entry is present tense BY CONSTRUCTION, so a sentence trips it
+	// only by asserting something about today. "served 13 of its 30 verbs"
+	// and "was off the door" are records and pass, which is the point: the
+	// file has to be able to say what was true at 0.7.0. An earlier draft of
+	// this list carried "of 30 verbs" and "pinned subset" and flagged three
+	// correctly past-tense sentences — a count is not a tense, and a guard
+	// that fires on honest history is one someone will delete.
+	falseToday := []string{
+		"is still off the door", "are still off the door",
+		"is off the door", "are off the door",
+		"still cli-only", "is cli-only", "are cli-only",
+		"verbs now", "tools now",
+	}
+	for name, doc := range everyMarkdownFile(t) {
+		for _, sentence := range sentences(doc) {
+			lower := strings.ToLower(sentence)
+			if strings.Contains(lower, "`--as`") || strings.Contains(lower, "herdr-mail") ||
+				strings.Contains(lower, "herdr-dispatch") {
+				continue
+			}
+			for _, claim := range falseToday {
+				if strings.Contains(lower, claim) {
+					t.Errorf("%s says %q in the present tense, and §7.3 admits no CLI-only verb; "+
+						"every one of this plugin's verbs is on both doors. Write it in the past "+
+						"tense if it is a record of what was:\n  %s", name, claim, sentence)
+				}
+			}
 		}
 	}
 }
