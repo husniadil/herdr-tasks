@@ -258,7 +258,7 @@ func hTaskApprove(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 
 func hTaskReject(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	return d.transition(req, func(t *tasks.Task) (tasks.Event, error) {
-		return tasks.Reject(t, by, argString(req.Args, "feedback"), d.Now())
+		return tasks.Reject(t, by, argString(req.Args, "feedback"), d.Now(), d.Cfg().LeaseMS())
 	})
 }
 

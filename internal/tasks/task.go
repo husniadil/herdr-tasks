@@ -589,7 +589,7 @@ func Approve(t *Task, by Actor, now int64) (Event, error) {
 // Reject sends the work back with feedback. Recusal applies (§6.6). A rejected
 // task whose claim was already swept returns to todo, because a doing row that
 // nobody holds cannot be claimed.
-func Reject(t *Task, by Actor, feedback string, now int64) (Event, error) {
+func Reject(t *Task, by Actor, feedback string, now int64, leaseMS int64) (Event, error) {
 	if strings.TrimSpace(feedback) == "" {
 		return Event{}, codes.New(codes.Usage, "feedback is required to reject")
 	}
@@ -604,6 +604,9 @@ func Reject(t *Task, by Actor, feedback string, now int64) (Event, error) {
 	}
 	if t.ClaimedBy != "" {
 		t.Status = StatusDoing
+		// Submit ended the lease; holding the task again means holding a
+		// lease again, or a worker that dies now is never swept (§6.5).
+		t.LeaseUntil = now + leaseMS
 	} else {
 		t.Status = StatusTodo
 	}

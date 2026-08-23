@@ -120,7 +120,7 @@ func TestEveryTaskFreeTextFieldIsBounded(t *testing.T) {
 			return err
 		},
 		"feedback": func() error {
-			_, err := Reject(submitted(), human, over(MaxText), t0+3)
+			_, err := Reject(submitted(), human, over(MaxText), t0+3, lease)
 			return err
 		},
 		"release note": func() error {

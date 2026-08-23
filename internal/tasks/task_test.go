@@ -335,14 +335,33 @@ func TestApproveByHumanAlwaysAllowed(t *testing.T) {
 // §6.6: reject is a review verdict too, and recuses identically.
 func TestRejectReturnsToDoingWithFeedback(t *testing.T) {
 	task := submitted(t)
-	if got := codeOf(t, mustErr(Reject(task, agent("wF:p1", "claude"), "no test", t0+20))); got != codes.Forbidden {
+	if got := codeOf(t, mustErr(Reject(task, agent("wF:p1", "claude"), "no test", t0+20, lease))); got != codes.Forbidden {
 		t.Fatalf("self-review reject code = %q, want FORBIDDEN", got)
 	}
-	if _, err := Reject(task, agent("wF:p2", "codex"), "no test cited", t0+21); err != nil {
+	if _, err := Reject(task, agent("wF:p2", "codex"), "no test cited", t0+21, lease); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	if task.Status != StatusDoing || task.Feedback != "no test cited" {
 		t.Fatalf("bad reject result: %+v", task)
+	}
+}
+
+// A rejected task is held again, so it is leased again: submit ended the
+// lease, and a worker that dies after the reject must be sweepable (§6.5),
+// not claimed forever by a pane nobody can reach.
+func TestRejectRenewsTheLeaseItHandsBack(t *testing.T) {
+	task := submitted(t)
+	if task.LeaseUntil != 0 {
+		t.Fatalf("submit left a lease: %d", task.LeaseUntil)
+	}
+	if _, err := Reject(task, human, "again", t0+21, lease); err != nil {
+		t.Fatalf("reject: %v", err)
+	}
+	if task.LeaseUntil != t0+21+lease {
+		t.Fatalf("lease_until = %d, want %d", task.LeaseUntil, t0+21+lease)
+	}
+	if LeaseExpired(task, t0+21+lease+1) != true {
+		t.Fatal("a rejected task's lease never lapses")
 	}
 }
 
@@ -351,7 +370,7 @@ func TestRejectReturnsToDoingWithFeedback(t *testing.T) {
 func TestRejectOfSweptClaimReturnsToTodo(t *testing.T) {
 	task := submitted(t)
 	task.ClaimedBy, task.LeaseUntil = "", 0
-	if _, err := Reject(task, human, "stale", t0+21); err != nil {
+	if _, err := Reject(task, human, "stale", t0+21, lease); err != nil {
 		t.Fatalf("reject: %v", err)
 	}
 	if task.Status != StatusTodo {
@@ -361,7 +380,7 @@ func TestRejectOfSweptClaimReturnsToTodo(t *testing.T) {
 
 func TestRejectRequiresFeedback(t *testing.T) {
 	task := submitted(t)
-	if got := codeOf(t, mustErr(Reject(task, human, " ", t0+21))); got != codes.Usage {
+	if got := codeOf(t, mustErr(Reject(task, human, " ", t0+21, lease))); got != codes.Usage {
 		t.Fatalf("code = %q, want USAGE", got)
 	}
 }
