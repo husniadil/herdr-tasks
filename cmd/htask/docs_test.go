@@ -608,6 +608,40 @@ func TestTheChangelogHasAnEntryForThisVersion(t *testing.T) {
 	}
 }
 
+// The same promise, one shipped value over. `doctor --json` carries the
+// contract revision this binary declares, and §13.3's entry rule covers what a
+// consumer can pin on — the revision is one of those, since a caller reads it
+// to decide which contract's rules the daemon it is talking to answers to.
+// Task 89 moved it from 0.6.0 to 0.10.0 with a green full gate and no word in
+// the changelog, which is the same shape TestTheChangelogHasAnEntryForThisVersion
+// closed for daemon.Version, so this is the same mechanism aimed at the second
+// value.
+//
+// A bare version string is not the anchor: "0.6.0" appears in this file as a
+// RELEASE heading, and the entry that records a move names the version it
+// moved FROM as well as the one it moved to. Either would let a guard that
+// only asks "is this string in the file, near that phrase" pass a move BACK to
+// a version some other sentence already mentions. So what is pinned is one
+// clause that can only be about the value this binary declares TODAY, with the
+// revision inside it — which is what makes the guard fire in both directions:
+// neither an upward nor a downward move can borrow a string it did not write.
+func TestTheChangelogHasALineForTheDeclaredContractRevision(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "CHANGELOG.md"))
+	if err != nil {
+		t.Fatalf("read CHANGELOG.md: %v", err)
+	}
+	clause := "the declared contract revision is now " + daemon.ContractVersion
+	// The changelog wraps its prose, so the clause can carry a newline where a
+	// space is; compare on collapsed whitespace.
+	flat := strings.Join(strings.Fields(string(body)), " ")
+	if !strings.Contains(strings.ToLower(flat), clause) {
+		t.Errorf("CHANGELOG.md has no entry saying %q, and this binary declares contract "+
+			"revision %s in `doctor --json`. §13.3 makes a change a consumer can pin on legal "+
+			"between minors only with an entry here, and the revision moved without one",
+			clause, daemon.ContractVersion)
+	}
+}
+
 // The reviewer's condition on the superseded §6.1 entry, kept as a condition
 // rather than a promise. That entry records how §6.1 and §7.3 were read while
 // §7.3 still asked for a tool budget, and it is KEPT: a conformance record

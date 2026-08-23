@@ -5,6 +5,15 @@ the shared plugin contract makes the CLI, the MCP tool list, the JSON shapes
 and the error codes stable within a minor and changeable between minors with an
 entry here, so every entry says what moved and what a caller does about it.
 
+## Unreleased
+
+The declared contract revision is now 0.10.0, up from 0.6.0. It is the value
+`doctor --json` reports as `contract`, and a caller that reads it to decide
+which contract's rules this daemon answers to sees a different answer than it
+did under 0.6.0. Nothing else moved with it: no verb, no `--json` field and no
+error code changed meaning, so a caller that does not read the revision has
+nothing to do.
+
 ## 0.6.0 — 2026-08-23
 
 Additive for every caller; nothing shipped changes meaning. A caller that
