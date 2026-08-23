@@ -786,6 +786,29 @@ what it asserts and not a compiler failing on an unused import.
 | §11.5's bounded-timer half | `TestTheBoundedTimerSweepsWithoutBeingAsked` | `d.Sweep()` dropped from `sweepLoop`'s tick |
 | §13.4's doctor half | `TestDoctorDeclaresTheContractRevision` | `Contract: ""` in `internal/daemon/doctor.go` |
 
+### Two of these pins were re-cut after a mutation survived
+
+The table above is the second cut. A review pass mutated the pins themselves
+rather than re-reading the report of them, and two of the new tests turned out
+to be aimed short. Both are recorded here because a pin that misses the shape
+its § most directly forbids is worse than no pin: it reads as coverage.
+
+- **§4.3.** The first `keyDeclaration` pattern read forward from the words
+  `PRIMARY KEY`, so it caught a table-level clause and every index and missed
+  the COLUMN-level form, where the name sits BEFORE the words. `pane_id TEXT
+  PRIMARY KEY` — the most direct shape §4.3 forbids — survived. The pattern
+  now matches the column name that leads such a line.
+- **§14.** `sqlIdentifier` required `ADD COLUMN` at the head of a line.
+  Migrations in this store are one-line Go strings, so `ALTER TABLE tasks ADD
+  COLUMN instance TEXT;` sits mid-line and every column the store has added
+  since its first release was unscanned. `ADD COLUMN` is now matched wherever
+  it appears.
+
+One survival in that pass was itself false: a mutation whose anchor text did
+not exist changed nothing and was reported as a survivor. Every mutation in
+both rounds is now gated on the file actually differing as well as on
+`go build ./...` succeeding, which is the same no-op trap task 86 recorded.
+
 ### The citation group, which was the interesting half
 
 Task 88 was asked to take this group first and report what it found, because a

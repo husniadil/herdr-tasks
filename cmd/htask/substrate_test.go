@@ -141,9 +141,12 @@ func schemaSQL(t *testing.T) string {
 	return string(body)
 }
 
-// keyDeclaration matches the three places a column can become a key: a
-// PRIMARY KEY clause, a UNIQUE index, and a plain index.
-var keyDeclaration = regexp.MustCompile(`(?i)PRIMARY KEY[^;\n]*|CREATE\s+(?:UNIQUE\s+)?INDEX[^;]*`)
+// keyDeclaration matches the four places a column can become a key: a
+// table-level PRIMARY KEY clause, a COLUMN-level one (where the column name
+// sits BEFORE the words, which the first cut of this pattern read past —
+// `pane_id TEXT PRIMARY KEY` is the most direct shape §4.3 forbids and it
+// survived), a UNIQUE index, and a plain index.
+var keyDeclaration = regexp.MustCompile(`(?im)^\s*[a-z_][a-z0-9_]*[^,;\n]*PRIMARY KEY[^;\n]*|PRIMARY KEY[^;\n]*|CREATE\s+(?:UNIQUE\s+)?INDEX[^;]*`)
 
 // §4.3: `workspace_id`, `tab_id` and `pane_id` are context, not scope. A row
 // MAY carry them for display and navigation and MUST NOT be partitioned by
@@ -185,8 +188,12 @@ var herdrsOwnSession = map[string]bool{
 
 // sqlIdentifier matches a declared table, column, or index name: the name at
 // the head of its own line in a CREATE TABLE body, and the names CREATE
-// TABLE / INDEX and ALTER TABLE ADD COLUMN introduce.
-var sqlIdentifier = regexp.MustCompile(`(?im)^\s*(?:CREATE\s+TABLE\s+|CREATE\s+(?:UNIQUE\s+)?INDEX\s+|ADD\s+COLUMN\s+)?([a-z_][a-z0-9_]*)\s`)
+// TABLE / INDEX and ALTER TABLE ADD COLUMN introduce. ADD COLUMN is matched
+// wherever it appears and not only at a line head: a migration is a one-line
+// Go string, so `ALTER TABLE tasks ADD COLUMN instance TEXT;` sits mid-line,
+// and the first cut of this pattern read past every column the store has
+// added since its first release.
+var sqlIdentifier = regexp.MustCompile(`(?im)^\s*(?:CREATE\s+TABLE\s+|CREATE\s+(?:UNIQUE\s+)?INDEX\s+)?([a-z_][a-z0-9_]*)\s|ADD\s+COLUMN\s+([a-z_][a-z0-9_]*)`)
 
 // §14: the forbidden nouns appear in no schema and no verb name. This is a
 // glossary MUST with real teeth — `row`, `card` and `instance` are exactly
@@ -196,6 +203,9 @@ func TestTheForbiddenNounsAreInNoSchemaOrVerbName(t *testing.T) {
 	// comments explain the design and are allowed the English words.
 	for _, m := range sqlIdentifier.FindAllStringSubmatch(schemaSQL(t), -1) {
 		name := m[1]
+		if name == "" {
+			name = m[2]
+		}
 		if herdrsOwnSession[name] {
 			continue
 		}
