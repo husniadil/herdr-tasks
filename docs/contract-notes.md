@@ -564,25 +564,37 @@ being first-class is a statement about which verbs it serves, not about how
 bytes reach it; the transport question a first-class surface raises is recorded
 separately and is not answered by anything in 0.7.0.
 
-## 0.9.0 binds a MUST to a test, and this repository does not yet meet it
+## 0.9.0 binds a MUST to a test, and this repository did not yet meet it (0.9.0 to 0.10.0; superseded)
 
-The preamble now says a MUST is not satisfied by code that behaves correctly
-today, only by a test that FAILS when the behaviour is removed. That is a
-conformance requirement over every other MUST in the document, and nothing has
-audited this plugin against it. The two tests written with the amendment,
-`TestAMustIsNotSatisfiedUntilATestFailsWithoutIt` and
-`TestTheSkillTeachesWhichTestPinsWhichClaim`, pin the amendment's own text and
-nothing else; they do not establish that every MUST here has a pin, and they
-are not evidence that it does.
+**Historical.** This entry records what was true between 0.9.0's amendment and
+the sweep it asked for. The sweep has since run and its answer is later in this
+file; the pointer is at the end of this entry. Kept because a conformance
+record that deletes its own earlier readings cannot be checked against the
+binaries that shipped under them.
 
-So the gap is recorded rather than closed: the sweep that names each MUST and
-the test that fails without it is its own task, and until it runs, this plugin
-follows 0.9.0's rule for new work without claiming conformance for old. The
-declaration stays where the 0.7.0 entry above left it. Deliberately out of
+The preamble added in 0.9.0 says a MUST is not satisfied by code that behaves
+correctly today, only by a test that FAILS when the behaviour is removed. That
+is a conformance requirement over every other MUST in the document, and at
+0.9.0 nothing had audited this plugin against it. The two tests written with
+the amendment, `TestAMustIsNotSatisfiedUntilATestFailsWithoutIt` and
+`TestTheSkillTeachesWhichTestPinsWhichClaim`, pinned the amendment's own text
+and nothing else; they did not establish that every MUST here had a pin, and
+they were not evidence that it did.
+
+So the gap was recorded rather than closed: the sweep that names each MUST and
+the test that fails without it was made its own task, and until it ran, this
+plugin followed 0.9.0's rule for new work without claiming conformance for old.
+The declaration stayed where the 0.7.0 entry above left it. Deliberately out of
 scope of the amendment and named here so nobody reads their absence as a
 decision: a repo-level scanner that walks for unguarded refusals, and the
 verification lane's mutation condition, which lives in a sibling plugin and
 belongs on that board.
+
+What replaced it: the sweep ran under task 86 and its result is the entry
+below, "The 0.9.0 sweep: every MUST, and the test that fails without it". That
+entry, not this one, is this plugin's current answer to 0.9.0's rule. The two
+items named as out of scope in the paragraph above were not part of the sweep
+and are still open.
 
 ## 0.10.0 makes an operator verb advice, and this plugin follows it
 
