@@ -683,9 +683,11 @@ are gone with it, replaced one for one by `TestEveryVerbIsOnBothDoors` and
 be absent from either door, in either direction, so there is no absence left
 for a reason to justify.
 
-Sibling plugins are deliberately untouched. herdr-mail's `retire` and `dump`
-and herdr-dispatch's `stop` are CLI-only for reasons of their own, and whether
-this direction reaches them is a decision on their boards, not this one.
+Sibling plugins are deliberately untouched, and where each one stands is its
+own board's decision rather than this one's. herdr-dispatch's `stop` is
+CLI-only for a reason of its own. herdr-mail has taken this direction: every
+verb it serves is on its door, `dump` included, with the confidentiality
+boundary that verb crosses enforced in its daemon where both doors reach it.
 
 ## The 0.9.0 sweep: every MUST, and the test that fails without it
 

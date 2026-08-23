@@ -608,6 +608,29 @@ func TestTheChangelogHasAnEntryForThisVersion(t *testing.T) {
 	}
 }
 
+// The README says the binary version too, in the §7.1/§13.3 paragraph whose
+// whole job is to tell a client which release its wired-in tool names are
+// semver-bound against. That sentence drifted a release behind at 0.6.0 with
+// nothing red, because daemon.Version was bound to a CHANGELOG heading and to
+// nothing in the README.
+//
+// The clause is anchored on "The binary is **<version>**" rather than on the
+// bare number, because the same sentence names the version it moved FROM and
+// the file names older releases all over. A guard that only asked whether the
+// number appears somewhere would pass a sentence still naming the old one.
+func TestTheREADMESaysTheBinaryVersionThisIs(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatalf("read README.md: %v", err)
+	}
+	want := "The binary is **" + daemon.Version + "**"
+	if !strings.Contains(string(body), want) {
+		t.Errorf("README.md does not say %q, and this binary is %s. That sentence tells a "+
+			"client which release its tool names are bound to, so a stale one sends it to "+
+			"the wrong contract for the names it has wired in", want, daemon.Version)
+	}
+}
+
 // The same promise, one shipped value over. `doctor --json` carries the
 // contract revision this binary declares, and §13.3's entry rule covers what a
 // consumer can pin on — the revision is one of those, since a caller reads it

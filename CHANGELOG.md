@@ -10,9 +10,18 @@ entry here, so every entry says what moved and what a caller does about it.
 The declared contract revision is now 0.10.0, up from 0.6.0. It is the value
 `doctor --json` reports as `contract`, and a caller that reads it to decide
 which contract's rules this daemon answers to sees a different answer than it
-did under 0.6.0. Nothing else moved with it: no verb, no `--json` field and no
-error code changed meaning, so a caller that does not read the revision has
-nothing to do.
+did under 0.6.0. No verb and no error code moved with it, so a caller that does
+not read the revision has nothing to do about this one.
+
+`claimed_by_harness` is absent from a task nobody holds. Releasing, sweeping and
+cancelling clear the whole §3.4 claim snapshot instead of four of its five
+fields, so a row whose `claimed_by` is empty no longer carries the previous
+holder's harness beside it. The field is `omitempty`, so what a caller sees is
+the key disappearing rather than emptying. Nothing read it wrongly before —
+the human renderer checks `claimed_by` first and recusal turns on the session —
+so a caller that reads it on a row somebody holds is unaffected, and one that
+reads it on a released row should read it as absent, which is what it always
+meant.
 
 ## 0.6.0 — 2026-08-23
 
