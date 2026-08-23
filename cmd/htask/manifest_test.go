@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/husniadil/herdr-tasks/internal/daemon"
+	"github.com/husniadil/herdr-tasks/internal/verbs"
 )
 
 // commandLine matches one manifest argv: `command = ["./bin/htask", "sweep"]`.
@@ -280,5 +283,51 @@ func TestManifestDeclaresStartupAndTheLifecycleActions(t *testing.T) {
 			t.Errorf("the manifest has no [[actions]] %q; Herdr has no shutdown hook, so it is "+
 				"the only way to turn this plugin off (§2.4)", want)
 		}
+	}
+}
+
+// §13.3: the manifest's version is what Herdr shows for this plugin and
+// `htask version` is what the binary says it is. Two numbers for one build is
+// one of them being wrong, and the manifest is the copy nothing in the code
+// path reads — so it drifted to 0.3.0 while the binary said 0.6.0.
+func TestManifestVersionIsTheBinaryVersion(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read the manifest: %v", err)
+	}
+	m := regexp.MustCompile(`(?m)^version\s*=\s*"([^"]*)"`).FindStringSubmatch(string(body))
+	if m == nil {
+		t.Fatal("the manifest declares no version")
+	}
+	if m[1] != daemon.Version {
+		t.Fatalf("the manifest says %q and the binary says %q", m[1], daemon.Version)
+	}
+}
+
+// §9.4: the README carries the gated verb list so a future policy plugin can
+// name them. A list written by hand beside a registry is a list that goes
+// stale — tasks.amend was gated and the block never learned about it.
+func TestReadmeListsEveryGatedVerb(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "README.md"))
+	if err != nil {
+		t.Fatalf("read the README: %v", err)
+	}
+	block := regexp.MustCompile("(?s)The gated verbs, for a future policy plugin to name:\n\n```\n(.*?)```").
+		FindStringSubmatch(string(body))
+	if block == nil {
+		t.Fatal("the README no longer carries the gated verb block")
+	}
+	listed := map[string]bool{}
+	for _, f := range strings.Fields(block[1]) {
+		listed[f] = true
+	}
+	for _, v := range verbs.GatedVerbs() {
+		if !listed[v] {
+			t.Errorf("the README's gated verb list is missing %s", v)
+		}
+		delete(listed, v)
+	}
+	for v := range listed {
+		t.Errorf("the README lists %s, which the registry does not gate", v)
 	}
 }
