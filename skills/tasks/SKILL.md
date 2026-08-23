@@ -135,6 +135,21 @@ htask note promote 3 --to-project ../sibling-repo
 `--to-project` is for a note whose work belongs to a different repository: the
 task lands on that project's board, the note stays on this one, and `note get`
 names both, so the trail from idea to task survives crossing projects.
+
+Several notes are often one change. The operator folds the rest into the task
+one of them is promoted into, or into a task that already existed when the
+later note was filed:
+
+```sh
+htask note promote 3 --also 4 --also 5    # one task, all three notes end on it
+htask note fold 6 --into 12               # the note was filed after the task
+htask note unfold 6                       # the fold was a mistake
+```
+
+A folded note ends in `task` pointing at the task that carries it, so it stops
+reading as undecided on `note list`. Folding a note whose own task exists is
+refused, naming that task. These are operator verbs too: propose the fold in a
+verdict, do not perform it.
 Amend your own verdict freely until the operator acts — and the wording of a
 note you wrote, the same way, until they decide it:
 

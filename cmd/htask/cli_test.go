@@ -1595,6 +1595,40 @@ func TestNotePromoteWithoutTheFlagStaysOnTheSameProject(t *testing.T) {
 	}
 }
 
+// A board that said "Promoted to" for a folded note would lose the only
+// difference that matters: which note the task was actually made from. And the
+// fold has to be visible through the CLI at all, since that is where the
+// operator does this bookkeeping.
+func TestNoteFoldReadsDifferentlyFromAPromotion(t *testing.T) {
+	w := newWorld(t)
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "the sweep is quiet")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "filed after the task")
+	w.json(w.env(), "note", "promote", "1")
+	w.json(w.env(), "note", "fold", "2", "--into", "1")
+
+	origin, _, status := w.run(w.env(), "note", "get", "1")
+	if status != 0 || !strings.Contains(origin, "Promoted to task ") {
+		t.Fatalf("the promoted note does not read as promoted: %q", origin)
+	}
+	folded, _, status := w.run(w.env(), "note", "get", "2")
+	if status != 0 || !strings.Contains(folded, "Folded into task ") {
+		t.Fatalf("the folded note does not read as folded: %q", folded)
+	}
+	// The origin does not unfold; the folded one does, and comes back to the
+	// board rather than being deleted to get there.
+	if _, stderr, status := w.run(w.env(), "note", "unfold", "1"); status == 0 {
+		t.Fatalf("unfolding the note the task was made from was allowed: %q", stderr)
+	}
+	doc := w.json(w.env(), "note", "unfold", "2")
+	note, _ := doc["note"].(map[string]any)
+	if note["status"] != "inbox" {
+		t.Fatalf("unfold left the note %v, want inbox", note["status"])
+	}
+	if _, still := note["task_id"]; still {
+		t.Fatalf("unfold left the note pointing at %v", note["task_id"])
+	}
+}
+
 // resolvedProject is what §4.2 makes of a path, which is what the daemon
 // stores: on macOS a temp dir is a symlink, so the literal path is not it.
 func resolvedProject(t *testing.T, dir string) string {

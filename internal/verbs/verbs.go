@@ -283,9 +283,10 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.promote", CLI: []string{"note", "promote"},
-		Short:   "Turn a note into a task (operator only)",
-		Long:    "The task is created on the note's own board unless --to-project names another one; the note stays where it was filed either way and points at the task it became.",
+		Name: "note.promote", CLI: []string{"note", "promote"}, MCP: "note_promote",
+		Short: "Turn one or more notes into a task (operator only)",
+		Long: "The task is created on the note's own board unless --to-project names another one; the note stays where it was filed either way and points at the task it became.\n" +
+			"Notes named by --also are folded into the same task rather than each becoming one: several notes are often one change, and the folded ones end on the task instead of reading as undecided forever.",
 		Gated:   "tasks.note_promote",
 		Who:     "The operator only.",
 		Mutates: true,
@@ -293,8 +294,32 @@ var All = []Verb{
 			idArg("The note id or number"),
 			{Name: "title", Type: String, Desc: "The task title; the note body is the default"},
 			{Name: "to-project", Type: String, Desc: "Create the task on this project's board instead of the note's own (§4.2)"},
+			{Name: "also", Type: Strings, Desc: "Another note on this board to fold into the same task (repeatable)"},
 			{Name: "validation", Type: Strings, Desc: "An acceptance criterion, as a command and what its output must show (repeatable)"},
 		},
+	},
+	{
+		Name: "note.fold", CLI: []string{"note", "fold"}, MCP: "note_fold",
+		Short: "Point a note at a task that already exists (operator only)",
+		Long: "For the note filed AFTER the task that covers it: it ends on that task without a second one being created.\n" +
+			"A note whose own task exists is refused, naming the task holding it, rather than being repointed. `note unfold` is the way back.",
+		Gated:   "tasks.note_fold",
+		Who:     "The operator only, for the reason note.promote is: this is the same decision about a second note.",
+		Mutates: true,
+		Args: []Arg{
+			idArg("The note id or number"),
+			{Name: "into", Type: String, Desc: "The task id or number to fold it into", Required: true},
+			{Name: "to-project", Type: String, Desc: "The board that task lives on, when it is not the note's own (§4.2)"},
+		},
+	},
+	{
+		Name: "note.unfold", CLI: []string{"note", "unfold"}, MCP: "note_unfold",
+		Short:   "Undo a fold and return the note to the inbox (operator only)",
+		Long:    "The way back from a fold that was a mistake, without deleting the row: the note is undecided again and promotable on its own. The note a task was PROMOTED from does not unfold — the task was made from its body.",
+		Who:     "The operator only.",
+		Ungated: "a fold is gated on the way in, and a gate that could park the way back would leave a wrong fold standing",
+		Mutates: true,
+		Args:    []Arg{idArg("The note id or number")},
 	},
 	{
 		Name: "note.keep", CLI: []string{"note", "keep"},

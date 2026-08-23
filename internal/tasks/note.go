@@ -47,6 +47,8 @@ const (
 	KindNoteProposed   = "proposed"
 	KindNoteEdited     = "edited"
 	KindNotePromoted   = "promoted"
+	KindNoteFolded     = "folded"
+	KindNoteUnfolded   = "unfolded"
 	KindNoteKept       = "kept"
 	KindNoteDropped    = "dropped"
 )
@@ -69,6 +71,12 @@ type Note struct {
 	Question string `json:"question,omitempty"`
 	// TaskID is the task this note became, once the operator promoted it.
 	TaskID string `json:"task_id,omitempty"`
+	// Folded says the note did not become this task on its own: its content
+	// shipped inside a task another note was promoted into, or one that
+	// already existed. It is a modifier of `task`, not a state beside it —
+	// the note DID become work, and the field records which half of §14's
+	// two ways it took there, so a fold can be undone and an origin cannot.
+	Folded bool `json:"folded,omitempty"`
 	// TaskProject is the board that task lives on. Empty means the note's own
 	// project: a promotion may cross projects, and the id alone does not say
 	// where to look for it.
@@ -222,6 +230,7 @@ func NotePromote(n *Note, by Actor, taskID, taskProject string, now int64) (Even
 	n.Status = NoteTask
 	n.TaskID = taskID
 	n.TaskProject = ""
+	n.Folded = false
 	detail := map[string]any{"task_id": taskID}
 	if taskProject != "" && taskProject != n.Project {
 		n.TaskProject = taskProject
@@ -229,6 +238,74 @@ func NotePromote(n *Note, by Actor, taskID, taskProject string, now int64) (Even
 	}
 	n.UpdatedAt = now
 	return Event{Kind: KindNotePromoted, Actor: by.Principal, At: now, Detail: detail}, nil
+}
+
+// NoteFold points a note at a task that already exists, or at the task
+// another note is being promoted into. Human-only for the reason NotePromote
+// is: a note becoming work is the operator's decision, and folding is that
+// decision made about a second note.
+//
+// It reuses `task` rather than adding a seventh state. `task` already means
+// "this became work"; a folded note became work too, in a task whose scope
+// came from somewhere else, and a state beside it would overlap it in every
+// way that matters to a reader of `note list`: both are decided, neither is
+// undecided, and neither is rejected.
+//
+// holder is how the caller names the task a note is already on, for the
+// refusal. A note whose own task exists is never silently repointed: the
+// operator either meant a different note, or wants the fold undone first.
+func NoteFold(n *Note, by Actor, taskID, taskProject, holder string, now int64) (Event, error) {
+	if !by.IsHuman() {
+		return Event{}, codes.New(codes.Forbidden, "only the operator folds a note into a task")
+	}
+	if n.Status == NoteTask {
+		if holder == "" {
+			holder = n.TaskID
+		}
+		return Event{}, codes.Errorf(codes.Conflict,
+			"note #%d is already task %s; unfold it before folding it elsewhere", n.Seq, holder)
+	}
+	if n.Status.Terminal() {
+		return Event{}, codes.Errorf(codes.Conflict, "note is %s", n.Status)
+	}
+	n.Status = NoteTask
+	n.TaskID = taskID
+	n.TaskProject = ""
+	n.Folded = true
+	detail := map[string]any{"task_id": taskID}
+	if taskProject != "" && taskProject != n.Project {
+		n.TaskProject = taskProject
+		detail["task_project"] = taskProject
+	}
+	n.UpdatedAt = now
+	return Event{Kind: KindNoteFolded, Actor: by.Principal, At: now, Detail: detail}, nil
+}
+
+// NoteUnfold is the way back from a fold that was a mistake, without deleting
+// the row: the note returns to the inbox, undecided again and promotable on
+// its own. The triage it already had — its verdict and reason — stays, because
+// the fold is the only thing being undone.
+//
+// A promoted note does not unfold. The task was made from its body, so there
+// is nothing to return it to that would not leave the task without the note it
+// came from; that mistake is undone by cancelling the task.
+func NoteUnfold(n *Note, by Actor, now int64) (Event, error) {
+	if !by.IsHuman() {
+		return Event{}, codes.New(codes.Forbidden, "only the operator unfolds a note")
+	}
+	if n.Status != NoteTask {
+		return Event{}, codes.Errorf(codes.Conflict, "note is %s, not on a task", n.Status)
+	}
+	if !n.Folded {
+		return Event{}, codes.Errorf(codes.Conflict,
+			"note #%d is what task %s was made from; cancel the task rather than unfolding its origin", n.Seq, n.TaskID)
+	}
+	was := n.TaskID
+	n.Status = NoteInbox
+	n.TaskID, n.TaskProject, n.Folded = "", "", false
+	n.UpdatedAt = now
+	return Event{Kind: KindNoteUnfolded, Actor: by.Principal, At: now,
+		Detail: map[string]any{"task_id": was}}, nil
 }
 
 // NoteKeep files a note as approved but not now.

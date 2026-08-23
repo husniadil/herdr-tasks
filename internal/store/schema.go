@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -166,4 +166,9 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// its own project, reads back NULL, and an empty task_project means
 	// exactly that.
 	{SQL: `ALTER TABLE notes ADD COLUMN task_project TEXT;`},
+	// 7 — whether a note reached its task by being folded into it rather than
+	// by being promoted into it. A NEW column beside task_id, never a change
+	// to it: a row written before this migration reached its task by
+	// promotion, reads back NULL, and a false `folded` means exactly that.
+	{SQL: `ALTER TABLE notes ADD COLUMN folded INTEGER;`},
 }

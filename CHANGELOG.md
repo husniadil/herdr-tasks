@@ -5,6 +5,30 @@ the shared plugin contract makes the CLI, the MCP tool list, the JSON shapes
 and the error codes stable within a minor and changeable between minors with an
 entry here, so every entry says what moved and what a caller does about it.
 
+## 0.4.0 — 2026-08-23
+
+Additive for every caller; nothing shipped changes meaning.
+
+Three new MCP tools — `note_promote`, `note_fold`, `note_unfold` — and two new
+CLI verbs, `htask note fold` and `htask note unfold`. `note promote` gains
+`--also`, which takes further notes on the same board and folds them into the
+task it creates instead of leaving them undecided. `note fold --into <task>`
+does the same for a note filed after the task already existed. A note whose own
+task exists is refused, naming the task holding it, rather than being
+repointed; `note unfold` returns a folded note to the inbox without deleting
+the row, and the note a task was PROMOTED from does not unfold.
+
+The tool list grew past the 8–16 range the old §7.3 asked for, deliberately:
+0.7.0 removed that budget, and these are the verbs it was keeping off the door.
+
+The note JSON gains one field, `folded`, present only when true. A note that
+reached its task by promotion does not carry it, which is how every note
+written before this release reads. Nothing was repurposed or removed.
+
+The store moves to schema version 7 for the column behind it. A store this
+daemon has opened is refused by an older one, which is the §5.2 rule and not
+new.
+
 ## 0.3.0 — 2026-08-23
 
 Breaking for one caller: an MCP door registered in a harness that stands in no

@@ -1587,3 +1587,199 @@ func TestGetAnyProjectResolvesULIDAndRefusesNumber(t *testing.T) {
 		t.Fatalf("refusal does not say why: %v", err)
 	}
 }
+
+func note(t *testing.T, s *Store, body string) *tasks.Note {
+	t.Helper()
+	n, err := s.CreateNote(tasks.NewNoteInput{Project: proj, Body: body}, peer("wF:p1", "claude"), tick(t))
+	if err != nil {
+		t.Fatalf("CreateNote: %v", err)
+	}
+	return n
+}
+
+// Several notes turn out to be one change: one is promoted and the rest are
+// folded into the task it creates, in the same transaction. All of them end on
+// that task, and none of them is left reading as undecided.
+func TestSeveralNotesPromoteIntoOneTask(t *testing.T) {
+	s := open(t)
+	first, second, third := note(t, s, "the sweep is quiet"), note(t, s, "and it drops the lease"), note(t, s, "same sweep, no event")
+	_, task, err := s.PromoteNote(proj, first.ID, 0, tasks.NewTaskInput{
+		Project: proj, Title: "make the sweep say what it did", Description: first.Body,
+	}, []string{second.ID, third.ID}, operator, tick(t))
+	if err != nil {
+		t.Fatalf("PromoteNote: %v", err)
+	}
+	for _, want := range []*tasks.Note{first, second, third} {
+		got, err := s.GetNote(proj, want.ID)
+		if err != nil {
+			t.Fatalf("GetNote: %v", err)
+		}
+		if got.Status != tasks.NoteTask {
+			t.Fatalf("note #%d is %q, want task", got.Seq, got.Status)
+		}
+		if got.TaskID != task.ID {
+			t.Fatalf("note #%d points at %q, want %q", got.Seq, got.TaskID, task.ID)
+		}
+	}
+	// Exactly one task, and it was made from the note that was promoted.
+	list, err := s.ListTasks(TaskFilter{Project: proj})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("%d tasks, want 1", len(list))
+	}
+	if list[0].Description != first.Body {
+		t.Fatalf("the task was made from %q, not the promoted note", list[0].Description)
+	}
+	// The origin does not unfold; the folded ones do.
+	if got, _ := s.GetNote(proj, first.ID); got.Folded {
+		t.Fatal("the promoted note is marked folded")
+	}
+	if got, _ := s.GetNote(proj, second.ID); !got.Folded {
+		t.Fatal("a note folded into the task is not marked folded")
+	}
+}
+
+// A promote whose --also names a note that cannot be folded writes nothing at
+// all: no task, no half-folded set.
+func TestAPromoteThatCannotFoldEveryNoteWritesNothing(t *testing.T) {
+	s := open(t)
+	first, taken := note(t, s, "the sweep is quiet"), note(t, s, "already spoken for")
+	if _, _, err := s.PromoteNote(proj, taken.ID, 0, tasks.NewTaskInput{Project: proj, Title: "first"}, nil, operator, tick(t)); err != nil {
+		t.Fatalf("first promote: %v", err)
+	}
+	_, _, err := s.PromoteNote(proj, first.ID, 0, tasks.NewTaskInput{Project: proj, Title: "second"}, []string{taken.ID}, operator, tick(t))
+	if codeOf(t, err) != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", codeOf(t, err))
+	}
+	list, _ := s.ListTasks(TaskFilter{Project: proj})
+	if len(list) != 1 {
+		t.Fatalf("%d tasks, want the 1 from the first promote", len(list))
+	}
+	if got, _ := s.GetNote(proj, first.ID); got.Status != tasks.NoteInbox {
+		t.Fatalf("note #%d is %q; a refused promote leaves it where it was", got.Seq, got.Status)
+	}
+}
+
+// The case that actually happened: the second note was filed after the task
+// existed, so it is attached to it without creating another one.
+func TestFoldAttachesANoteToATaskThatAlreadyExists(t *testing.T) {
+	s := open(t)
+	first, late := note(t, s, "the sweep is quiet"), note(t, s, "filed after the task")
+	_, task, err := s.PromoteNote(proj, first.ID, 0, tasks.NewTaskInput{Project: proj, Title: "make the sweep talk"}, nil, operator, tick(t))
+	if err != nil {
+		t.Fatalf("PromoteNote: %v", err)
+	}
+	got, onto, err := s.FoldNote(proj, late.ID, 0, proj, task.ID, operator, tick(t))
+	if err != nil {
+		t.Fatalf("FoldNote: %v", err)
+	}
+	if onto.ID != task.ID {
+		t.Fatalf("folded onto %q, want %q", onto.ID, task.ID)
+	}
+	if got.Status != tasks.NoteTask || got.TaskID != task.ID || !got.Folded {
+		t.Fatalf("bad fold: %+v", got)
+	}
+	if list, _ := s.ListTasks(TaskFilter{Project: proj}); len(list) != 1 {
+		t.Fatalf("%d tasks; a fold creates none", len(list))
+	}
+	// A note whose own task exists is refused, and the refusal names the task
+	// holding it rather than repointing it.
+	_, _, err = s.FoldNote(proj, first.ID, 0, proj, task.ID, operator, tick(t))
+	if codeOf(t, err) != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", codeOf(t, err))
+	}
+	if !strings.Contains(err.Error(), "#1") {
+		t.Fatalf("refusal %q does not name the task holding the note", err)
+	}
+	// The task has to be there: folding into nothing is a typo, not a link.
+	if _, _, err := s.FoldNote(proj, late.ID, 0, proj, "404", operator, tick(t)); codeOf(t, err) != codes.NotFound {
+		t.Fatalf("code = %q, want NOT_FOUND", codeOf(t, err))
+	}
+}
+
+// The way back, at the store: unfolding returns the row to the inbox and the
+// trail keeps both events.
+func TestUnfoldReturnsAFoldedNoteToTheBoard(t *testing.T) {
+	s := open(t)
+	first, late := note(t, s, "the sweep is quiet"), note(t, s, "filed after the task")
+	_, task, err := s.PromoteNote(proj, first.ID, 0, tasks.NewTaskInput{Project: proj, Title: "make the sweep talk"}, nil, operator, tick(t))
+	if err != nil {
+		t.Fatalf("PromoteNote: %v", err)
+	}
+	if _, _, err := s.FoldNote(proj, late.ID, 0, proj, task.ID, operator, tick(t)); err != nil {
+		t.Fatalf("FoldNote: %v", err)
+	}
+	got, err := s.NoteTransition(proj, late.ID, 0, func(x *tasks.Note) (tasks.Event, error) {
+		return tasks.NoteUnfold(x, operator, tick(t))
+	})
+	if err != nil {
+		t.Fatalf("unfold: %v", err)
+	}
+	if got.Status != tasks.NoteInbox || got.TaskID != "" || got.Folded {
+		t.Fatalf("bad unfold: %+v", got)
+	}
+	evs, _ := s.Events(EventFilter{Project: proj, EntityID: late.ID})
+	kinds := []string{}
+	for _, e := range evs {
+		kinds = append(kinds, e.Kind)
+	}
+	if strings.Join(kinds, ",") != "added,folded,unfolded" {
+		t.Fatalf("events = %v", kinds)
+	}
+}
+
+// §5.2: a note written before the fold existed reached its task by promotion,
+// and reads back that way. `folded` is a NEW column, so nothing about that row
+// changes meaning — which is the half of the migration a fresh store cannot
+// prove.
+func TestMigrationAddsFoldedAndKeepsOldNotesReadable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tasks.db")
+	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	for i := 0; i < 6; i++ { // migrations 1..6: schema version 6, before folded
+		if migrations[i].SQL == "" {
+			continue
+		}
+		if _, err := db.Exec(migrations[i].SQL); err != nil {
+			t.Fatalf("migration %d: %v", i+1, err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO meta (schema_version, created_at) VALUES (6, 1)"); err != nil {
+		t.Fatalf("stamp: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO notes
+		(id, seq, project, body, status, author, task_id, created_at, updated_at)
+		VALUES ('01ARZ3NDEKTSV4RRFFQ69G5FB2', 1, '/p', 'promoted before folding existed', 'task', 'human',
+		        '01ARZ3NDEKTSV4RRFFQ69G5FAV', 1, 2)`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (which migrates): %v", err)
+	}
+	defer s.Close()
+
+	got, err := s.GetNote("/p", "1")
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+	if got.Body != "promoted before folding existed" || got.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FAV" {
+		t.Fatalf("the pre-migration row did not survive: %+v", got)
+	}
+	if got.Folded {
+		t.Fatal("an old row reads as folded; a note that predates the column was promoted")
+	}
+	// And it is the origin of its task, so it does not unfold.
+	_, err = s.NoteTransition("/p", "1", 0, func(x *tasks.Note) (tasks.Event, error) {
+		return tasks.NoteUnfold(x, operator, tick(t))
+	})
+	if codeOf(t, err) != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", codeOf(t, err))
+	}
+}

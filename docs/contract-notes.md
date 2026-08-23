@@ -453,11 +453,18 @@ satisfied by almost anything — which is how the first version of the relaxed
 guard let a two-revision silent lag through. Bringing the door to parity and moving the declaration to 0.7.0 is its
 own task, and it is what closes this entry.
 
-Two things that survive the amendment and should not be read as oversights.
-`TestMCPToolCountStaysSmall` still asserts 8–16 tools and still passes at 15;
-it enforces a §7.3 sentence that no longer exists, and it is the door task's
-job to delete it, not this one's — a passing test is not evidence of a rule.
-And the `--as` pin does not exist. §7.3's first draft cited
+`TestMCPToolCountStaysSmall` is gone, earlier than this entry said it would
+be. It asserted the 8–16 range of a §7.3 sentence 0.7.0 removed, and it stood
+until a verb had to be on both doors: the note-fold task put `note_promote`,
+`note_fold` and `note_unfold` on the door, which is 18 tools, and the stale
+test would have failed the change it was written to allow. What replaced it is
+`TestNoToolBudgetDecidesWhichDoorAVerbReaches`, which holds those three verbs
+on both doors and says in its own comment that this is not yet full parity.
+The door serves 18 of 30 verbs now; six note verbs and every remaining
+operator verb are still CLI-only, so the gap above is narrower and open.
+
+One thing survives the amendment and should not be read as an oversight. The
+`--as` pin does not exist. §7.3's first draft cited
 `TestAsStaysOffTheMCPDoor` as holding it; `grep -rn TestAsStaysOffTheMCPDoor
 --include=*.go .` returns nothing. What exists is
 `internal/mcpdoor/mcpdoor.go:345`, where `as` carries an `Excluded` reason

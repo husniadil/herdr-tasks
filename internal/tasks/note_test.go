@@ -269,3 +269,113 @@ func TestOnlyTheAuthorOrTheOperatorDeletesANote(t *testing.T) {
 		t.Fatalf("code = %q, want CONFLICT", got)
 	}
 }
+
+// §14: a note folded into another note's task ends in `task`, the same state
+// the promoted note reaches, and points at the task that carries it.
+func TestNoteFoldEndsTheNoteOnTheTaskThatCarriesIt(t *testing.T) {
+	n := newNote(t)
+	if _, err := NoteFold(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+1); err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if n.Status != NoteTask {
+		t.Fatalf("status = %q, want task", n.Status)
+	}
+	if n.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FT1" {
+		t.Fatalf("task_id = %q", n.TaskID)
+	}
+	if !n.Folded {
+		t.Fatal("folded = false; a folded note is not the task's origin and says so")
+	}
+}
+
+func TestNoteFoldIsHumanOnly(t *testing.T) {
+	n := newNote(t)
+	err := noteErr(NoteFold(n, agent("wF:p1", "claude"), "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+1))
+	if got := codeOf(t, err); got != codes.Forbidden {
+		t.Fatalf("agent fold code = %q, want FORBIDDEN", got)
+	}
+}
+
+// The decision this task had to take: a note whose own task exists is refused
+// rather than silently repointed, and the refusal names the task holding it.
+func TestNoteFoldRefusesANoteAnotherTaskAlreadyHolds(t *testing.T) {
+	n := newNote(t)
+	if _, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+1); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	err := noteErr(NoteFold(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT2", "", "#42", t0+2))
+	if got := codeOf(t, err); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+	if !strings.Contains(err.Error(), "#42") {
+		t.Fatalf("refusal %q does not name the task holding the note", err)
+	}
+	if n.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FT1" {
+		t.Fatalf("task_id moved to %q; the refusal must leave the note where it was", n.TaskID)
+	}
+}
+
+func TestNoteFoldRefusesADecidedNote(t *testing.T) {
+	n := newNote(t)
+	if _, err := NoteKeep(n, human, "later", t0+1); err != nil {
+		t.Fatalf("keep: %v", err)
+	}
+	if got := codeOf(t, noteErr(NoteFold(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+2))); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+}
+
+// The way back: a fold is undone without deleting the row, and the note is
+// promotable on its own afterwards.
+func TestNoteUnfoldReturnsTheNoteToTheBoard(t *testing.T) {
+	n := newNote(t)
+	if _, err := NoteVerdict(NoteDiscussed(t, n), human, VerdictTask, "worth doing", t0+2); err != nil {
+		t.Fatalf("verdict: %v", err)
+	}
+	if _, err := NoteFold(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+3); err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if _, err := NoteUnfold(n, human, t0+4); err != nil {
+		t.Fatalf("unfold: %v", err)
+	}
+	if n.Status != NoteInbox || n.TaskID != "" || n.Folded {
+		t.Fatalf("bad unfold: %+v", n)
+	}
+	if n.Verdict != VerdictTask {
+		t.Fatal("unfold threw the triage away; only the fold is undone")
+	}
+	if _, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT2", "", t0+5); err != nil {
+		t.Fatalf("promote after unfold: %v", err)
+	}
+}
+
+// A promoted note is the task's origin — the task was made from its body — so
+// it does not unfold. Only a fold is undone.
+func TestNoteUnfoldRefusesTheNoteTheTaskWasMadeFrom(t *testing.T) {
+	n := newNote(t)
+	if _, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+1); err != nil {
+		t.Fatalf("promote: %v", err)
+	}
+	if got := codeOf(t, noteErr(NoteUnfold(n, human, t0+2))); got != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT", got)
+	}
+}
+
+func TestNoteUnfoldIsHumanOnly(t *testing.T) {
+	n := newNote(t)
+	if _, err := NoteFold(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+1); err != nil {
+		t.Fatalf("fold: %v", err)
+	}
+	if got := codeOf(t, noteErr(NoteUnfold(n, agent("wF:p1", "claude"), t0+2))); got != codes.Forbidden {
+		t.Fatalf("code = %q, want FORBIDDEN", got)
+	}
+}
+
+// NoteDiscussed opens triage on a note so a verdict can be recorded on it.
+func NoteDiscussed(t *testing.T, n *Note) *Note {
+	t.Helper()
+	if _, err := NoteDiscuss(n, human, t0+1); err != nil {
+		t.Fatalf("discuss: %v", err)
+	}
+	return n
+}

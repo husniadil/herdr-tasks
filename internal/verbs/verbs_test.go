@@ -34,7 +34,7 @@ func TestEveryWritingVerbStatesItsRuleAndItsGate(t *testing.T) {
 	// The count is pinned so that adding an ungated writing verb is a
 	// deliberate edit to this number, read by a reviewer, rather than a line
 	// that slips in.
-	if want := 11; ungated != want {
+	if want := 12; ungated != want {
 		t.Errorf("%d writing verbs are outside the policy gate, was %d — if that is intended, say so here", ungated, want)
 	}
 }

@@ -9,6 +9,14 @@ prose, a comment, sometimes a log line. §7.5 had already said this about one
 clause; 0.9.0 says it once, generally, where a drafter meets it rather than in
 an appendix, so a new MUST is written knowing what will be asked of it.
 
+Also in 0.9.0: §14 says what it means for a note to become a task. Two
+notes can be one change, and the one that is not the task's origin had no
+ending on the board: it read as undecided forever, because the vocabulary
+offered only "kept" and "dropped" for a note that was neither. A note now
+reaches `task` either as the task's origin or by being folded into one, which
+is a modifier of that state rather than a state beside it — both are decided,
+neither is rejected — and a fold is reversible where an origin is not.
+
 Changes in 0.8.0: §3.2 states the process-bound identity rule by name, and
 §3.7 stops `human` being what a door falls back to when it knows nothing. A
 door standing in no Herdr pane that was not started with the §7.5 operator
@@ -617,7 +625,13 @@ MUST be one of these or a plugin-local noun that does not collide with them.
 - **principal** — who acts (§3.1).
 - **task** — a unit of work with a lifecycle and a claim.
 - **note** — a pre-decision idea on a board; becomes a task, is kept, or is
-  dropped.
+  dropped. A note becomes a task in one of two ways, and both END it: it is
+  PROMOTED, and the task is made from its body, or it is FOLDED into a task
+  whose scope already covers it — one another note was promoted into, or one
+  that already existed when this note was filed. A folded note is decided:
+  it is not undecided work and it is not rejected, so a board listing what is
+  still open does not show it. Only the fold is reversible; the note a task
+  was made FROM does not return to the board while that task stands.
 - **claim / lease** — one principal's exclusive hold on a task, time-bounded.
 - **evidence** — what a submitter attaches to prove a task is done.
 - **review / verdict** — approve or reject on submitted work; reject carries

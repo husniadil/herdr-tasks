@@ -42,6 +42,9 @@ var pinnedTools = []string{
 	"note_add",
 	"note_list",
 	"note_verdict",
+	"note_promote",
+	"note_fold",
+	"note_unfold",
 	"events",
 	"doctor",
 }
@@ -65,10 +68,29 @@ func TestMCPToolListIsPinned(t *testing.T) {
 	}
 }
 
-// §7.3: keep the tool count small, roughly 8–16, and push the rest to the CLI.
-func TestMCPToolCountStaysSmall(t *testing.T) {
-	if n := len(pinnedTools); n < 8 || n > 16 {
-		t.Fatalf("%d tools; §7.3 asks for roughly 8–16, with the rest on the CLI", n)
+// §7.3: there is no tool budget, and no class of verb that belongs on one
+// door and not the other. The rule this replaces asked for 8–16 tools, which
+// is how `note_promote` came to be a verb a harness with no shell could not
+// reach — an accident of a count rather than a decision about authority.
+//
+// This does NOT yet assert full parity: the door serves the verbs the CLI
+// serves for notes and tasks, not every verb, and closing that gap is the door
+// task README's declared revision is waiting on. What it does hold is that a
+// count never again decides which door a verb reaches.
+func TestNoToolBudgetDecidesWhichDoorAVerbReaches(t *testing.T) {
+	for _, name := range []string{"note.promote", "note.fold", "note.unfold"} {
+		v, ok := verbs.ByName(name)
+		if !ok {
+			t.Fatalf("%s is not in the registry", name)
+		}
+		if v.MCP == "" {
+			t.Errorf("%s is on the CLI and not on the MCP door; §7.3 has no tool budget to justify that", name)
+		}
+	}
+	// The old rule's ceiling was 16. Passing it is the point: a door that
+	// stopped at a number is how these verbs were unreachable to begin with.
+	if len(pinnedTools) <= 16 {
+		t.Logf("%d tools; the budget that shaped this list is gone (§7.3)", len(pinnedTools))
 	}
 }
 
@@ -1148,5 +1170,162 @@ func TestAnInPaneDeclaredDoorIsStillThePanesAgent(t *testing.T) {
 	if !seen[0].Operator || seen[0].PaneID != "wF:p1" {
 		t.Fatalf("the daemon saw operator=%v pane=%q; the door dropped one of the two",
 			seen[0].Operator, seen[0].PaneID)
+	}
+}
+
+// The finding this fixes: a note whose content shipped inside another note's
+// task sat in `proposed` forever and read as open work. Once folded it is
+// decided, so `note list` with no status filter no longer counts it among the
+// undecided — and the two doors say the same thing about it, because a fold
+// only reads as an ending on the surface the operator is looking at.
+func TestAFoldedNoteIsNoLongerUndecidedOnEitherDoor(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	_, call := inProcessDaemon(t)
+	project := canonProject(t, "/tmp/p")
+	sess := mcpSessionWith(t, call, Options{Operator: true})
+
+	for _, body := range []string{"the sweep is quiet", "and the second half of the same change"} {
+		if res := callTool(t, sess, "note_add", map[string]any{"body": body, "project": project}); res.IsError {
+			t.Fatalf("note_add: %s", text(res))
+		}
+	}
+	if res := callTool(t, sess, "note_promote", map[string]any{"id": "1", "project": project}); res.IsError {
+		t.Fatalf("note_promote: %s", text(res))
+	}
+	// Note #2 was filed after the task existed: it is folded into it, and no
+	// second task is created.
+	res := callTool(t, sess, "note_fold", map[string]any{"id": "2", "into": "1", "project": project})
+	if res.IsError {
+		t.Fatalf("note_fold: %s", text(res))
+	}
+	var folded struct {
+		Note struct {
+			Status string `json:"status"`
+			TaskID string `json:"task_id"`
+			Folded bool   `json:"folded"`
+		} `json:"note"`
+		Task struct {
+			Seq int64 `json:"seq"`
+		} `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &folded); err != nil {
+		t.Fatalf("read the fold: %v", err)
+	}
+	if folded.Note.Status != "task" || !folded.Note.Folded || folded.Task.Seq != 1 {
+		t.Fatalf("bad fold: %+v", folded)
+	}
+
+	// A note whose own task exists is refused, naming the task holding it.
+	if res := callTool(t, sess, "note_fold", map[string]any{"id": "1", "into": "1", "project": project}); !res.IsError {
+		t.Fatal("folding a note that already has a task was allowed")
+	} else if !strings.Contains(text(res), "#1") {
+		t.Fatalf("refusal %q does not name the task holding the note", text(res))
+	}
+
+	// Neither door counts a folded note as undecided, and the two agree on
+	// every note in the answer.
+	undecided := map[string]bool{"inbox": true, "discussing": true, "needs_input": true, "proposed": true}
+	type listed struct {
+		Notes []struct {
+			Seq    int64  `json:"seq"`
+			Status string `json:"status"`
+			Folded bool   `json:"folded"`
+		} `json:"notes"`
+		Count int `json:"count"`
+	}
+	cliRaw, err := call(protocol.Request{Verb: "note.list", Project: project, Operator: true})
+	if err != nil {
+		t.Fatalf("cli note.list: %v", err)
+	}
+	var viaCLI, viaMCP listed
+	if err := json.Unmarshal(cliRaw, &viaCLI); err != nil {
+		t.Fatalf("read the CLI list: %v", err)
+	}
+	mcpRes := callTool(t, sess, "note_list", map[string]any{"project": project})
+	if mcpRes.IsError {
+		t.Fatalf("note_list: %s", text(mcpRes))
+	}
+	if err := json.Unmarshal([]byte(text(mcpRes)), &viaMCP); err != nil {
+		t.Fatalf("read the MCP list: %v", err)
+	}
+	cliJSON, _ := json.Marshal(viaCLI)
+	mcpJSON, _ := json.Marshal(viaMCP)
+	if string(cliJSON) != string(mcpJSON) {
+		t.Fatalf("the doors disagree about the board:\n cli %s\n mcp %s", cliJSON, mcpJSON)
+	}
+	if viaCLI.Count != 2 {
+		t.Fatalf("%d notes listed, want both of them still on the board", viaCLI.Count)
+	}
+	for _, n := range viaCLI.Notes {
+		if undecided[n.Status] {
+			t.Fatalf("note #%d is %q after being folded into a task", n.Seq, n.Status)
+		}
+	}
+
+	// And the way back: unfolding returns note #2 to the undecided list,
+	// through the door that folded it.
+	if res := callTool(t, sess, "note_unfold", map[string]any{"id": "2", "project": project}); res.IsError {
+		t.Fatalf("note_unfold: %s", text(res))
+	}
+	back := callTool(t, sess, "note_list", map[string]any{"status": "inbox", "project": project})
+	var inbox listed
+	if err := json.Unmarshal([]byte(text(back)), &inbox); err != nil {
+		t.Fatalf("read the inbox: %v", err)
+	}
+	if inbox.Count != 1 || inbox.Notes[0].Seq != 2 {
+		t.Fatalf("unfold did not return the note to the inbox: %+v", inbox)
+	}
+}
+
+// Several notes are one change: they promote into ONE task, through the door.
+func TestSeveralNotesPromoteIntoOneTaskThroughTheDoor(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	t.Setenv("HERDR_PANE_ID", "")
+	_, call := inProcessDaemon(t)
+	project := canonProject(t, "/tmp/p")
+	sess := mcpSessionWith(t, call, Options{Operator: true})
+
+	for _, body := range []string{"the sweep is quiet", "it drops the lease too", "same sweep, still no event"} {
+		if res := callTool(t, sess, "note_add", map[string]any{"body": body, "project": project}); res.IsError {
+			t.Fatalf("note_add: %s", text(res))
+		}
+	}
+	res := callTool(t, sess, "note_promote", map[string]any{
+		"id": "1", "also": []any{"2", "3"}, "project": project})
+	if res.IsError {
+		t.Fatalf("note_promote: %s", text(res))
+	}
+	var listed struct {
+		Notes []struct {
+			Seq    int64  `json:"seq"`
+			Status string `json:"status"`
+			TaskID string `json:"task_id"`
+		} `json:"notes"`
+	}
+	all := callTool(t, sess, "note_list", map[string]any{"project": project})
+	if err := json.Unmarshal([]byte(text(all)), &listed); err != nil {
+		t.Fatalf("read the board: %v", err)
+	}
+	if len(listed.Notes) != 3 {
+		t.Fatalf("%d notes on the board, want 3", len(listed.Notes))
+	}
+	for _, n := range listed.Notes {
+		if n.Status != "task" {
+			t.Fatalf("note #%d is %q, want task", n.Seq, n.Status)
+		}
+		if n.TaskID != listed.Notes[0].TaskID {
+			t.Fatalf("note #%d points at %q, not the one task they were promoted into", n.Seq, n.TaskID)
+		}
+	}
+	var tasks struct {
+		Count int `json:"count"`
+	}
+	tl := callTool(t, sess, "list", map[string]any{"project": project})
+	if err := json.Unmarshal([]byte(text(tl)), &tasks); err != nil {
+		t.Fatalf("read the backlog: %v", err)
+	}
+	if tasks.Count != 1 {
+		t.Fatalf("%d tasks, want the one they were folded into", tasks.Count)
 	}
 }

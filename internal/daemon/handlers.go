@@ -44,6 +44,8 @@ func init() {
 		"note.discuss": hNoteDiscuss,
 		"note.verdict": hNoteVerdict,
 		"note.promote": hNotePromote,
+		"note.fold":    hNoteFold,
+		"note.unfold":  hNoteUnfold,
 		"note.keep":    hNoteKeep,
 		"note.drop":    hNoteDrop,
 		"note.delete":  hNoteDelete,
@@ -451,11 +453,16 @@ func hNotePromote(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) 
 		Description: n.Body,
 		Validation:  criteria(argStrings(req.Args, "validation")),
 		PaneID:      req.PaneID,
-	}, by, d.Now())
+	}, argStrings(req.Args, "also"), by, d.Now())
 	if err != nil {
 		return nil, err
 	}
 	d.emitted(n.Project, "note", n.ID)
+	for _, ref := range argStrings(req.Args, "also") {
+		if folded, err := d.Store.GetNote(req.Project, ref); err == nil {
+			d.emitted(folded.Project, "note", folded.ID)
+		}
+	}
 	// The task's created event lands on the TARGET project, which is a board
 	// nothing else in this call touches: without this, a cross-project promote
 	// is invisible to everyone watching the board that got the work.
@@ -479,6 +486,37 @@ func promoteTarget(noteProject, to string) (string, error) {
 			"the target project must be a resolved absolute path, not %q", to)
 	}
 	return to, nil
+}
+
+// FoldResult is a fold: the note and the task it was folded into. It carries
+// the task for the reason PromoteResult does — the caller asked to put a note
+// on a task and gets back what both of them are now.
+type FoldResult struct {
+	Note *tasks.Note `json:"note"`
+	Task *tasks.Task `json:"task"`
+}
+
+func hNoteFold(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	if !by.IsHuman() {
+		return nil, codes.New(codes.Forbidden, "only the operator folds a note into a task")
+	}
+	target, err := promoteTarget(req.Project, argString(req.Args, "to-project"))
+	if err != nil {
+		return nil, err
+	}
+	n, t, err := d.Store.FoldNote(req.Project, argString(req.Args, "id"), req.BaseUpdatedAt,
+		target, argString(req.Args, "into"), by, d.Now())
+	if err != nil {
+		return nil, err
+	}
+	d.emitted(n.Project, "note", n.ID)
+	return FoldResult{Note: n, Task: t}, nil
+}
+
+func hNoteUnfold(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
+	return d.noteTransition(req, func(n *tasks.Note) (tasks.Event, error) {
+		return tasks.NoteUnfold(n, by, d.Now())
+	})
 }
 
 func hNoteKeep(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {

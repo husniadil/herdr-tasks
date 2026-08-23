@@ -45,6 +45,16 @@ func renderHuman(v verbs.Verb, raw json.RawMessage, now int64) error {
 			fmt.Printf("#%d  %-11s %s\n", n.Seq, n.Status, firstLine(n.Body))
 		}
 		return nil
+	case "note.fold":
+		// A fold answers with the note AND the task, and the note is what the
+		// operator was deciding about: the task was already there, and printing
+		// it instead would answer a question nobody asked.
+		var res daemon.FoldResult
+		if err := json.Unmarshal(raw, &res); err != nil {
+			return err
+		}
+		printNote(res.Note)
+		return nil
 	case "task.goal":
 		var res daemon.GoalResult
 		if err := json.Unmarshal(raw, &res); err != nil {
@@ -226,10 +236,17 @@ func printNote(n *tasks.Note) {
 		fmt.Println()
 	}
 	if n.TaskID != "" {
+		// A folded note did not become this task on its own, and a board that
+		// said "promoted" for both would lose the only difference an operator
+		// needs: which of them the task was actually made from.
+		how := "Promoted to"
+		if n.Folded {
+			how = "Folded into"
+		}
 		if n.TaskProject != "" {
-			fmt.Printf("\nPromoted to task %s on %s (%s)\n", n.TaskID, project.DisplayName(n.TaskProject), n.TaskProject)
+			fmt.Printf("\n%s task %s on %s (%s)\n", how, n.TaskID, project.DisplayName(n.TaskProject), n.TaskProject)
 		} else {
-			fmt.Printf("\nPromoted to task %s\n", n.TaskID)
+			fmt.Printf("\n%s task %s\n", how, n.TaskID)
 		}
 	}
 }

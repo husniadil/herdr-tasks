@@ -73,6 +73,26 @@ htask note promote 3 --to-project ../sibling-repo
 there, the note stays where it was filed, and both the id and the project of
 the task are recorded on the note, so `note get` can point across.
 
+Two or three notes are often one change. The operator promotes one of them and
+folds the rest into the task it creates, or folds a note into a task that
+already exists when it was filed after the fact:
+
+```sh
+htask note promote 3 --also 4 --also 5 --title "Log the reason a lease was swept"
+htask note fold 6 --into 12
+htask note fold 6 --into 12 --to-project ../sibling-repo
+htask note unfold 6
+```
+
+A folded note ends in `task`, the same state a promoted one reaches, pointing
+at the task that carries it — so `note list` stops showing it beside notes
+nobody has read yet. It is not the task's origin, and `note get` says `Folded
+into` rather than `Promoted to` for it. A note whose own task exists is
+refused, naming the task holding it, rather than being repointed; `note
+unfold` is the way back, and returns the note to the inbox without deleting
+the row. The note a task was PROMOTED from does not unfold: the task was made
+from its body.
+
 `--evidence` is proof for the task as a whole. `--evidence-for` is proof for
 one acceptance criterion, written as `"<criterion>: what it printed"` where the
 number is the criterion's place in the list `htask task get` prints. Cite one
@@ -336,7 +356,7 @@ The gated verbs, for a future policy plugin to name:
 ```
 tasks.create       tasks.claim         tasks.submit   tasks.approve
 tasks.reject       tasks.cancel        tasks.update   tasks.note_add
-tasks.note_update  tasks.note_promote
+tasks.note_update  tasks.note_promote  tasks.note_fold
 ```
 
 ## Configuration

@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
@@ -11,7 +12,7 @@ import (
 )
 
 const noteColumns = `id, seq, project, body, status, author, author_name, author_harness,
-	verdict, reason, question, task_id, task_project, created_at, updated_at, pane_id`
+	verdict, reason, question, task_id, task_project, folded, created_at, updated_at, pane_id`
 
 // CreateNote files a note with its added event, in one transaction.
 func (s *Store) CreateNote(in tasks.NewNoteInput, by tasks.Actor, now int64) (*tasks.Note, error) {
@@ -28,7 +29,7 @@ func (s *Store) CreateNote(in tasks.NewNoteInput, by tasks.Actor, now int64) (*t
 	if n.Seq, err = nextSeq(tx, n.Project, "note"); err != nil {
 		return nil, wrap(err)
 	}
-	if _, err := tx.Exec("INSERT INTO notes ("+noteColumns+") VALUES (?"+strings.Repeat(", ?", 15)+")",
+	if _, err := tx.Exec("INSERT INTO notes ("+noteColumns+") VALUES (?"+strings.Repeat(", ?", 16)+")",
 		append([]any{n.ID}, noteArgs(n)...)...); err != nil {
 		return nil, wrap(err)
 	}
@@ -85,7 +86,13 @@ func updateNote(tx *sql.Tx, n *tasks.Note) error {
 // window where a promoted note points at a task that was never created. If
 // that ever stops being true — two files, two daemons — this method is where
 // the honest two-phase story would have to be written; today it is one BEGIN.
-func (s *Store) PromoteNote(noteProject, ref string, baseUpdatedAt int64, in tasks.NewTaskInput, by tasks.Actor, now int64) (*tasks.Note, *tasks.Task, error) {
+//
+// also names further notes on the SAME board whose content is part of this
+// task's scope. They are folded into the task this call creates, inside the
+// one transaction that creates it: a promote that cannot fold every note it
+// was given writes no task at all, rather than leaving the operator to work
+// out which half of the request happened.
+func (s *Store) PromoteNote(noteProject, ref string, baseUpdatedAt int64, in tasks.NewTaskInput, also []string, by tasks.Actor, now int64) (*tasks.Note, *tasks.Task, error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return nil, nil, wrap(err)
@@ -123,10 +130,91 @@ func (s *Store) PromoteNote(noteProject, ref string, baseUpdatedAt int64, in tas
 	if err := appendEvent(tx, "notes_events", n.ID, n.Project, nev); err != nil {
 		return nil, nil, wrap(err)
 	}
+	for _, ref := range also {
+		if _, err := foldInto(tx, noteProject, ref, task, by, now); err != nil {
+			return nil, nil, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, nil, wrap(err)
 	}
 	return n, task, nil
+}
+
+// FoldNote points an existing note at a task that already exists, without
+// creating a second one. This is the moment the board's loop produces most
+// often: the task is filed, and the note that turns out to be part of it
+// arrives afterwards.
+//
+// taskProject is the board the task lives on, which may not be the note's:
+// the same cross-project case PromoteNote already carries.
+func (s *Store) FoldNote(noteProject, ref string, baseUpdatedAt int64, taskProject, taskRef string, by tasks.Actor, now int64) (*tasks.Note, *tasks.Task, error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, nil, wrap(err)
+	}
+	defer tx.Rollback()
+	if baseUpdatedAt != 0 {
+		n, err := readNote(tx, noteProject, ref)
+		if err != nil {
+			return nil, nil, err
+		}
+		if n.UpdatedAt != baseUpdatedAt {
+			return nil, nil, codes.Errorf(codes.Conflict,
+				"note moved: updated_at is %d, not the %d you read", n.UpdatedAt, baseUpdatedAt)
+		}
+	}
+	task, err := readTask(tx, taskProject, taskRef)
+	if err != nil {
+		return nil, nil, err
+	}
+	n, err := foldInto(tx, noteProject, ref, task, by, now)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, nil, wrap(err)
+	}
+	return n, task, nil
+}
+
+// foldInto is the one place a fold is written, so a promote that folds and a
+// fold that stands alone cannot drift.
+func foldInto(tx *sql.Tx, noteProject, ref string, task *tasks.Task, by tasks.Actor, now int64) (*tasks.Note, error) {
+	n, err := readNote(tx, noteProject, ref)
+	if err != nil {
+		return nil, err
+	}
+	ev, err := tasks.NoteFold(n, by, task.ID, task.Project, holderOf(tx, n), now)
+	if err != nil {
+		return nil, err
+	}
+	if err := updateNote(tx, n); err != nil {
+		return nil, wrap(err)
+	}
+	if err := appendEvent(tx, "notes_events", n.ID, n.Project, ev); err != nil {
+		return nil, wrap(err)
+	}
+	return n, nil
+}
+
+// holderOf names the task a note is already on, the way an operator would type
+// it. The id is the fallback, never a failure: a refusal that cannot name the
+// number is still a refusal, and looking the task up must not turn one into an
+// error about a different row.
+func holderOf(tx *sql.Tx, n *tasks.Note) string {
+	if n.TaskID == "" {
+		return ""
+	}
+	board := n.TaskProject
+	if board == "" {
+		board = n.Project
+	}
+	t, err := readTask(tx, board, n.TaskID)
+	if err != nil {
+		return n.TaskID
+	}
+	return fmt.Sprintf("#%d", t.Seq)
 }
 
 // GetNote reads one note by ULID or by the project's seq.
@@ -240,16 +328,17 @@ func scanNote(sc scanner) (*tasks.Note, error) {
 		quest   sql.NullString
 		taskID  sql.NullString
 		taskPrj sql.NullString
+		folded  sql.NullBool
 		pane    sql.NullString
 	)
 	if err := sc.Scan(&n.ID, &n.Seq, &n.Project, &n.Body, &n.Status, &n.Author, &name, &harness,
-		&verdict, &reason, &quest, &taskID, &taskPrj, &n.CreatedAt, &n.UpdatedAt, &pane); err != nil {
+		&verdict, &reason, &quest, &taskID, &taskPrj, &folded, &n.CreatedAt, &n.UpdatedAt, &pane); err != nil {
 		return nil, err
 	}
 	n.AuthorName, n.AuthorHarness = name.String, harness.String
 	n.Verdict = tasks.Verdict(verdict.String)
 	n.Reason, n.Question, n.TaskID, n.PaneID = reason.String, quest.String, taskID.String, pane.String
-	n.TaskProject = taskPrj.String
+	n.TaskProject, n.Folded = taskPrj.String, folded.Bool
 	return &n, nil
 }
 
@@ -258,6 +347,6 @@ func noteArgs(n *tasks.Note) []any {
 		n.Seq, n.Project, n.Body, string(n.Status), string(n.Author),
 		nullIfEmpty(n.AuthorName), nullIfEmpty(n.AuthorHarness),
 		nullIfEmpty(string(n.Verdict)), nullIfEmpty(n.Reason), nullIfEmpty(n.Question),
-		nullIfEmpty(n.TaskID), nullIfEmpty(n.TaskProject), n.CreatedAt, n.UpdatedAt, nullIfEmpty(n.PaneID),
+		nullIfEmpty(n.TaskID), nullIfEmpty(n.TaskProject), n.Folded, n.CreatedAt, n.UpdatedAt, nullIfEmpty(n.PaneID),
 	}
 }
