@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/daemon"
 )
 
@@ -568,6 +569,52 @@ func TestAMustIsNotSatisfiedUntilATestFailsWithoutIt(t *testing.T) {
 	} {
 		if !strings.Contains(para, phrase) {
 			t.Errorf("the paragraph defining MUST does not state the evidence rule: %q is missing", phrase)
+		}
+	}
+}
+
+// codeRow matches one row of §6.3's table: `| `USAGE` | 2 | caller-...`.
+var codeRow = regexp.MustCompile("(?m)^\\|\\s*`([A-Z_]+)`\\s*\\|\\s*([0-9]+)\\s*\\|")
+
+// §6.3 fixes a code's exit status for every plugin, and the audit behind task
+// 86 found nothing holding the numbers. Every exit assertion in the suite is
+// written `status != codes.Exit(codes.Forbidden)`, which compares the observed
+// status against the same table it is meant to be checking: changing
+// FORBIDDEN from 8 to 1 in internal/codes left the whole suite green, comments
+// saying "want 8" and all. A shipped, semver-bound vocabulary was answerable
+// to nothing but itself.
+//
+// This reads the contract's own table towards the package, in both directions,
+// so a repurposed status and a code that quietly stops being served both fail.
+func TestTheErrorCodeTableIsTheContractsTable(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", contractFile))
+	if err != nil {
+		t.Fatalf("read %s: %v", contractFile, err)
+	}
+	rows := codeRow.FindAllStringSubmatch(string(body), -1)
+	if len(rows) < 9 {
+		t.Fatalf("§6.3's table yielded %d rows; the contract is not being read", len(rows))
+	}
+	fromContract := map[string]int{}
+	for _, m := range rows {
+		want, err := strconv.Atoi(m[2])
+		if err != nil {
+			t.Fatalf("exit status %q for %s is not a number", m[2], m[1])
+		}
+		fromContract[m[1]] = want
+		if got := codes.Exit(m[1]); got != want {
+			t.Errorf("%s exits %d; §6.3 fixes it at %d", m[1], got, want)
+		}
+	}
+	// The other direction: a code the package serves that the contract does
+	// not list is a top-level code added without a contract bump, which §6.3
+	// refuses by name.
+	for _, code := range []string{
+		codes.Usage, codes.NotFound, codes.Unavailable, codes.Timeout, codes.Conflict,
+		codes.Unsupported, codes.Forbidden, codes.Denied, codes.Unexpected,
+	} {
+		if _, ok := fromContract[code]; !ok {
+			t.Errorf("this plugin serves %q, which §6.3's table does not list", code)
 		}
 	}
 }

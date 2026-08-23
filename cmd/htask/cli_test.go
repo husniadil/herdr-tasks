@@ -1749,3 +1749,22 @@ func TestHelpTextSaysWhoMayCallTheVerb(t *testing.T) {
 // collapse folds the line wrapping cobra applies to long help so a registry
 // string can be compared against what a terminal shows.
 func collapse(s string) string { return strings.Join(strings.Fields(s), " ") }
+
+// §2.1: "A plugin whose concern includes an operator-facing view MUST also
+// provide that view as `<name> tui [<view>]` in the same binary." This plugin
+// has that view — the board and the notes popups are its human surface — and
+// the audit behind task 86 renamed the subcommand from `tui` to `board` with
+// the whole suite still green. internal/tui tests the MODEL, which is reached
+// in-process and says nothing about the name a human or a Herdr pane types;
+// the manifest's popup actions run the binary, so the spelling is the contract
+// here. This asks the built binary, which is the surface that answers.
+func TestTheBinaryServesTheViewUnderTheContractsName(t *testing.T) {
+	w := newWorld(t)
+	stdout, stderr, status := w.run(w.env(), "tui", "--help")
+	if status != 0 {
+		t.Fatalf("`htask tui --help` exited %d; §2.1 fixes the view's name as `tui`: %s", status, stderr)
+	}
+	if !strings.Contains(stdout+stderr, "tui") {
+		t.Errorf("`htask tui --help` names no `tui` command: %q", stdout+stderr)
+	}
+}

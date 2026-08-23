@@ -250,3 +250,35 @@ func firstLines(s string, n int) string {
 	}
 	return strings.Join(lines, "\n")
 }
+
+// §2.4: "The Herdr manifest MUST declare `[[startup]]` that starts the daemon
+// and exits, and `[[actions]]` `stop` and `restart`." The audit behind task 86
+// renamed the `[[startup]]` table and every manifest test stayed green: the
+// existing ones read the argv0 of whatever command blocks they find, so a
+// manifest with no startup block at all still satisfied them. Herdr has no
+// shutdown hook, which is why `stop` is named in the contract rather than left
+// to taste — a plugin without it cannot be turned off.
+func TestManifestDeclaresStartupAndTheLifecycleActions(t *testing.T) {
+	root := filepath.Join("..", "..")
+	body, err := os.ReadFile(filepath.Join(root, "herdr-plugin.toml"))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	manifest := string(body)
+	if !strings.Contains(manifest, "[[startup]]") {
+		t.Error("the manifest declares no [[startup]]; nothing starts the daemon (§2.4)")
+	}
+	ids := map[string]bool{}
+	for _, m := range actionBlock.FindAllStringSubmatch(manifest, -1) {
+		ids[m[1]] = true
+	}
+	if len(ids) == 0 {
+		t.Fatal("no [[actions]] blocks parsed; the manifest is not being read")
+	}
+	for _, want := range []string{"stop", "restart"} {
+		if !ids[want] {
+			t.Errorf("the manifest has no [[actions]] %q; Herdr has no shutdown hook, so it is "+
+				"the only way to turn this plugin off (§2.4)", want)
+		}
+	}
+}

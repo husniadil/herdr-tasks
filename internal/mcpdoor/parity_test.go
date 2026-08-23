@@ -1359,3 +1359,26 @@ func TestEveryToolDescriptionCarriesTheWhoRule(t *testing.T) {
 		}
 	}
 }
+
+// §7.2 requires the instructions to say three things, and the audit behind
+// task 86 found only the last two held. TestInstructionsCoverTheRequiredGround
+// looks for seven words scattered anywhere in the paragraph, so deleting the
+// opening sentence — the one that says WHAT THE PLUGIN IS — left it green,
+// because "Herdr", "pane" and the rest all appear again further down. A
+// keyword that survives in a different sentence is not the clause.
+//
+// This holds the first clause on its own: the plugin's own name, and the noun
+// it is. It reads the opening sentence rather than the whole string, which is
+// the difference that made the old check pass against the wrong text.
+func TestTheInstructionsOpenBySayingWhatThePluginIs(t *testing.T) {
+	opening, _, ok := strings.Cut(Instructions, ".")
+	if !ok {
+		t.Fatal("the instructions have no first sentence to read (§7.2)")
+	}
+	for _, want := range []string{ServerName, "backlog"} {
+		if !strings.Contains(opening, want) {
+			t.Errorf("the instructions open with %q, which does not say %q; §7.2 asks first for "+
+				"what the plugin IS", opening, want)
+		}
+	}
+}

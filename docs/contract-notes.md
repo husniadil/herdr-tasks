@@ -635,3 +635,151 @@ for a reason to justify.
 Sibling plugins are deliberately untouched. herdr-mail's `retire` and `dump`
 and herdr-dispatch's `stop` are CLI-only for reasons of their own, and whether
 this direction reaches them is a decision on their boards, not this one.
+
+## The 0.9.0 sweep: every MUST, and the test that fails without it
+
+The entry above recorded that nothing had audited this plugin against 0.9.0's
+rule. This is that audit, run against contract text 0.10.0 with the
+declaration left at 0.6.0 (moving it is a separate decision, taken with this
+answer and the §7.3 `--as` pin both in hand).
+
+Method, because it is the whole value of the list. A MUST was NOT counted as
+pinned by reading its test. For each one, the behaviour was removed from the
+source, the suite was run, and the pin counted only if a test actually went
+red; the failing test is the one named below. Mutations that turned out to be
+no-ops — an error message reworded while the refusal stayed, a `MkdirAll` mode
+undone by a following `Chmod` — were re-cut until they removed the behaviour,
+because a survived no-op is not a finding. The mutation set lives in the task
+86 transcript rather than in the repository: it is a record of one audit, not
+a suite anyone should run again.
+
+**38 MUSTs were proven this way. Five of them had no pin until this task and
+now have one. Eleven more are listed as unpinned or unproven below, with which
+of the two they are.** Where a MUST is unpinned, the second question 0.9.0
+actually cares about — is it a missing test, or a MUST this plugin does not
+satisfy — is answered for each. Every one came back "missing test": no MUST in
+this contract was found unimplemented.
+
+### Pinned and proven
+
+| MUST | The test that failed when the behaviour was removed |
+|---|---|
+| §2.1 the view is served as `<name> tui` | `TestTheBinaryServesTheViewUnderTheContractsName` (added here) |
+| §2.2 a CLI call with no live socket starts the daemon, bounded | `TestCLIAutostartsTheDaemon` |
+| §2.4 the manifest declares `[[startup]]` and `stop`/`restart` | `TestManifestDeclaresStartupAndTheLifecycleActions` (added here) |
+| §3.2 `--as` is refused for a principal that is derived | `TestAsRefusesDerivedPrincipals` |
+| §3.2 `--as cron/trigger/plugin` is refused from a pane | `TestPaneMayNotDeclareAPluginPrincipal` |
+| §3.4 harness is `unknown` when Herdr has no answer, never a guess | `TestAgentGetUnknownPaneIsUnknownHarness` |
+| §3.5 the state dir is 0700 | `TestEnsureStateDirIsPrivate` |
+| §3.7 a paneless undeclared door is `none`, never `human` | `TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal` |
+| §3.7 an operator verb records the CALLING principal as actor | `TestPromoteByAnAgentSucceedsAndIsMarked` |
+| §3.7 an operator verb by a non-operator is MARKED | `TestPromoteByAnAgentSucceedsAndIsMarked` |
+| §4.1 the display name is never the key | `TestDisplayNameIsBasename` |
+| §5.1 `state_dir` is not resolved from `HERDR_PLUGIN_STATE_DIR` | `TestHerdrInjectedDirsAreIgnored` |
+| §5.2 a daemon that finds a newer schema refuses to start | `TestSchemaVersionAndRefusalToDowngrade` |
+| §5.4 entity ids are 26-char ULIDs | `TestULIDIs26CrockfordChars` |
+| §5.5 the event is written in the mutation's transaction | `TestTransitionWritesEventInSameTx` |
+| §5.6 a stale `--base-updated-at` is `CONFLICT` | `TestBaseUpdatedAtConflict` |
+| §5.7 only a row that never left its initial state hard-deletes | `TestHardDeleteOnlyNeverClaimed` |
+| §5.8 `dump --json` prints the whole store | `TestDumpIsCompleteJSON` |
+| §5.9 a bounded artifact clamps at render time and says what it dropped | `TestGoalSaysWhenItDroppedCriteria` |
+| §6.1 the parity test fails when the two surfaces drift | `TestCLIAndMCPSurfacesDoNotDrift` |
+| §6.2 a `--json` failure is exactly one error envelope | `TestJSONEnvelopeAndExitStatuses` |
+| §6.3 a code's exit status is the contract's | `TestTheErrorCodeTableIsTheContractsTable` (added here) |
+| §6.6 a principal does not review its own work | `TestApproveRecusesTheSamePane` |
+| §7.1 a tool is named by its verb alone, with no plugin prefix | `TestMCPToolListIsPinned` |
+| §7.2 the instructions say what the plugin IS | `TestTheInstructionsOpenBySayingWhatThePluginIs` (added here) |
+| §7.3 every verb the CLI serves is SERVED by the door | `TestEveryCLIVerbIsServedByTheDoor` (added here) |
+| §7.3 `--as` is off the door, as tool and as argument | `TestAsStaysOffTheMCPDoor` |
+| §7.5 `--operator` is never accepted as a tool argument | `TestTheOperatorDeclarationNeverArrivesPerCall` |
+| §7.5 the pane wins over the declaration | `TestPrincipalIsDerivedAndHarnessSnapshotted` |
+| §7.5 a declared door carrying `HERDR_PANE_ID` refuses to START | `TestServeRefusesADeclaredDoorInsideAPane` |
+| §8.3 a hook that fails does not fail the write | `TestEventHookRunsAndCannotFailTheWrite` |
+| §9.3 the parked record carries WHO resolved it | `TestGateDeferParksAndAnAgentResolvesOnTheRecord` |
+| §10.1 `config_dir` is not resolved from `HERDR_PLUGIN_CONFIG_DIR` | `TestHerdrInjectedDirsAreIgnored` |
+| §11.2 a missing capability is `UNSUPPORTED`, named | `TestRequireNamesTheMissingCapability` |
+| §11.4 a slash command is flattened to one line | `TestTheOneLineGoalHasNoNewlineAnywhere` |
+| §11.6 a manifest command in the plugin root starts with `./` | `TestManifestCommandsInThePluginRootSayTheyAre` |
+| §11.6 a pane offers human verbs only | `TestFooterVerbsAreClickableWhereTheyAreDrawn` |
+| §16.1 a criterion is a proof, and the required ones are covered | `TestCitingOneCriterionMeansCitingEveryRequiredOne` |
+
+### The five that had no pin, and what the mutation showed
+
+Each of these was implemented correctly and answerable to nothing. The gap was
+a missing test in all five; none was a MUST this plugin fails to satisfy.
+
+**§7.3's totality.** The contract says in as many words that a plugin MUST pin
+it with a test. Dropping a verb from the loop in `mcpdoor.New` that adds the
+tools left every §7.3 test green, because `TestEveryCLIVerbReachesTheMCPDoor`
+reads `verbs.MCPTools()` towards `verbs.All` — two registry-side lists, neither
+of them the door. A registry entry is the INTENT to serve a verb; what a
+harness can reach is the served tool list. `TestEveryCLIVerbIsServedByTheDoor`
+now reads that list off a live session. This also closes §9.5's door half,
+which is the same requirement said from the gate's side.
+
+**§6.3's exit statuses.** Every exit assertion in the suite is written
+`status != codes.Exit(codes.Forbidden)` — the observed status compared against
+the same table it is meant to be checking. Changing FORBIDDEN from 8 to 1 in
+`internal/codes` left the whole suite green, comments reading "want 8" and all.
+A shipped, semver-bound vocabulary was answerable only to itself.
+`TestTheErrorCodeTableIsTheContractsTable` reads §6.3's own table towards the
+package in both directions.
+
+**§7.2's first clause.** §7.2 requires three things of the instructions and
+`TestInstructionsCoverTheRequiredGround` looks for seven words scattered
+anywhere in the paragraph. Deleting the opening sentence — the one that says
+what the plugin is — left it green, because every keyword appears again
+further down. This is the same shape as the two instances note 72 records: an
+assertion satisfied by text other than the text it is about.
+
+**§2.1's spelling.** Renaming the subcommand from `tui` to `board` failed
+nothing. `internal/tui` tests the MODEL, reached in-process, which says nothing
+about the name a human or a Herdr popup action types.
+
+**§2.4's `[[startup]]`.** Renaming the table failed nothing; the manifest tests
+read the argv0 of whatever command blocks they find, so a manifest with no
+startup block at all satisfied them. `stop` was equally loose, and Herdr has no
+shutdown hook, which is why the contract names it.
+
+### Unpinned, and left unpinned
+
+Behaviour verified by reading the source; no test fails when it is removed. All
+are missing tests, not unmet MUSTs. They are listed rather than closed because
+each is a guard against a change nobody is proposing, and a test per line of
+this list is a bigger commitment than this task should make on its own.
+
+- **§1.1, §1.2, §1.3, §1.4** — no `tmux`/`zmx` reference, no PTY, no
+  `net/http`, no import of or path into a sibling plugin. Verified by search
+  across the non-test source; all four hold and nothing guards them.
+- **§4.3** — `workspace_id`/`tab_id`/`pane_id` are on rows for display only;
+  every key in `internal/store/schema.go` is `id` or `(project, seq)`.
+- **§12.2** — a test MUST cite the § it enforces.
+  `TestContractCitationsResolve` checks that citations which EXIST resolve, and
+  nothing fails when a test drops its citation. The obligation is on new tests
+  and is currently held by review.
+- **§14** — the forbidden nouns (`sidebar`, `card`, `widget`, `seat`,
+  `instance`, `session` outside Herdr's own) appear in no schema or verb name.
+  Nothing greps for them.
+- **§3.5's README half**, **§8.4's self-filter and no-poll halves**, **§11.4's
+  authoritative-store and no-receipt halves**, **§11.5**, **§13.1–§13.4**:
+  cited by tests that hold a NEIGHBOURING fact, so removing the MUST's own
+  behaviour was not shown to fail anything. Recorded as unproven rather than as
+  pinned, which is the distinction 0.9.0 exists to make.
+
+### One MUST deliberately not mutation-proved
+
+**§12.3's temp-dir half.** A faithful mutation points the suite's state dir at
+the operator's real one, which is the thing non-negotiable 5 forbids. The
+identity half of §12.3 is pinned by
+`TestTheMCPDoorTakesNoIdentityFromTheProcessThatRanTheTests`; the dirs half is
+recorded as verified by reading `internal/testenv` and `internal/e2e/harness_test.go`,
+not by mutation, and that is on purpose.
+
+### One thing this audit found that is not a pin
+
+`mcpdoor.Instructions` still tells an agent that "the CLI (`htask`) carries
+every verb, including the ones missing here". Since 0.10.0 there are no verbs
+missing there, and `TestEveryCLIVerbIsServedByTheDoor` now holds that. The
+sentence is stale rather than wrong-in-mechanism, and correcting served prose
+is a change to the door's shipped text, so it is named here and left for the
+door task that moves the declared revision.
