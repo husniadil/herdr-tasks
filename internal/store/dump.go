@@ -49,14 +49,14 @@ func (s *Store) Dump() (*Dump, error) {
 	d.Parked = []Parked{}
 	rows, err := s.db.Query(
 		`SELECT id, project, subject, verb, target, payload, state, COALESCE(reason, ''), created_at,
-		        COALESCE(resolved_at, 0) FROM parked ORDER BY id ASC`)
+		        COALESCE(resolved_at, 0), COALESCE(resolved_by, '') FROM parked ORDER BY id ASC`)
 	if err != nil {
 		return nil, wrap(err)
 	}
 	for rows.Next() {
 		var p Parked
 		if err := rows.Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload,
-			&p.State, &p.Reason, &p.CreatedAt, &p.ResolvedAt); err != nil {
+			&p.State, &p.Reason, &p.CreatedAt, &p.ResolvedAt, &p.ResolvedBy); err != nil {
 			rows.Close()
 			return nil, wrap(err)
 		}

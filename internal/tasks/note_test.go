@@ -86,31 +86,100 @@ func TestNoteVerdictRejectsUnknownValue(t *testing.T) {
 	}
 }
 
-// Promotion is the operator's call, not an agent's — the plugin exposes no way
-// for a harness to turn its own idea into a commitment.
-func TestPromoteIsHumanOnly(t *testing.T) {
-	n := newNote(t)
-	err := noteErr(NotePromote(n, agent("wF:p1", "claude"), "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+5))
-	if got := codeOf(t, err); got != codes.Forbidden {
-		t.Fatalf("agent promote code = %q, want FORBIDDEN", got)
+// markedAgent asserts §3.7's two halves on one operator-verb event: the actor
+// recorded is the agent that called, and the event says an operator verb was
+// reached by someone who is not the operator. A mutation that writes
+// PrincipalHuman instead of by.Principal fails the first half; one that drops
+// the mark fails the second.
+func markedAgent(t *testing.T, e Event, want Principal) {
+	t.Helper()
+	if e.Actor != want {
+		t.Fatalf("actor = %q, want %q: the trail names who acted, never the operator (§3.7)", e.Actor, want)
 	}
+	if e.Actor.Kind() == "human" {
+		t.Fatalf("actor = %q: an agent's operator verb must never be filed under the operator", e.Actor)
+	}
+	if e.Detail[OnBehalfOfOperator] != true {
+		t.Fatalf("detail = %v, want %s: an operator verb an agent performed labels itself", e.Detail, OnBehalfOfOperator)
+	}
+}
+
+// §3.7 (0.10.0): note.promote is the operator's authority and an agent that
+// confirmed with the user performs it. NotePromote note.go: the refusal
+// this replaces returned FORBIDDEN to every agent.
+func TestPromoteByAnAgentSucceedsAndIsMarked(t *testing.T) {
+	n := newNote(t)
+	ag := agent("wF:p1", "claude")
+	e, err := NotePromote(n, ag, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+5)
+	if err != nil {
+		t.Fatalf("agent promote: %v", err)
+	}
+	if n.Status != NoteTask || n.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FT1" {
+		t.Fatalf("bad promote: %+v", n)
+	}
+	markedAgent(t, e, ag.Principal)
+	if e.Detail["task_id"] != "01ARZ3NDEKTSV4RRFFQ69G5FT1" {
+		t.Fatalf("detail = %v: the mark is added beside what the event already said", e.Detail)
+	}
+}
+
+// The operator's own promotion carries no mark: the mark says "someone other
+// than the operator did this", so writing it for the operator would say
+// nothing.
+func TestPromoteByTheOperatorIsNotMarked(t *testing.T) {
+	n := newNote(t)
+	e, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+5)
+	if err != nil {
+		t.Fatalf("human promote: %v", err)
+	}
+	if _, ok := e.Detail[OnBehalfOfOperator]; ok {
+		t.Fatalf("detail = %v: the operator acting on their own authority is unremarkable", e.Detail)
+	}
+}
+
+func TestPromoteIsOncePerNote(t *testing.T) {
+	n := newNote(t)
 	if _, err := NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", t0+6); err != nil {
 		t.Fatalf("human promote: %v", err)
 	}
 	if n.Status != NoteTask || n.TaskID != "01ARZ3NDEKTSV4RRFFQ69G5FT1" {
 		t.Fatalf("bad promote: %+v", n)
 	}
-	err = noteErr(NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT2", "", t0+7))
+	err := noteErr(NotePromote(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT2", "", t0+7))
 	if got := codeOf(t, err); got != codes.Conflict {
 		t.Fatalf("re-promote code = %q, want CONFLICT", got)
 	}
 }
 
-func TestNoteKeepAndDropAreHumanOnly(t *testing.T) {
-	n := newNote(t)
-	if got := codeOf(t, noteErr(NoteDrop(n, agent("wF:p1", "claude"), "nah", t0+1))); got != codes.Forbidden {
-		t.Fatalf("agent drop code = %q, want FORBIDDEN", got)
+// §3.7 (0.10.0): both verdicts `decide` carries — note keep and note drop —
+// are reached by an agent and marked. The refusal this replaces sent every
+// agent to `note verdict` instead.
+func TestNoteKeepAndDropByAnAgentSucceedAndAreMarked(t *testing.T) {
+	ag := agent("wF:p1", "claude")
+
+	dropped := newNote(t)
+	e, err := NoteDrop(dropped, ag, "nah", t0+1)
+	if err != nil {
+		t.Fatalf("agent drop: %v", err)
 	}
+	if dropped.Status != NoteDropped {
+		t.Fatalf("status = %q, want %q", dropped.Status, NoteDropped)
+	}
+	markedAgent(t, e, ag.Principal)
+
+	kept := newNote(t)
+	e, err = NoteKeep(kept, ag, "later", t0+1)
+	if err != nil {
+		t.Fatalf("agent keep: %v", err)
+	}
+	if kept.Status != NoteKept {
+		t.Fatalf("status = %q, want %q", kept.Status, NoteKept)
+	}
+	markedAgent(t, e, ag.Principal)
+}
+
+func TestNoteKeepAndDropStayTerminal(t *testing.T) {
+	n := newNote(t)
 	if _, err := NoteDrop(n, human, "not now", t0+2); err != nil {
 		t.Fatalf("human drop: %v", err)
 	}
@@ -288,12 +357,18 @@ func TestNoteFoldEndsTheNoteOnTheTaskThatCarriesIt(t *testing.T) {
 	}
 }
 
-func TestNoteFoldIsHumanOnly(t *testing.T) {
+// §3.7 (0.10.0): folding follows promotion onto the agent's side of the line.
+func TestNoteFoldByAnAgentSucceedsAndIsMarked(t *testing.T) {
 	n := newNote(t)
-	err := noteErr(NoteFold(n, agent("wF:p1", "claude"), "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+1))
-	if got := codeOf(t, err); got != codes.Forbidden {
-		t.Fatalf("agent fold code = %q, want FORBIDDEN", got)
+	ag := agent("wF:p1", "claude")
+	e, err := NoteFold(n, ag, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+1)
+	if err != nil {
+		t.Fatalf("agent fold: %v", err)
 	}
+	if n.Status != NoteTask || !n.Folded {
+		t.Fatalf("bad fold: %+v", n)
+	}
+	markedAgent(t, e, ag.Principal)
 }
 
 // The decision this task had to take: a note whose own task exists is refused
@@ -361,13 +436,46 @@ func TestNoteUnfoldRefusesTheNoteTheTaskWasMadeFrom(t *testing.T) {
 	}
 }
 
-func TestNoteUnfoldIsHumanOnly(t *testing.T) {
+// §3.7 (0.10.0): undoing a fold is the same authority as making one, so it
+// moves with it.
+func TestNoteUnfoldByAnAgentSucceedsAndIsMarked(t *testing.T) {
 	n := newNote(t)
+	ag := agent("wF:p1", "claude")
 	if _, err := NoteFold(n, human, "01ARZ3NDEKTSV4RRFFQ69G5FT1", "", "", t0+1); err != nil {
 		t.Fatalf("fold: %v", err)
 	}
-	if got := codeOf(t, noteErr(NoteUnfold(n, agent("wF:p1", "claude"), t0+2))); got != codes.Forbidden {
-		t.Fatalf("code = %q, want FORBIDDEN", got)
+	e, err := NoteUnfold(n, ag, t0+2)
+	if err != nil {
+		t.Fatalf("agent unfold: %v", err)
+	}
+	if n.Status != NoteInbox {
+		t.Fatalf("status = %q, want %q", n.Status, NoteInbox)
+	}
+	markedAgent(t, e, ag.Principal)
+}
+
+// The five sites §3.7 did NOT move, held here so removing one fails a test.
+// note.go NoteUpdate and CanHardDeleteNote are AUTHORSHIP, not operator
+// authority: an agent rewriting or destroying another agent's note is wrong
+// however the operator answers, so no confirmation makes it right.
+func TestAnotherAgentStillCannotEditOrDeleteANote(t *testing.T) {
+	n := newNote(t)
+	n.Author = Principal("agent:wF:p9")
+	rival := agent("wF:p1", "claude")
+
+	if got := codeOf(t, noteErr(NoteUpdate(n, rival, "my words instead", t0+1))); got != codes.Forbidden {
+		t.Fatalf("rival edit code = %q, want FORBIDDEN: authorship is not the operator's to grant away", got)
+	}
+	if got := codeOf(t, CanHardDeleteNote(n, rival)); got != codes.Forbidden {
+		t.Fatalf("rival delete code = %q, want FORBIDDEN: erasing a peer's idea is wrong however the operator answers", got)
+	}
+	// The author still reaches both, which is what makes the refusal about
+	// authorship rather than about being an agent.
+	if _, err := NoteUpdate(n, agent("wF:p9", "claude"), "my own words", t0+2); err != nil {
+		t.Fatalf("author edit: %v", err)
+	}
+	if err := CanHardDeleteNote(n, agent("wF:p9", "claude")); err != nil {
+		t.Fatalf("author delete: %v", err)
 	}
 }
 

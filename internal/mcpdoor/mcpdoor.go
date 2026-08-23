@@ -130,7 +130,7 @@ func tool(v verbs.Verb) *mcp.Tool {
 	}
 	return &mcp.Tool{
 		Name:        v.MCP,
-		Description: v.Short,
+		Description: v.Help(),
 		InputSchema: schema,
 	}
 }

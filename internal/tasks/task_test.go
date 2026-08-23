@@ -200,6 +200,40 @@ func TestSubmitByStrangerForbidden(t *testing.T) {
 	}
 }
 
+// The three sites in this file §3.7 did NOT move: Release, Submit and Cancel
+// each refuse a stranger while a task is claimed. The authority is the CLAIM
+// HOLDER's, not the operator's, so no confirmation with the operator makes a
+// rival's lease theirs to end — which is why they keep refusing where
+// note.promote stopped. Removing any one of the three makes this fail.
+func TestAClaimIsTheHoldersAndStillRefusesAStranger(t *testing.T) {
+	holder := agent("wF:p1", "claude")
+	stranger := agent("wF:p2", "codex")
+
+	release := newTask()
+	mustClaim(t, release, holder)
+	if got := codeOf(t, mustErr(Release(release, stranger, "not yours", t0+10, KindReleased))); got != codes.Forbidden {
+		t.Fatalf("release code = %q, want FORBIDDEN", got)
+	}
+
+	submit := newTask()
+	mustClaim(t, submit, holder)
+	if got := codeOf(t, mustErr(Submit(submit, stranger, "mine now", nil, nil, t0+10))); got != codes.Forbidden {
+		t.Fatalf("submit code = %q, want FORBIDDEN", got)
+	}
+
+	cancel := newTask()
+	mustClaim(t, cancel, holder)
+	if got := codeOf(t, mustErr(Cancel(cancel, stranger, "done with it", t0+10))); got != codes.Forbidden {
+		t.Fatalf("cancel code = %q, want FORBIDDEN", got)
+	}
+
+	// And the holder still reaches its own, so the refusal is about the claim
+	// rather than about being an agent.
+	if _, err := Release(release, holder, "handing back", t0+11, KindReleased); err != nil {
+		t.Fatalf("holder release: %v", err)
+	}
+}
+
 func TestSubmitRequiresReport(t *testing.T) {
 	task := newTask()
 	a := agent("wF:p1", "claude")

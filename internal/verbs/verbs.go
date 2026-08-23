@@ -36,14 +36,12 @@ type Verb struct {
 	// CLI is the subcommand path, e.g. {"task", "claim"}.
 	CLI []string
 	// MCP is the tool name: the verb alone, with dots as underscores
-	// (§7.1). Empty keeps the verb off the MCP door, and NotMCP then says why.
+	// (§7.1). Every verb has one, and §7.3 admits no CLI-only verb: the only
+	// ground for keeping one off the agent surface was "this authority is the
+	// operator's", and §3.7 makes that authority advice an agent confirms
+	// rather than a refusal a door makes. A verb withheld from a principal is
+	// withheld by the §9 gate, which both doors pass through.
 	MCP string
-	// NotMCP is why a verb the CLI carries is not published as a tool.
-	// Required exactly when MCP is empty. §7.3 sets no tool budget, so there
-	// is no count an absence can appeal to: a verb the agent surface does not
-	// carry is either a decision someone wrote down or an omission. A reason
-	// that only restates the absence is not one.
-	NotMCP string
 	// Short is the one-line help both doors show.
 	Short string
 	// Long is the CLI's longer help, when a verb needs one.
@@ -209,24 +207,18 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.archive", CLI: []string{"task", "archive"},
-		NotMCP: "archive decides what everyone sees on the board by default, and a " +
-			"default view is the operator's to arrange. An agent that wants a " +
-			"finished task out of its way already has `list --status done`.",
+		Name: "task.archive", CLI: []string{"task", "archive"}, MCP: "archive",
 		Short:   "Hide a finished task from the default list",
-		Who:     "Anyone, and only a terminal task.",
+		Who:     "Anyone, and only a terminal task. Arranging the default view is the operator's call, so an agent asks before tidying someone else's board (§3.7).",
 		Ungated: "hiding a finished task changes no work and is reversible",
 		Mutates: true,
 		Args:    []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.delete", CLI: []string{"task", "delete"},
-		NotMCP: "§5.7: delete removes the row itself, and a board an agent can " +
-			"erase from is not a record. The reversible ending an agent needs " +
-			"is `cancel`, which is on the door.",
+		Name: "task.delete", CLI: []string{"task", "delete"}, MCP: "delete",
 		Short:   "Remove a task that was never claimed",
 		Long:    "Only a never-claimed task is deleted (§5.7). Everything else is cancelled or archived.",
-		Who:     "Anyone, and only a task that was never claimed (§5.7).",
+		Who:     "Anyone, and only a task that was never claimed (§5.7). Deleting removes the row rather than ending it, so an agent confirms with the operator first and reaches for `cancel` otherwise (§3.7).",
 		Ungated: "a task nobody ever claimed is nobody's work to protect",
 		Mutates: true,
 		Args:    []Arg{idArg("The task id or number")},
@@ -295,11 +287,11 @@ var All = []Verb{
 	},
 	{
 		Name: "note.promote", CLI: []string{"note", "promote"}, MCP: "note_promote",
-		Short: "Turn one or more notes into a task (operator only)",
+		Short: "Turn one or more notes into a task (ask the operator first)",
 		Long: "The task is created on the note's own board unless --to-project names another one; the note stays where it was filed either way and points at the task it became.\n" +
 			"Notes named by --also are folded into the same task rather than each becoming one: several notes are often one change, and the folded ones end on the task instead of reading as undecided forever.",
 		Gated:   "tasks.note_promote",
-		Who:     "The operator only.",
+		Who:     "The operator, or an agent that has confirmed this promotion with them first (§3.7). The event records the agent, never the operator.",
 		Mutates: true,
 		Args: []Arg{
 			idArg("The note id or number"),
@@ -311,11 +303,11 @@ var All = []Verb{
 	},
 	{
 		Name: "note.fold", CLI: []string{"note", "fold"}, MCP: "note_fold",
-		Short: "Point a note at a task that already exists (operator only)",
+		Short: "Point a note at a task that already exists (ask the operator first)",
 		Long: "For the note filed AFTER the task that covers it: it ends on that task without a second one being created.\n" +
 			"A note whose own task exists is refused, naming the task holding it, rather than being repointed. `note unfold` is the way back.",
 		Gated:   "tasks.note_fold",
-		Who:     "The operator only, for the reason note.promote is: this is the same decision about a second note.",
+		Who:     "The operator, or an agent that has confirmed it with them first, for the reason note.promote is: this is the same decision about a second note (§3.7).",
 		Mutates: true,
 		Args: []Arg{
 			idArg("The note id or number"),
@@ -325,20 +317,17 @@ var All = []Verb{
 	},
 	{
 		Name: "note.unfold", CLI: []string{"note", "unfold"}, MCP: "note_unfold",
-		Short:   "Undo a fold and return the note to the inbox (operator only)",
+		Short:   "Undo a fold and return the note to the inbox (ask the operator first)",
 		Long:    "The way back from a fold that was a mistake, without deleting the row: the note is undecided again and promotable on its own. The note a task was PROMOTED from does not unfold — the task was made from its body.",
-		Who:     "The operator only.",
+		Who:     "The operator, or an agent that has confirmed it with them first; undoing a fold is the same authority as making one (§3.7).",
 		Ungated: "a fold is gated on the way in, and a gate that could park the way back would leave a wrong fold standing",
 		Mutates: true,
 		Args:    []Arg{idArg("The note id or number")},
 	},
 	{
-		Name: "note.keep", CLI: []string{"note", "keep"},
-		NotMCP: "keep is one of the operator's two verdicts on a note (§5.7). An " +
-			"agent reaches the same board through `note_verdict`, which " +
-			"proposes; deciding is what stays with the operator.",
-		Short:   "File a note as approved but not now (operator only)",
-		Who:     "The operator only.",
+		Name: "note.keep", CLI: []string{"note", "keep"}, MCP: "note_keep",
+		Short:   "File a note as approved but not now (ask the operator first)",
+		Who:     "The operator, or an agent that has confirmed this verdict with them first; `note_verdict` proposes it without asking anyone (§3.7).",
 		Ungated: "filing a note for later puts nothing on the board; note.promote is gated because it does create a task, which a freeze can usefully hold",
 		Mutates: true,
 		Args: []Arg{
@@ -347,12 +336,9 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.drop", CLI: []string{"note", "drop"},
-		NotMCP: "drop is the operator's other verdict, and rejecting a peer's idea " +
-			"outright is the decision `note_verdict` exists to keep out of an " +
-			"agent's hands.",
-		Short:   "Reject a note (operator only)",
-		Who:     "The operator only.",
+		Name: "note.drop", CLI: []string{"note", "drop"}, MCP: "note_drop",
+		Short:   "Reject a note (ask the operator first)",
+		Who:     "The operator, or an agent that has confirmed this verdict with them first; rejecting a peer's idea outright is not a call an agent makes alone (§3.7).",
 		Ungated: "rejecting a note ends it where it stands and creates no work; note.promote is gated because it does create a task, which a freeze can usefully hold",
 		Mutates: true,
 		Args: []Arg{
@@ -361,13 +347,9 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "note.delete", CLI: []string{"note", "delete"},
-		NotMCP: "§5.7: delete removes the note rather than deciding it, so an agent " +
-			"holding it could erase a rival's idea more cheaply than arguing " +
-			"with it. `note_verdict` is the door's way to say the same thing on " +
-			"the record.",
+		Name: "note.delete", CLI: []string{"note", "delete"}, MCP: "note_delete",
 		Short:   "Remove a note that is still in the inbox",
-		Who:     "The author, or the operator, and only an inbox note (§5.7).",
+		Who:     "The author, or the operator, and only an inbox note (§5.7). This one still REFUSES another agent: erasing a peer's idea is wrong however the operator answers.",
 		Ungated: "an inbox note is pre-decision, and its author or the operator removing it decides nothing",
 		Mutates: true,
 		Args:    []Arg{idArg("The note id or number")},
@@ -377,14 +359,10 @@ var All = []Verb{
 		Short: "List actions the policy gate deferred",
 	},
 	{
-		Name: "parked.resolve", CLI: []string{"parked", "resolve"},
-		NotMCP: "§9.3: resolve runs or refuses an action the policy gate deferred, " +
-			"which is the operator overruling the gate. A door reachable by the " +
-			"agent the gate stopped would be the gate answering to its own " +
-			"subject.",
-		Short:   "Run or reject a deferred action (operator only)",
-		Long:    "Resolving re-runs the verb under the original subject, never the resolver's (§9.3).",
-		Who:     "The operator only (§9.3).",
+		Name: "parked.resolve", CLI: []string{"parked", "resolve"}, MCP: "parked_resolve",
+		Short:   "Run or reject a deferred action (ask the operator first)",
+		Long:    "Resolving re-runs the verb under the original subject, never the resolver's (§9.3), and the row records who resolved it.",
+		Who:     "The operator, or an agent that has confirmed it with them first; overruling the gate that stopped you is exactly the call to bring to the operator (§3.7, §9.3).",
 		Ungated: "this verb IS the gate's own resolution; gating it would defer the answer to the deferral",
 		Mutates: true,
 		Args: []Arg{
@@ -411,14 +389,10 @@ var All = []Verb{
 		Short: "Report version, dirs, socket, Herdr, hooks, gate and anything degraded",
 	},
 	{
-		Name: "sweep", CLI: []string{"sweep"},
-		NotMCP: "the daemon sweeps lapsed leases on its own, so an agent has " +
-			"nothing to call this for; the manual form takes --pane and " +
-			"releases another pane's claim, which is the operator's " +
-			"intervention when a worker is gone.",
+		Name: "sweep", CLI: []string{"sweep"}, MCP: "sweep",
 		Short:   "Release leases that have lapsed, or every lease a pane holds",
 		Long:    "The daemon does this on a timer (§11.5). Run it by hand, or from a Herdr\nevent reaction, when a pane died and its work should return to the queue now.",
-		Who:     "With --pane: that pane, or the operator. Without: anyone, and it releases only leases that are already expired.",
+		Who:     "With --pane: that pane, or the operator — another pane's leases are still REFUSED, because they are that holder's, not the operator's to grant on their behalf. Without: anyone, and it releases only leases that are already expired.",
 		Ungated: "the daemon's own §11.5 timer calls it, and a gate that parked the timer would stop leases coming back at all",
 		Mutates: true,
 		Args: []Arg{
@@ -426,12 +400,27 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "dump", CLI: []string{"dump"},
-		NotMCP: "§3.5: dump prints the whole store, every project included, and the " +
-			"door is scoped to one project on purpose. It is the operator's " +
-			"debugging verb at their own terminal.",
-		Short: "Print the whole store as JSON",
+		Name: "dump", CLI: []string{"dump"}, MCP: "dump",
+		Short: "Print the whole store as JSON, every project included (§3.5)",
 	},
+}
+
+// Help is the description both doors show: the one-line Short, the longer
+// prose where a verb has it, and the principal rule. §3.7 made an operator
+// verb advice an agent confirms rather than a refusal a door makes, which
+// leaves the rule with nowhere to be enforced and everywhere to be READ — so
+// it is rendered rather than kept as registry metadata, in one text a human
+// reads in `--help` and an agent reads in a tool description. Two wordings
+// would be two rules.
+func (v Verb) Help() string {
+	out := v.Short
+	if v.Long != "" {
+		out += "\n\n" + v.Long
+	}
+	if v.Who != "" {
+		out += "\n\nWho: " + v.Who
+	}
+	return out
 }
 
 // ByName finds a verb by its daemon name.

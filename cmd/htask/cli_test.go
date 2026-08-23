@@ -343,19 +343,36 @@ func TestEventsCarryEveryStateChange(t *testing.T) {
 	}
 }
 
-// The note board, end to end: an agent proposes, only the operator decides.
-func TestNoteBoardIsAgentProposesOperatorDecides(t *testing.T) {
+// The note board, end to end. §3.7 (0.10.0): an agent proposes a verdict
+// without asking anyone, and performs the decision once it has confirmed with
+// the operator — the door does not refuse it, and the trail says the agent
+// did it.
+func TestNoteBoardIsAgentProposesAndConfirmsBeforeDeciding(t *testing.T) {
 	w := newWorld(t)
 	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "the sweep should log")
 	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "discuss", "1")
 	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "verdict", "1", "task", "--reason", "worth doing")
-	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "note", "promote", "1", "--json"); status != codes.Exit(codes.Forbidden) {
-		t.Fatalf("an agent must not promote its own note: exit %d", status)
+
+	// A second note the agent decides itself, having asked first: `drop` is
+	// on the CLI and the MCP door alike, and the event names the agent.
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "add", "rename the sweep flag")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "note", "drop", "2", "--reason", "the operator said no")
+	doc := w.json(w.env(), "note", "get", "2")
+	if note, _ := doc["note"].(map[string]any); note["status"] != "dropped" {
+		t.Fatalf("an agent that confirmed with the operator drops a note: %+v", doc)
+	}
+	events := w.json(w.env(), "events")["events"].([]any)
+	last := events[len(events)-1].(map[string]any)
+	if last["name"] != "tasks.note.dropped" || last["actor"] != "agent:wF:p1" {
+		t.Fatalf("the trail must name the agent that acted: %+v", last)
+	}
+	if detail, _ := last["detail"].(map[string]any); detail["on_behalf_of_operator"] != true {
+		t.Fatalf("an operator verb an agent performed labels itself: %+v", last)
 	}
 	// §16.1: the criteria the verdict drafted travel with the promotion, in
 	// the one command the operator runs. A task born without them prints a
 	// `task goal` whose "Done when" has nothing to check.
-	doc := w.json(w.env(), "note", "promote", "1",
+	doc = w.json(w.env(), "note", "promote", "1",
 		"--validation", "make test-full exits 0",
 		"--validation", "htask note promote --help lists --validation")
 	task, _ := doc["task"].(map[string]any)

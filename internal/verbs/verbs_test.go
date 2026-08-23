@@ -1,6 +1,9 @@
 package verbs
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // §9.4 with §3.1: every verb that writes states who may call it, and either
 // carries a gate name or says why it does not. Before this, eleven Mutates
@@ -59,20 +62,45 @@ func TestEachUngatedReasonIsAboutItsOwnVerb(t *testing.T) {
 	}
 }
 
-// §7.3: a verb the CLI carries and the MCP door does not is a decision about
-// authority, and a decision is only a decision once it is written down. With
-// the tool budget gone there is no count left to appeal to, so the registry
-// must carry the reason itself.
-func TestEveryCLIOnlyVerbSaysWhy(t *testing.T) {
+// §7.3 (0.10.0): there is no CLI-only verb left to explain. The eight that
+// recorded a reason for their absence all gave a form of "this authority is
+// the operator's", and §3.7 turned that authority into advice an agent
+// confirms rather than a refusal a door makes — so the reasons lost their
+// basis and the verbs came to the door. This replaces TestEveryCLIOnlyVerbSaysWhy,
+// which asked every absent verb to say why: nothing may be absent now.
+func TestEveryVerbIsOnBothDoors(t *testing.T) {
 	for _, v := range All {
-		switch {
-		case v.MCP == "" && v.NotMCP == "":
-			t.Errorf("verb %q is absent from the MCP door with no reason recorded; §7.3 has no tool budget to justify that", v.Name)
-		case v.MCP != "" && v.NotMCP != "":
-			t.Errorf("verb %q is both published as %q and recorded as absent", v.Name, v.MCP)
+		if v.MCP == "" {
+			t.Errorf("verb %q is on the CLI and not on the MCP door; §7.3 admits no class of verb that belongs to one door", v.Name)
+		}
+		if len(v.CLI) == 0 {
+			t.Errorf("verb %q is on the MCP door and not on the CLI; parity fails in both directions", v.Name)
 		}
 	}
-	if len(MCPTools()) == 0 {
-		t.Fatal("no verb is published on the MCP door at all")
+	if len(MCPTools()) != len(All) {
+		t.Fatalf("%d tools for %d verbs; §7.3 wants every one", len(MCPTools()), len(All))
+	}
+}
+
+// §3.7 (0.10.0): the principal rule has nowhere left to be enforced for an
+// operator verb and everywhere to be read, so it is rendered rather than kept
+// as registry metadata — in ONE text, because a human reading `--help` and an
+// agent reading a tool description must be told the same thing. This fails if
+// a door goes back to showing Short alone.
+func TestHelpCarriesTheWhoRuleForEveryVerb(t *testing.T) {
+	for _, v := range All {
+		help := v.Help()
+		if !strings.Contains(help, v.Short) {
+			t.Errorf("%s: help drops the one-line summary", v.Name)
+		}
+		if v.Who != "" && !strings.Contains(help, v.Who) {
+			t.Errorf("%s: help does not say who may call it; the rule is only useful where it is read", v.Name)
+		}
+		if v.Long != "" && !strings.Contains(help, v.Long) {
+			t.Errorf("%s: help drops the longer prose", v.Name)
+		}
+		if strings.Contains(strings.ToLower(help), "operator only") {
+			t.Errorf("%s: %q still reads as a refusal; an operator verb is advice an agent confirms (§3.7)", v.Name, help)
+		}
 	}
 }

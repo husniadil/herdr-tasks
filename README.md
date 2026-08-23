@@ -60,8 +60,10 @@ htask task goal 12                            # a paste-ready /goal condition
 htask doctor
 ```
 
-A note the operator promotes becomes a task on the note's own board, or on
-another project's when they name one:
+Promoting a note becomes a task on the note's own board, or on another
+project's when one is named. Promoting, folding, keeping and dropping are the
+operator's authority: an agent confirms with them first and then runs the verb
+itself, and the event names the agent (§3.7).
 
 ```sh
 htask note promote 3 --title "Log the reason a lease was swept" \
@@ -73,9 +75,9 @@ htask note promote 3 --to-project ../sibling-repo
 there, the note stays where it was filed, and both the id and the project of
 the task are recorded on the note, so `note get` can point across.
 
-Two or three notes are often one change. The operator promotes one of them and
-folds the rest into the task it creates, or folds a note into a task that
-already exists when it was filed after the fact:
+Two or three notes are often one change. One of them is promoted and the rest
+are folded into the task it creates, or a note is folded into a task that
+already existed when it was filed:
 
 ```sh
 htask note promote 3 --also 4 --also 5 --title "Log the reason a lease was swept"
@@ -284,21 +286,22 @@ silently worked around.
 
 Deviations worth naming up front:
 
-- **§6.1 / §7.3** — every verb is a CLI subcommand; a pinned subset of 15 is
-  also an MCP tool. Both doors are generated from one registry, and a parity
-  test fails on any drift between them. See the contract note.
+- **§6.1 / §7.3** — every verb is a CLI subcommand and an MCP tool. Both doors
+  are generated from one registry, and a parity test fails on any drift
+  between them, in either direction.
 - **§7.1 / §13.3** — an MCP tool is named by its verb alone: `claim`, `submit`,
   `list`, `note_add`. The server registers as `herdr-tasks`, and a client
   namespaces the tools under that label, so the plugin's identity is said once
   where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
-  The binary is **0.3.0** since §3.7 changed which principal a paneless door
-  derives; the tool list itself has not moved since 0.2.0.
+  The binary is **0.5.0** since §3.7 made an operator verb advisory and the
+  ten verbs a door never carried came to it; the names already on the list
+  have not moved since 0.2.0.
 - **§3.7 / §7.5** — `human` is not what a door falls back to when it knows
   nothing. A `htask mcp` door standing in a Herdr pane is that pane's agent;
   one standing in no pane has NO principal — `htask doctor` through it prints
-  `none` — and every verb reserved for the operator refuses it. A door that
+  `none` — and `none` is what the ledger records for what it does. A door that
   IS the operator says so once, in the client's server configuration:
 
   ```

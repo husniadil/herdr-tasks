@@ -211,9 +211,9 @@ func NoteVerdict(n *Note, by Actor, v Verdict, reason string, now int64) (Event,
 		Detail: map[string]any{"verdict": string(v), "reason": n.Reason}}, nil
 }
 
-// NotePromote turns a note into a task. Human-only: a note becoming a
-// commitment is the operator's decision, and an agent proposing its own
-// promotion is exactly the loop this rule exists to break.
+// NotePromote turns a note into a task. The authority is the operator's, and
+// since 0.10.0 that is advice rather than a refusal (§3.7): an agent confirms
+// with the user and then promotes, and the event says the agent did it.
 //
 // taskProject is the board the task was created on. It may be another
 // project's: the note stays where it was filed and points across, so the
@@ -221,9 +221,6 @@ func NoteVerdict(n *Note, by Actor, v Verdict, reason string, now int64) (Event,
 // recorded only when it differs from the note's own project, so the common
 // case reads the way it always did.
 func NotePromote(n *Note, by Actor, taskID, taskProject string, now int64) (Event, error) {
-	if !by.IsHuman() {
-		return Event{}, codes.New(codes.Forbidden, "only the operator promotes a note")
-	}
 	if n.Status.Terminal() {
 		return Event{}, codes.Errorf(codes.Conflict, "note is %s", n.Status)
 	}
@@ -237,13 +234,14 @@ func NotePromote(n *Note, by Actor, taskID, taskProject string, now int64) (Even
 		detail["task_project"] = taskProject
 	}
 	n.UpdatedAt = now
-	return Event{Kind: KindNotePromoted, Actor: by.Principal, At: now, Detail: detail}, nil
+	return Event{Kind: KindNotePromoted, Actor: by.Principal, At: now,
+		Detail: operatorVerb(by, detail)}, nil
 }
 
 // NoteFold points a note at a task that already exists, or at the task
-// another note is being promoted into. Human-only for the reason NotePromote
-// is: a note becoming work is the operator's decision, and folding is that
-// decision made about a second note.
+// another note is being promoted into. Its authority is NotePromote's, and so
+// is its advisory shape: a note becoming work is the operator's decision, and
+// folding is that decision made about a second note.
 //
 // It reuses `task` rather than adding a seventh state. `task` already means
 // "this became work"; a folded note became work too, in a task whose scope
@@ -255,9 +253,6 @@ func NotePromote(n *Note, by Actor, taskID, taskProject string, now int64) (Even
 // refusal. A note whose own task exists is never silently repointed: the
 // operator either meant a different note, or wants the fold undone first.
 func NoteFold(n *Note, by Actor, taskID, taskProject, holder string, now int64) (Event, error) {
-	if !by.IsHuman() {
-		return Event{}, codes.New(codes.Forbidden, "only the operator folds a note into a task")
-	}
 	if n.Status == NoteTask {
 		if holder == "" {
 			holder = n.TaskID
@@ -278,7 +273,8 @@ func NoteFold(n *Note, by Actor, taskID, taskProject, holder string, now int64) 
 		detail["task_project"] = taskProject
 	}
 	n.UpdatedAt = now
-	return Event{Kind: KindNoteFolded, Actor: by.Principal, At: now, Detail: detail}, nil
+	return Event{Kind: KindNoteFolded, Actor: by.Principal, At: now,
+		Detail: operatorVerb(by, detail)}, nil
 }
 
 // NoteUnfold is the way back from a fold that was a mistake, without deleting
@@ -290,9 +286,6 @@ func NoteFold(n *Note, by Actor, taskID, taskProject, holder string, now int64) 
 // is nothing to return it to that would not leave the task without the note it
 // came from; that mistake is undone by cancelling the task.
 func NoteUnfold(n *Note, by Actor, now int64) (Event, error) {
-	if !by.IsHuman() {
-		return Event{}, codes.New(codes.Forbidden, "only the operator unfolds a note")
-	}
 	if n.Status != NoteTask {
 		return Event{}, codes.Errorf(codes.Conflict, "note is %s, not on a task", n.Status)
 	}
@@ -305,7 +298,7 @@ func NoteUnfold(n *Note, by Actor, now int64) (Event, error) {
 	n.TaskID, n.TaskProject, n.Folded = "", "", false
 	n.UpdatedAt = now
 	return Event{Kind: KindNoteUnfolded, Actor: by.Principal, At: now,
-		Detail: map[string]any{"task_id": was}}, nil
+		Detail: operatorVerb(by, map[string]any{"task_id": was})}, nil
 }
 
 // NoteKeep files a note as approved but not now.
@@ -319,9 +312,6 @@ func NoteDrop(n *Note, by Actor, reason string, now int64) (Event, error) {
 }
 
 func decide(n *Note, by Actor, to NoteStatus, kind, reason string, now int64) (Event, error) {
-	if !by.IsHuman() {
-		return Event{}, codes.Errorf(codes.Forbidden, "only the operator decides a note; propose %s with note verdict instead", to)
-	}
 	if err := bound("reason", reason, MaxText); err != nil {
 		return Event{}, err
 	}
@@ -334,7 +324,7 @@ func decide(n *Note, by Actor, to NoteStatus, kind, reason string, now int64) (E
 	}
 	n.UpdatedAt = now
 	return Event{Kind: kind, Actor: by.Principal, At: now,
-		Detail: map[string]any{"reason": n.Reason}}, nil
+		Detail: operatorVerb(by, map[string]any{"reason": n.Reason})}, nil
 }
 
 // CanHardDeleteNote answers §5.7 for notes: only a note still in inbox may be

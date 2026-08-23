@@ -114,7 +114,7 @@ func buildVerb(v verbs.Verb) *cobra.Command {
 			use += " [" + a.Name + "]"
 		}
 	}
-	cmd := &cobra.Command{Use: use, Short: v.Short, Long: v.Long, Args: cobra.MaximumNArgs(len(positional))}
+	cmd := &cobra.Command{Use: use, Short: v.Short, Long: v.Help(), Args: cobra.MaximumNArgs(len(positional))}
 
 	strs := map[string]*string{}
 	ints := map[string]*int64{}

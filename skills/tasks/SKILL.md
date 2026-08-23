@@ -120,10 +120,20 @@ htask note discuss 3 --question "is this ours or herdr's?"   # park it on the op
 htask note verdict 3 task --reason "small, and it costs us every incident"
 ```
 
-`verdict` is a **proposal**. Promoting a note into a task, keeping it, or
-dropping it is the operator's call — those verbs refuse an agent principal.
-When the operator does promote, the task is created on the note's own board
-unless they say otherwise, and the note stays where it was filed and points at
+`verdict` is a **proposal**: file one whenever you have an opinion, without
+asking anyone.
+
+Promoting a note into a task, keeping it, and dropping it are the operator's
+**authority**, and that is advice rather than a wall. You may run those verbs.
+Before you do, **confirm with the user** — use AskUserQuestion if your harness
+has it, an ordinary question if it does not — and then run the verb yourself.
+A user who asked for autonomy at the outset is not asked again. Nothing checks
+that you asked; the event trail records that YOU did it, not the operator, and
+that is the accountability.
+
+Do not use a verdict as a way to avoid asking, and do not ask twice for the
+same decision. When you promote, the task is created on the note's own board
+unless you say otherwise, and the note stays where it was filed and points at
 the task it became:
 
 ```sh
@@ -136,9 +146,9 @@ htask note promote 3 --to-project ../sibling-repo
 task lands on that project's board, the note stays on this one, and `note get`
 names both, so the trail from idea to task survives crossing projects.
 
-Several notes are often one change. The operator folds the rest into the task
-one of them is promoted into, or into a task that already existed when the
-later note was filed:
+Several notes are often one change. Fold the rest into the task one of them is
+promoted into, or into a task that already existed when the later note was
+filed:
 
 ```sh
 htask note promote 3 --also 4 --also 5    # one task, all three notes end on it
@@ -148,8 +158,13 @@ htask note unfold 6                       # the fold was a mistake
 
 A folded note ends in `task` pointing at the task that carries it, so it stops
 reading as undecided on `note list`. Folding a note whose own task exists is
-refused, naming that task. These are operator verbs too: propose the fold in a
-verdict, do not perform it.
+refused, naming that task. Folding and unfolding are operator authority too:
+confirm first, same as promote.
+
+Two refusals on this board are NOT advisory and no confirmation lifts them:
+editing or deleting a note somebody else wrote. That is authorship, not the
+operator's to hand over. Say what you think of a peer's note in a verdict.
+
 Amend your own verdict freely until the operator acts — and the wording of a
 note you wrote, the same way, until they decide it:
 
@@ -220,4 +235,4 @@ says not you, `DENIED` means the policy gate said no.
 A line on stderr saying this door and the daemon are different builds is a
 **warning, not a failure**: your answer is still on stdout and still correct
 for the daemon that gave it. Report the line rather than retrying — restarting
-the daemon is the operator's call, not yours.
+the daemon is the operator's call: ask before you do it.

@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 7
+const SchemaVersion = 8
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -171,4 +171,12 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// to it: a row written before this migration reached its task by
 	// promotion, reads back NULL, and a false `folded` means exactly that.
 	{SQL: `ALTER TABLE notes ADD COLUMN folded INTEGER;`},
+	// 8 — the principal that resolved or rejected a parked action. A NEW
+	// column beside resolved_at, never a change to it: a row written before
+	// this migration was resolved when only the operator could reach the verb
+	// (§9.3), reads back NULL, and an empty resolved_by means exactly that.
+	// It exists because §3.7 made the operator's authority advice an agent
+	// confirms, and §9.3 re-runs the verb under the ORIGINAL subject — so
+	// without this column the trail names the deferred agent and no one else.
+	{SQL: `ALTER TABLE parked ADD COLUMN resolved_by TEXT;`},
 }

@@ -432,16 +432,19 @@ exercised outside its own package.
 ## 0.7.0 opens a parity gap in every plugin, this one included
 
 The 0.7.0 amendment to §7.3 requires a plugin's MCP door to serve every verb
-its CLI serves. Nothing served that when it was written. This plugin serves 13
-of its 30 verbs, and every operator verb is off the door, so a harness with no
-shell can approve a task and cannot promote a note. That is the gap the
-amendment names and it is open here from the moment the text landed.
+its CLI serves. Nothing served that when it was written. This plugin served 13
+of its 30 verbs, and every operator verb was off the door, so a harness with
+no shell could approve a task and could not promote a note. That half is now
+closed: 0.10.0 removed the only ground those absences rested on, and every
+verb is on both doors, pinned by `TestEveryVerbIsOnBothDoors` and
+`TestEveryCLIVerbReachesTheMCPDoor`.
 
-The declaration therefore lags on purpose: `daemon.ContractVersion` and the
-README stay at **0.6.0** while `docs/contract.md` now states **0.9.0**.
+The declaration still lags on purpose: `daemon.ContractVersion` and the
+README stay at **0.6.0** while `docs/contract.md` now states **0.10.0**.
 Declaring a revision is a conformance claim and no test can make it; declaring
 0.7.0 on the day the text was written would claim a door that does not exist
-yet, and 0.8.0 and 0.9.0 each carry that same open MUST forward.
+yet, and 0.8.0, 0.9.0 and 0.10.0 each carry a claim this repository has not
+audited itself against end to end.
 `TestTheDeclaredRevisionIsTheVendoredOne` was taught this one shape and no
 other, and it enforces both halves rather than describing them: the declared
 revision must be strictly LOWER than the vendored one, and the gap must be
@@ -450,7 +453,7 @@ binary declaring a revision this repository does not contain is claiming
 conformance to a text nobody can read. A lag with no entry fails, because this
 file already names six revisions and "both strings appear somewhere" is
 satisfied by almost anything — which is how the first version of the relaxed
-guard let a two-revision silent lag through. Bringing the door to parity and moving the declaration to 0.7.0 is its
+guard let a two-revision silent lag through. Auditing the declaration forward from 0.6.0 through 0.10.0 is its
 own task, and it is what closes this entry.
 
 `TestMCPToolCountStaysSmall` is gone, earlier than this entry said it would
@@ -552,3 +555,53 @@ scope of the amendment and named here so nobody reads their absence as a
 decision: a repo-level scanner that walks for unguarded refusals, and the
 verification lane's mutation condition, which lives in a sibling plugin and
 belongs on that board.
+
+## 0.10.0 makes an operator verb advice, and this plugin follows it
+
+The direction came from the operator in session and is binding: an agent must
+be able to help without the operator typing. `note promote`, `note fold`,
+`note unfold`, `note keep`, `note drop` and `parked resolve` refused every
+principal but `human`; they now perform for whoever calls, and the duty an
+agent owes is to confirm with the user first. That duty has no mechanism
+behind it on purpose. A verb that demanded proof of a confirmation would be
+the same refusal in a different shape, so §3.7 teaches the duty and requires
+an honest trail instead, and the skill teaches it where an agent reads it.
+
+What the code does with `IsHuman` is the whole design: its job inverted from
+refusing to marking. Every one of the seven operator-authority paths now runs
+through `operatorVerb` in `internal/tasks/task.go`, which writes
+`on_behalf_of_operator` into the event when the caller is not the operator and
+leaves the actor as the calling principal. The alternative was to trust each
+call site to remember, which is how `human` became a fallback in the first
+place (§3.7's first half, 0.8.0). `TestPromoteByAnAgentSucceedsAndIsMarked`,
+`TestNoteKeepAndDropByAnAgentSucceedAndAreMarked`,
+`TestNoteFoldByAnAgentSucceedsAndIsMarked`,
+`TestNoteUnfoldByAnAgentSucceedsAndIsMarked` and
+`TestAnAgentPromotesAndFoldsThroughTheDaemon` fail if the actor becomes
+`human` or the mark is dropped.
+
+Five refusals stayed, and the reason they stayed is the boundary of the
+amendment: `NoteUpdate` and `CanHardDeleteNote` guard AUTHORSHIP, and `Release`,
+`Submit` and `Cancel` guard the CLAIM HOLDER's lease. Neither authority is the
+operator's to grant away, so no answer they could give makes a peer's row or a
+peer's work the caller's. `TestAnotherAgentStillCannotEditOrDeleteANote` and
+`TestAClaimIsTheHoldersAndStillRefusesAStranger` hold them. Recusal (§6.6) was
+not touched.
+
+`parked resolve` needed one thing the other six did not. §9.3 re-runs the verb
+under the ORIGINAL subject, so an agent resolving its own deferral would leave
+a trail showing only its own verb running and nothing about who let it. Hence
+migration 8, `parked.resolved_by`, and the §9.3 sentence requiring it.
+
+The `NotMCP` field is gone rather than kept empty. Every one of the eight
+reasons it held said a form of "this authority is the operator's", so none of
+them survived the amendment, and a field with no valid reason left to hold is
+dead weight the next drafter would fill in badly. The two tests task 77 added
+to police those reasons — `TestEveryCLIOnlyVerbSaysWhy` and
+`TestNoToolBudgetDecidesWhichDoorAVerbReaches` — are replaced by the stronger
+pair named earlier in this file's 0.7.0 entry: nothing may be absent, in
+either direction, so there is no reason left to police.
+
+Sibling plugins are deliberately untouched. herdr-mail's `retire` and `dump`
+and herdr-dispatch's `stop` are CLI-only for reasons of their own, and whether
+this direction reaches them is a decision on their boards, not this one.

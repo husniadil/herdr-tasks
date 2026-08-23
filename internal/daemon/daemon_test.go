@@ -244,9 +244,13 @@ func TestGateDenyStopsTheVerb(t *testing.T) {
 	}
 }
 
-// §9.3: defer parks the action and returns DENIED with parked_id; only the
-// operator resolves it, and the re-run happens under the original subject.
-func TestGateDeferParksAndTheOperatorResolves(t *testing.T) {
+// §9.3 with §3.7 (0.10.0): defer parks the action and returns DENIED with
+// parked_id, and the re-run happens under the original subject. Resolving is
+// the operator's authority as advice, so the agent the gate stopped reaches
+// the verb — and the row records that it was that agent who resolved it,
+// because §9.3's re-run names the original subject and would otherwise be the
+// only name in the trail. hParkedResolve handlers.go.
+func TestGateDeferParksAndAnAgentResolvesOnTheRecord(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "gate")
 	os.WriteFile(path, []byte("#!/bin/sh\necho '{\"decision\":\"defer\",\"reason\":\"ask first\"}'\n"), 0o755)
@@ -261,11 +265,10 @@ func TestGateDeferParksAndTheOperatorResolves(t *testing.T) {
 	if !strings.Contains(string(parked), body.ParkedID) {
 		t.Fatalf("parked list = %s", parked)
 	}
-	// An agent may not resolve it.
-	mustFail(t, d, protocol.Request{Verb: "parked.resolve", PaneID: "wF:p1",
-		Args: map[string]any{"id": body.ParkedID}}, codes.Forbidden)
-	// The operator may, and the re-run runs as the original subject.
-	raw := mustCall(t, d, protocol.Request{Verb: "parked.resolve", Args: map[string]any{"id": body.ParkedID}})
+	// The agent the gate stopped resolves it, and the re-run still runs as
+	// the original subject.
+	raw := mustCall(t, d, protocol.Request{Verb: "parked.resolve", PaneID: "wF:p1",
+		Args: map[string]any{"id": body.ParkedID}})
 	if !strings.Contains(string(raw), `"state":"resolved"`) {
 		t.Fatalf("resolve = %s", raw)
 	}
@@ -275,6 +278,69 @@ func TestGateDeferParksAndTheOperatorResolves(t *testing.T) {
 	}
 	if !strings.Contains(string(list), `"created_by":"agent:wF:p1"`) {
 		t.Fatalf("the re-run must use the original subject, not the resolver's (§9.3): %s", list)
+	}
+	// The row names who decided it. Without this the trail shows only the
+	// deferred agent's own verb re-running and nothing about who let it.
+	p, err := d.Store.GetParked(proj, body.ParkedID)
+	if err != nil {
+		t.Fatalf("GetParked: %v", err)
+	}
+	if p.ResolvedBy != "agent:wF:p1" {
+		t.Fatalf("resolved_by = %q, want the agent that resolved it", p.ResolvedBy)
+	}
+}
+
+// §3.7 (0.10.0), the daemon's three operator-authority doors: hNotePromote
+// and hNoteFold refused every agent principal before this, and hParkedResolve
+// is held by the test above. An agent reaches all three, and the trail names
+// the agent rather than the operator.
+func TestAnAgentPromotesAndFoldsThroughTheDaemon(t *testing.T) {
+	d := newDaemon(t, nil)
+	pane := protocol.Request{Project: proj, PaneID: "wF:p1"}
+
+	add := pane
+	add.Verb, add.Args = "note.add", map[string]any{"body": "the sweep should log why"}
+	mustCall(t, d, add)
+	add.Args = map[string]any{"body": "and the swept event should say so"}
+	mustCall(t, d, add)
+
+	promote := pane
+	promote.Verb, promote.Args = "note.promote", map[string]any{"id": "1"}
+	var pr PromoteResult
+	json.Unmarshal(mustCall(t, d, promote), &pr)
+	if pr.Task == nil || pr.Note.Status != tasks.NoteTask {
+		t.Fatalf("agent promote = %+v", pr)
+	}
+
+	fold := pane
+	fold.Verb, fold.Args = "note.fold", map[string]any{"id": "2", "into": pr.Task.ID}
+	var fr FoldResult
+	json.Unmarshal(mustCall(t, d, fold), &fr)
+	if fr.Note.Status != tasks.NoteTask || !fr.Note.Folded {
+		t.Fatalf("agent fold = %+v", fr)
+	}
+
+	// §3.7's other half, and task 73's: the actor is the agent, never the
+	// operator, and the event says an operator verb was reached by one.
+	var res EventsResult
+	json.Unmarshal(mustCall(t, d, protocol.Request{Verb: "events", Project: proj}), &res)
+	seen := 0
+	for _, e := range res.Events {
+		if e.Name != "tasks.note.promoted" && e.Name != "tasks.note.folded" {
+			continue
+		}
+		seen++
+		if e.Actor != "agent:wF:p1" {
+			t.Fatalf("%s actor = %q, want the agent that called", e.Name, e.Actor)
+		}
+		var detail map[string]any
+		json.Unmarshal(e.Detail, &detail)
+		if detail[tasks.OnBehalfOfOperator] != true {
+			t.Fatalf("%s detail = %s, want %s", e.Name, e.Detail, tasks.OnBehalfOfOperator)
+		}
+	}
+	if seen != 2 {
+		t.Fatalf("%d promote/fold events, want 2: %+v", seen, res.Events)
 	}
 }
 
@@ -1615,10 +1681,13 @@ func eventNames(t *testing.T, d *Daemon, project string) []string {
 }
 
 // §3.7: `human` stops being what a door falls back to when it knows nothing.
-// A request carrying no pane and no operator declaration is `none`, an
-// operator verb refuses it with FORBIDDEN, and the SAME request with the
-// declaration is permitted. d.Answer is called directly rather than through
-// `call`, because `call` stands in for a CLI invocation and sets the
+// A request carrying no pane and no operator declaration is `none`, and
+// `none` is written into the ledger verbatim rather than being filed under
+// the operator. Since 0.10.0 that is the whole of §3.7's teeth here: an
+// operator verb no longer refuses a principal, it records one, so what this
+// holds is that the row says `none` and the event carries the mark that says
+// the operator did not do this. d.Answer is called directly rather than
+// through `call`, because `call` stands in for a CLI invocation and sets the
 // declaration for every other test in this file.
 func TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal(t *testing.T) {
 	d := newDaemon(t, nil)
@@ -1628,11 +1697,30 @@ func TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal(t *testing.T) {
 	undeclared := protocol.Request{Verb: "note.promote", Project: proj,
 		Args: map[string]any{"id": "1"}}
 	resp := d.Answer(undeclared)
-	if resp.Error == nil {
-		t.Fatalf("a door in no pane that was never declared promoted a note: %s", resp.Result)
+	if resp.Error != nil {
+		t.Fatalf("the undeclared door was refused: %s: %s", resp.Error.Code, resp.Error.Message)
 	}
-	if resp.Error.Code != codes.Forbidden {
-		t.Fatalf("code = %s (%s), want %s", resp.Error.Code, resp.Error.Message, codes.Forbidden)
+	var promoted PromoteResult
+	json.Unmarshal(resp.Result, &promoted)
+	if promoted.Task == nil || promoted.Task.CreatedBy != tasks.PrincipalNone {
+		t.Fatalf("created_by = %+v, want %q verbatim (§3.7)", promoted.Task, tasks.PrincipalNone)
+	}
+	var res EventsResult
+	json.Unmarshal(mustCall(t, d, protocol.Request{Verb: "events", Project: proj}), &res)
+	marked := false
+	for _, e := range res.Events {
+		if e.Name != "tasks.note.promoted" {
+			continue
+		}
+		if e.Actor != tasks.PrincipalNone {
+			t.Fatalf("actor = %q, want %q: absence of evidence is not evidence of the operator", e.Actor, tasks.PrincipalNone)
+		}
+		var detail map[string]any
+		json.Unmarshal(e.Detail, &detail)
+		marked = detail[tasks.OnBehalfOfOperator] == true
+	}
+	if !marked {
+		t.Fatalf("a promotion by `none` must say the operator did not do it: %+v", res.Events)
 	}
 
 	// And the principal it derived is `none`, not `human` and not empty:
@@ -1644,10 +1732,25 @@ func TestADoorWithNoPaneAndNoDeclarationHasNoPrincipal(t *testing.T) {
 		t.Fatalf("principal = %q, want %q", report.Principal, tasks.PrincipalNone)
 	}
 
+	// The declared door is the operator, and its promotion carries no mark.
+	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj,
+		Args: map[string]any{"body": "a second idea"}})
 	declared := undeclared
 	declared.Operator = true
-	if resp := d.Answer(declared); resp.Error != nil {
+	declared.Args = map[string]any{"id": "2"}
+	resp = d.Answer(declared)
+	if resp.Error != nil {
 		t.Fatalf("the declared door was refused: %s: %s", resp.Error.Code, resp.Error.Message)
+	}
+	json.Unmarshal(mustCall(t, d, protocol.Request{Verb: "events", Project: proj}), &res)
+	last := res.Events[len(res.Events)-1]
+	if last.Actor.Kind() != "human" {
+		t.Fatalf("actor = %q, want the operator the declaration names", last.Actor)
+	}
+	var detail map[string]any
+	json.Unmarshal(last.Detail, &detail)
+	if _, ok := detail[tasks.OnBehalfOfOperator]; ok {
+		t.Fatalf("the operator's own promotion must carry no mark: %s", last.Detail)
 	}
 }
 

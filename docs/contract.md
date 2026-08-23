@@ -1,6 +1,25 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.9.0. Date: 2026-08-23.
+Status: binding. Version: 0.10.0. Date: 2026-08-23.
+
+Changes in 0.10.0: an operator verb is advice an agent confirms, not a refusal
+a door makes. §3.7 said a plugin MUST refuse a non-operator principal every
+verb it reserves for `human`, and that rule stopped an agent helping the
+operator without the operator typing. It is replaced: before performing an
+operator verb an agent confirms with the user, and then performs it. The
+plugin does not check that the confirmation happened — a verb demanding proof
+of it would be the same refusal wearing a different coat — so the event trail
+is the whole accountability, and §3.7 now requires that trail to name the
+principal that acted and to mark the event as an operator verb someone else
+performed. The actor recorded is never `human` for an agent's call; §3.7's
+first half, that `human` is not the fallback for knowing nothing, is
+unchanged and is what makes the mark meaningful.
+
+Parity (§7.3) and the gate (§9) follow. Withholding a verb from a principal
+was already the gate's job and never a door's, and the reasons plugins
+recorded for keeping a verb off the MCP door all had the form "this authority
+is the operator's" — which §3.7 no longer supports. A verb the CLI serves is
+on the door.
 
 Changes in 0.9.0: the preamble binds a MUST to a test that fails without it.
 Three tasks in a row shipped a documented refusal with nothing behind it: the
@@ -223,11 +242,35 @@ at the deliberate human act that started the process:
 - a CLI invocation, whose argv is that act (§3.2, §3.6); or
 - a server door started with the operator declaration of §7.5.
 
-A door with neither has NO principal. Its principal is the literal `none`, and
-a plugin MUST refuse every verb it reserves for `human` with `FORBIDDEN`
-(§6.3). `none` is not exempt from recusal (§6.6), and it is written into the
-ledger verbatim, so a row created by a caller the plugin could not identify
-says so rather than being filed under the operator.
+A door with neither has NO principal. Its principal is the literal `none`.
+`none` is not exempt from recusal (§6.6), and it is written into the ledger
+verbatim, so a row created by a caller the plugin could not identify says so
+rather than being filed under the operator.
+
+A verb whose authority is the operator's is ADVISORY, not refused. A plugin
+MUST NOT refuse an operator verb on the ground that the caller is not the
+operator. Before performing one an agent confirms with the user — through the
+harness's own question facility where it has one, an ordinary question where
+it does not — and a user who asked for autonomy at the outset is not asked
+again. The plugin does not verify that the confirmation happened, and carries
+no config and no doctor line for whether the user wants autonomy: whether they
+do is inferred from the conversation, and a verb that demanded proof of a
+confirmation would be the refusal this clause removes, wearing a different
+coat. The duty is taught here and in the plugin's skill, which is where a
+duty with no mechanism behind it belongs.
+
+The trail is what carries the accountability instead, so it MUST be honest
+about it. When a principal other than `human` performs an operator verb, the
+plugin MUST record the calling principal as the event's actor — never `human`
+— and MUST mark the event as an operator verb performed by someone other than
+the operator. A plugin MUST pin both halves with a test: a mutation that files
+the event under the operator, and one that drops the mark, each fail it.
+
+This clause is about the operator's authority and nothing else. An authority
+that is not the operator's to grant away does not become advisory with it:
+authorship (an agent editing or destroying another agent's row), a claim
+holder's lease, and recusal (§6.6) keep refusing, because no answer the
+operator gives makes a peer's work the caller's.
 
 ## §4 Scope: project and workspace
 
@@ -375,12 +418,18 @@ Parity grants no authority, because the process-bound identity rule (§3.2)
 settles authority before parity is reached. A door's principal is fixed before
 any call arrives: a door in a pane is that pane's agent, a door started with
 the §7.5 operator declaration is the operator, and a door that is neither has
-no principal and is refused every operator verb by §3.7. Which of the three a
-door is cannot be changed by anything a call says. So a verb is safe on the
-door whatever it does, and the operator verbs a tool count happened to leave
-off are safe there too. A verb the plugin means to withhold from a principal
-is withheld by the §9 policy gate, which both doors pass through, never by
-leaving it off one door.
+no principal (§3.7). Which of the three a door is cannot be changed by
+anything a call says. So a verb is safe on the door whatever it does, and the
+operator verbs a tool count happened to leave off are safe there too. A verb
+the plugin means to withhold from a principal is withheld by the §9 policy
+gate, which both doors pass through, never by leaving it off one door.
+
+There is no operator-verb exception to this MUST. "This authority is the
+operator's" was the reason plugins recorded for the verbs their doors did not
+carry, and §3.7 makes that authority advice an agent confirms rather than a
+refusal a door makes, so the reason no longer stands and the verbs belong on
+the door. A plugin MUST pin the totality with a test that fails when any verb
+its CLI serves is absent from its door.
 
 Parity is over VERBS, not over the CLI's global flags, and the exclusion rests
 on the same rule rather than on an exception to it. `--as` (§3.2) stays
@@ -485,12 +534,20 @@ decision — is `deny`. The gate fails closed.
 
 §9.3 `defer` means "park it": the plugin records a parked action
 (`subject, verb, target, payload, state`) and returns `DENIED` with
-`parked_id`; only `human` may later resolve or reject it. Resolving re-runs the
-verb under the original subject, never the resolver's.
+`parked_id`. Resolving or rejecting it is the operator's authority and
+therefore advisory (§3.7): an agent confirms with the user and resolves.
+Resolving re-runs the verb under the original subject, never the resolver's —
+so the parked record MUST also carry WHO resolved it, or the trail names only
+the subject the gate stopped and no one who decided it could proceed.
 
 §9.4 Verb names are `<name>.<verb>` (`tasks.approve`, `dispatch.peer`). A
 plugin lists its gated verbs in its README so a future policy plugin can name
 them.
+
+§9.5 The gate is where a plugin withholds a verb from a principal. A door MUST
+NOT withhold one by not carrying it (§7.3), and neither is an operator-verb
+refusal a way to withhold one (§3.7): a plugin that means an agent never to
+reach a verb configures the gate to deny it.
 
 ## §10 Configuration
 

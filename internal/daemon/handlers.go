@@ -431,10 +431,10 @@ type PromoteResult struct {
 	Task *tasks.Task `json:"task"`
 }
 
+// Promotion is the operator's authority and no longer the operator's alone to
+// exercise (§3.7): an agent confirms with the user and promotes, and
+// tasks.NotePromote marks the event with who actually did it.
 func hNotePromote(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
-	if !by.IsHuman() {
-		return nil, codes.New(codes.Forbidden, "only the operator promotes a note")
-	}
 	n, err := d.Store.GetNote(req.Project, argString(req.Args, "id"))
 	if err != nil {
 		return nil, err
@@ -496,10 +496,8 @@ type FoldResult struct {
 	Task *tasks.Task `json:"task"`
 }
 
+// Folding follows promotion (§3.7): advisory, marked by tasks.NoteFold.
 func hNoteFold(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
-	if !by.IsHuman() {
-		return nil, codes.New(codes.Forbidden, "only the operator folds a note into a task")
-	}
 	target, err := promoteTarget(req.Project, argString(req.Args, "to-project"))
 	if err != nil {
 		return nil, err
@@ -563,16 +561,18 @@ type ParkedResolveResult struct {
 	Result any    `json:"result,omitempty"`
 }
 
+// Resolving a deferral is the operator overruling the gate, and §3.7 makes
+// that advice an agent confirms rather than a refusal this door makes. The
+// parked row records WHO resolved it, because §9.3 re-runs the verb under the
+// ORIGINAL subject: without resolved_by the trail would show the deferred
+// agent acting and no one deciding it could.
 func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
-	if !by.IsHuman() {
-		return nil, codes.New(codes.Forbidden, "only the operator resolves a parked action (§9.3)")
-	}
 	p, err := d.Store.GetParked(req.Project, argString(req.Args, "id"))
 	if err != nil {
 		return nil, err
 	}
 	if argBool(req.Args, "reject") {
-		if err := d.Store.ResolveParked(req.Project, p.ID, "rejected", d.Now()); err != nil {
+		if err := d.Store.ResolveParked(req.Project, p.ID, "rejected", by.Principal, d.Now()); err != nil {
 			return nil, err
 		}
 		return ParkedResolveResult{ID: p.ID, State: "rejected"}, nil
@@ -614,7 +614,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	// resolves both read `parked` and both ran the verb — the side effect
 	// really happened twice, and the loser was told CONFLICT for work that had
 	// already committed.
-	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", d.Now()); err != nil {
+	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", by.Principal, d.Now()); err != nil {
 		return nil, err
 	}
 	out, err := d.dispatch(verb.Name, rerun, actor)

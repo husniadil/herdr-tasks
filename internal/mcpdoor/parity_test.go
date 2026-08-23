@@ -41,6 +41,8 @@ var pinnedTools = []string{
 	"goal",
 	"cancel",
 	"update",
+	"archive",
+	"delete",
 	"note_add",
 	"note_list",
 	"note_get",
@@ -50,9 +52,15 @@ var pinnedTools = []string{
 	"note_promote",
 	"note_fold",
 	"note_unfold",
+	"note_keep",
+	"note_drop",
+	"note_delete",
 	"parked_list",
+	"parked_resolve",
 	"events",
 	"doctor",
+	"sweep",
+	"dump",
 }
 
 // bareName is the §7.1 name for a registry verb: the verb alone, with dots as
@@ -74,48 +82,26 @@ func TestMCPToolListIsPinned(t *testing.T) {
 	}
 }
 
-// §7.3: there is no tool budget, and no class of verb that belongs on one
-// door and not the other. The rule this replaces asked for 8–16 tools, which
-// is how `note_promote` came to be a verb a harness with no shell could not
-// reach — an accident of a count rather than a decision about authority.
-//
-// This holds over the whole registry, not a named few: every verb is either
-// published as a tool or carries the reason it is not, and a reason that only
-// restates the absence is not one. The registry test enforces the first half;
-// this one enforces it from the door's side and reads the reasons.
-func TestNoToolBudgetDecidesWhichDoorAVerbReaches(t *testing.T) {
+// §7.3 (0.10.0): every verb the CLI serves is on the door, read from the
+// door's own side. The rule this replaces asked for 8–16 tools, which is how
+// `note_promote` came to be a verb a harness with no shell could not reach —
+// an accident of a count rather than a decision about authority. Its
+// successor let a verb stay off the door if it wrote down why, and every one
+// of the eight that did said a form of "this authority is the operator's".
+// §3.7 made that advice an agent confirms, so no reason was left standing and
+// the field recording them is gone.
+func TestEveryCLIVerbReachesTheMCPDoor(t *testing.T) {
 	published := map[string]bool{}
 	for _, v := range verbs.MCPTools() {
 		published[v.Name] = true
 	}
 	for _, v := range verbs.All {
-		if published[v.Name] {
-			if v.NotMCP != "" {
-				t.Errorf("%s is on the door and also records why it is not", v.Name)
-			}
-			continue
-		}
-		if v.NotMCP == "" {
-			t.Errorf("%s is on the CLI and not on the MCP door with no reason recorded; §7.3 has no tool budget to justify that", v.Name)
-			continue
-		}
-		// A reason that says only "it is not on the door" restates the
-		// absence. A reason names the authority the absence protects, so it
-		// has to say something the door itself does not already say.
-		low := strings.ToLower(v.NotMCP)
-		for _, empty := range []string{"not on the mcp door", "not an mcp tool", "cli only", "cli-only"} {
-			if strings.Contains(low, empty) {
-				t.Errorf("%s records %q, which restates the absence rather than giving a reason for it", v.Name, v.NotMCP)
-			}
-		}
-		if len(v.NotMCP) < 40 {
-			t.Errorf("%s records %q, which is too short to be the decision §7.3 asks for", v.Name, v.NotMCP)
+		if !published[v.Name] {
+			t.Errorf("%s is on the CLI and not on the MCP door; §7.3 admits no CLI-only verb", v.Name)
 		}
 	}
-	// The old rule's ceiling was 16. Passing it is the point: a door that
-	// stopped at a number is how these verbs were unreachable to begin with.
-	if len(pinnedTools) <= 16 {
-		t.Logf("%d tools; the budget that shaped this list is gone (§7.3)", len(pinnedTools))
+	if len(pinnedTools) != len(verbs.All) {
+		t.Errorf("%d pinned tools for %d verbs; the door is not total", len(pinnedTools), len(verbs.All))
 	}
 }
 

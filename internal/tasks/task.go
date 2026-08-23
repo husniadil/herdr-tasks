@@ -60,8 +60,37 @@ type Actor struct {
 }
 
 // IsHuman reports whether the actor is the operator, who is exempt from
-// recusal (§6.6) and is the only principal that may promote a note.
+// recusal (§6.6). It no longer decides who may call an operator verb: since
+// 0.10.0 operator-only is advice an agent confirms with the user before
+// acting, not a refusal a door makes (§3.7). What IsHuman still decides is
+// what an operator verb's event says about who performed it — see
+// operatorVerb.
 func (a Actor) IsHuman() bool { return a.Principal.Kind() == "human" }
+
+// OnBehalfOfOperator is the detail key operatorVerb writes. It is a shipped
+// --json field the moment it appears in an event, so it is added and never
+// repurposed (§6.2).
+const OnBehalfOfOperator = "on_behalf_of_operator"
+
+// operatorVerb marks an event whose authority is the operator's when a
+// principal other than the operator performed it (§3.7). The plugin does not
+// check that the agent confirmed with the user — a verb demanding proof of
+// confirmation would be the refusal wearing a different coat — so the trail is
+// the whole accountability, and the trail is only honest if it says who acted.
+//
+// The actor recorded stays the calling principal, never `human`: every path
+// that goes through this function labels itself, rather than each call site
+// being trusted to remember that an agent reached an operator verb.
+func operatorVerb(by Actor, detail map[string]any) map[string]any {
+	if by.IsHuman() {
+		return detail
+	}
+	if detail == nil {
+		detail = map[string]any{}
+	}
+	detail[OnBehalfOfOperator] = true
+	return detail
+}
 
 // Criterion is one acceptance criterion: a proof an evaluator can check from a
 // transcript (§16.1).
