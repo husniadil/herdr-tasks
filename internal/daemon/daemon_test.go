@@ -22,6 +22,7 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/codes"
 	"github.com/husniadil/herdr-tasks/internal/config"
 	"github.com/husniadil/herdr-tasks/internal/herdrclient"
+	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
@@ -1675,7 +1676,7 @@ func TestABoundedStreamEndsWithTheDoneSentinel(t *testing.T) {
 // between them is not a state this store can be in.
 func TestCrossProjectPromoteWritesBothEventsOnTheirOwnProjects(t *testing.T) {
 	d := newDaemon(t, nil)
-	other := "/tmp/project-b"
+	other := otherBoard(t)
 	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj, Args: map[string]any{"body": "belongs elsewhere"}})
 	raw := mustCall(t, d, protocol.Request{Verb: "note.promote", Project: proj,
 		Args: map[string]any{"id": "1", "to-project": other}})
@@ -1702,7 +1703,7 @@ func TestCrossProjectPromoteWritesBothEventsOnTheirOwnProjects(t *testing.T) {
 // nobody had asked for one on.
 func TestARefusedPromoteLeavesNoTaskOnTheTargetBoard(t *testing.T) {
 	d := newDaemon(t, nil)
-	other := "/tmp/project-b"
+	other := otherBoard(t)
 	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj, Args: map[string]any{"body": "promoted once"}})
 	mustCall(t, d, protocol.Request{Verb: "note.promote", Project: proj,
 		Args: map[string]any{"id": "1", "to-project": other}})
@@ -2049,5 +2050,38 @@ func TestEveryVerbThatHonoursAllProjectsDeclaresIt(t *testing.T) {
 		if v.AllProjects != honours[v.Name] {
 			t.Errorf("%s: AllProjects = %v, want %v", v.Name, v.AllProjects, honours[v.Name])
 		}
+	}
+}
+
+// otherBoard is a real directory, canonicalized the way §4.2 canonicalizes
+// --project: promoteTarget refuses a target that is not on disk, so a test
+// board has to be one.
+func otherBoard(t *testing.T) string {
+	t.Helper()
+	p, err := project.Resolve(project.Options{Explicit: t.TempDir()})
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	return p
+}
+
+// §4.2: --to-project is validated by the DAEMON, not only by the CLI that
+// happens to have a resolver in it. Otherwise the MCP door promotes a note
+// onto a board that does not exist and nobody ever finds the task.
+func TestPromoteRefusesATargetProjectThatIsNotThere(t *testing.T) {
+	d := newDaemon(t, nil)
+	missing := filepath.Join(t.TempDir(), "no-such-board")
+	mustCall(t, d, protocol.Request{Verb: "note.add", Project: proj, Args: map[string]any{"body": "elsewhere"}})
+	body := mustFail(t, d, protocol.Request{Verb: "note.promote", Project: proj,
+		Args: map[string]any{"id": "1", "to-project": missing}}, codes.Usage)
+	if !strings.Contains(body.Message, "not a directory") {
+		t.Fatalf("the refusal does not say why: %q", body.Message)
+	}
+	// The same guard covers fold, which resolves its board the same way.
+	mustFail(t, d, protocol.Request{Verb: "note.fold", Project: proj,
+		Args: map[string]any{"id": "1", "into": "1", "to-project": missing}}, codes.Usage)
+	notes := mustCall(t, d, protocol.Request{Verb: "note.list", Project: proj})
+	if !strings.Contains(string(notes), `"status":"inbox"`) {
+		t.Fatalf("the refused promote moved the note: %s", notes)
 	}
 }

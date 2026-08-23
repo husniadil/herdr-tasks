@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/husniadil/herdr-tasks/internal/codes"
+	"github.com/husniadil/herdr-tasks/internal/project"
 	"github.com/husniadil/herdr-tasks/internal/protocol"
 	"github.com/husniadil/herdr-tasks/internal/store"
 	"github.com/husniadil/herdr-tasks/internal/tasks"
@@ -520,7 +522,19 @@ func promoteTarget(noteProject, to string) (string, error) {
 		return "", codes.Errorf(codes.Usage,
 			"the target project must be a resolved absolute path, not %q", to)
 	}
-	return to, nil
+	// The board must already exist, and the path must canonicalize the way
+	// --project does (§4.2): a promote into a path that is not there is a
+	// typo, and inventing a board nobody will find fails quietly. Checked
+	// HERE rather than in one door, so the other door cannot skip it.
+	if info, err := os.Stat(to); err != nil || !info.IsDir() {
+		return "", codes.Errorf(codes.Usage,
+			"cannot resolve the target project %q: not a directory", to)
+	}
+	proj, err := project.Resolve(project.Options{Explicit: to})
+	if err != nil {
+		return "", codes.Errorf(codes.Usage, "cannot resolve the target project %q: %v", to, err)
+	}
+	return proj, nil
 }
 
 // FoldResult is a fold: the note and the task it was folded into. It carries
