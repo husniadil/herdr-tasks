@@ -123,6 +123,90 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 	}
 }
 
+// §12.1 layer 3, §6.5: the correction is part of the lifecycle a reviewer
+// depends on. The holder submits, notices the report is wrong, amends it, and
+// the operator approves — and what the approving read returns is the AMENDED
+// report, not the one submit wrote.
+//
+// This sits BESIDE TestLifecycleCreateClaimSubmitApproveThroughRealHerdr
+// rather than inside it. That test proves the sequence every task walks;
+// amend is a branch off it that only a task whose report was wrong ever takes,
+// so folding it in would leave the unamended path — the common one — with no
+// layer-3 test of its own, and would make one red test ambiguous between "the
+// lifecycle broke" and "amend broke".
+func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
+	w := startWorld(t)
+	pane := w.pane("amend")
+	w.beAgent(pane, "claude", "builder")
+
+	created := w.htask("task", "create", "wire the door", "--validation", "make test: ok")
+	id, _ := created["task"].(map[string]any)["id"].(string)
+
+	w.mustInPane(pane, "task", "claim", id)
+	w.mustInPane(pane, "task", "submit", id, "--report", "wired it", "--evidence", "make test: FAIL")
+	submitted := w.task(id)
+	if submitted["status"] != "review" {
+		t.Fatalf("after submit the task is %v, want review", submitted["status"])
+	}
+	if submitted["amend_count"] != nil {
+		t.Fatalf("a task that was never amended reports amend_count %v", submitted["amend_count"])
+	}
+	submittedAt, submittedBy := submitted["submitted_at"], submitted["submitted_by"]
+
+	// §6.5: the holder corrects the report while the row waits for a reviewer.
+	w.mustInPane(pane, "task", "amend", id,
+		"--report", "wired it, and the gate is green now",
+		"--evidence", "make test: ok")
+
+	amended := w.task(id)
+	if amended["status"] != "review" {
+		t.Fatalf("amend moved the task to %v, want it still in review", amended["status"])
+	}
+	if got := amended["report"]; got != "wired it, and the gate is green now" {
+		t.Fatalf("report after amend = %v, want the corrected one", got)
+	}
+	if got := amended["evidence"]; len(got.([]any)) != 1 || got.([]any)[0] != "make test: ok" {
+		t.Fatalf("evidence after amend = %v, want the named list to have replaced the old one", got)
+	}
+	// The submission itself does not move (§6.5).
+	if amended["submitted_at"] != submittedAt || amended["submitted_by"] != submittedBy {
+		t.Fatalf("amend moved the submission: %v/%v, want %v/%v",
+			amended["submitted_at"], amended["submitted_by"], submittedAt, submittedBy)
+	}
+	if amended["amend_count"] != float64(1) {
+		t.Fatalf("amend_count = %v, want 1", amended["amend_count"])
+	}
+
+	// The whole point: the approving read sees the correction.
+	approved := w.htask("task", "approve", id)
+	done, _ := approved["task"].(map[string]any)
+	if done == nil {
+		t.Fatalf("approve returned %v", approved)
+	}
+	if done["status"] != "done" {
+		t.Fatalf("after approve the task is %v, want done", done["status"])
+	}
+	if got := done["report"]; got != "wired it, and the gate is green now" {
+		t.Fatalf("the approving read saw report %v, want the amended one", got)
+	}
+	if got := done["evidence"]; len(got.([]any)) != 1 || got.([]any)[0] != "make test: ok" {
+		t.Fatalf("the approving read saw evidence %v, want the amended list", got)
+	}
+
+	// §5.5: the trail carries the correction, so a reviewer is not told about
+	// it in a message.
+	events := w.htask("events", "--entity", "task")
+	blob := ""
+	for _, e := range events["events"].([]any) {
+		blob += e.(map[string]any)["kind"].(string) + " "
+	}
+	for _, k := range []string{"created", "claimed", "submitted", "amended", "approved"} {
+		if !strings.Contains(blob, k) {
+			t.Fatalf("the event trail is missing %q: %s", k, blob)
+		}
+	}
+}
+
 // §11.5: liveness of an agent principal is Herdr's answer plus its pane
 // lifecycle events, and a plugin with leases sweeps them when a pane dies —
 // recording the sweep in the entity's events.
