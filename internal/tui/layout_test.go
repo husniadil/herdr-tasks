@@ -128,3 +128,34 @@ func TestTheWarningIsHeldWhileThePaneOwnsTheScreen(t *testing.T) {
 		t.Error("leaving the pane did not put the previous sink back")
 	}
 }
+
+// §12.1: Update is pure — it takes a Model by value and answers with the next
+// one, which is what lets every one of these tests drive it with no terminal.
+// Prompt is a pointer, and the editing keys wrote through it, so the model the
+// caller still held was edited too: after one keystroke its "before" was the
+// "after", and anything that compared them saw nothing move.
+func TestEditingThePromptLeavesTheModelItWasGivenAlone(t *testing.T) {
+	for _, key := range []string{"x", "space", "backspace", "delete", "left", "right", "home", "end"} {
+		m := New(ViewBoard, "/repo")
+		m.Prompt = &Prompt{Label: "reason", Value: "abc", Cursor: 2}
+		before := fmt.Sprintf("%q@%d", m.Prompt.Value, m.Prompt.Cursor)
+		next, _ := Update(m, KeyMsg{Key: key})
+		if got := fmt.Sprintf("%q@%d", m.Prompt.Value, m.Prompt.Cursor); got != before {
+			t.Errorf("%q: the model handed in was edited: %s, was %s", key, got, before)
+		}
+		if next.Prompt == m.Prompt {
+			t.Errorf("%q: the answer shares the prompt it was given", key)
+		}
+	}
+	// And a paste, which goes down its own path.
+	m := New(ViewBoard, "/repo")
+	m.Prompt = &Prompt{Label: "reason", Value: "abc", Cursor: 3}
+	before := fmt.Sprintf("%q@%d", m.Prompt.Value, m.Prompt.Cursor)
+	next, _ := Update(m, KeyMsg{Key: "d\te", Paste: true})
+	if got := fmt.Sprintf("%q@%d", m.Prompt.Value, m.Prompt.Cursor); got != before {
+		t.Errorf("paste edited the model handed in: %s, was %s", got, before)
+	}
+	if next.Prompt.Value != "abcd e" {
+		t.Errorf("paste = %q, want the cleaned text at the cursor", next.Prompt.Value)
+	}
+}

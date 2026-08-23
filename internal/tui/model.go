@@ -647,7 +647,14 @@ func parkedKey(m Model, k string) (Model, *Call) {
 }
 
 func promptKey(m Model, k string) (Model, *Call) {
-	p := m.Prompt
+	// Update is pure: it is handed a Model by value and answers with the next
+	// one. Prompt is a POINTER, so editing through it wrote into the model the
+	// caller still holds — after one keystroke the "before" state was the
+	// "after" state, and anything comparing them saw no change. The prompt is
+	// copied here, and every edit below lands on the copy.
+	edited := *m.Prompt
+	p := &edited
+	m.Prompt = p
 	switch k {
 	case "ctrl+c":
 		// A prompt must never be a trap: the way out of the TUI is the same
@@ -750,18 +757,21 @@ func promptPaste(m Model, text string) Model {
 	return m
 }
 
-// insertAt puts text in at the cursor and leaves the cursor after it.
+// insertAt puts text in at the cursor and leaves the cursor after it. It
+// answers with a NEW prompt rather than editing the one it was handed: the
+// prompt hangs off a Model that Update is supposed to leave alone.
 func insertAt(p *Prompt, text string) *Prompt {
-	r := []rune(p.Value)
-	if p.Cursor > len(r) {
-		p.Cursor = len(r)
+	next := *p
+	r := []rune(next.Value)
+	if next.Cursor > len(r) {
+		next.Cursor = len(r)
 	}
-	if p.Cursor < 0 {
-		p.Cursor = 0
+	if next.Cursor < 0 {
+		next.Cursor = 0
 	}
-	p.Value = string(r[:p.Cursor]) + text + string(r[p.Cursor:])
-	p.Cursor += len([]rune(text))
-	return p
+	next.Value = string(r[:next.Cursor]) + text + string(r[next.Cursor:])
+	next.Cursor += len([]rune(text))
+	return &next
 }
 
 // listVerb is the verb that re-reads a view.
