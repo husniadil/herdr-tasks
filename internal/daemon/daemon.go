@@ -34,9 +34,12 @@ import (
 // 0.2.0 named the MCP tools by the verb alone; 0.3.0 stops a paneless door
 // being the operator, which moves a value a shipped JSON field can hold;
 // 0.5.0 puts the eight verbs no door carried onto the MCP door and adds the
-// `on_behalf_of_operator` event detail and `parked.resolved_by`. All are
-// major-shaped changes carried in the minor, as a 0.x version is allowed to.
-const Version = "0.6.0"
+// `on_behalf_of_operator` event detail and `parked.resolved_by`; 0.6.0 adds
+// `task amend`; 0.7.0 adds `stop` and turns three accepted calls into
+// refusals — `--all-projects` on a verb that does not read it, `--as` with no
+// id, a filter value outside the vocabulary. All are major-shaped changes
+// carried in the minor, as a 0.x version is allowed to.
+const Version = "0.7.0"
 
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in

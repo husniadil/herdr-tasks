@@ -7,6 +7,28 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.7.0 — 2026-08-24
+
+Nothing shipped is repurposed or removed, and a caller that only reads fields
+has nothing to change. What moves is what a call is ALLOWED to be: three
+things a door accepted are refusals here, which makes this a surface change
+and not a patch. The MCP tool list goes from 33 to 34 with `stop`, so a client
+that pins the list gains an entry. `--all-projects` is declared per verb
+(§4.4) and refused with `USAGE` on every verb that does not read it — a caller
+that passed it to one of those was answered as though the fleet had been
+searched when only its own board was — and the verbs that DO reach past the
+board include the transitions, which resolve a ULID across boards the way
+`task get` already did. `--as` without an id is refused the same way: a
+principal is `<kind>:<id>` (§3.1), so bare `--as cron` no longer writes a whole
+class of caller into the trail as the actor. So is a filter value outside the
+vocabulary — `--status`, a note's `--kind`, and `events --entity` — where the
+answer was an empty list, which reads as a fact about the board rather than as
+a question nobody could answer. A task or note reference may be written `#12`
+as well as `12`, which is the form every rendering here prints. And a reject
+hands back a claim WITH a lease, so a worker that dies after a rejection is
+swept like any other (§6.5) rather than holding the row until a human releases
+it by hand.
+
 One new verb on both doors, `htask stop` / the `stop` MCP tool: the daemon
 answers the call and then ends itself the way SIGTERM ends it — stop accepting,
 finish what is in flight, give up the socket and the lock (§2.5). The tool list
