@@ -18,8 +18,15 @@ type Parked struct {
 	Verb    string `json:"verb"`
 	Target  string `json:"target"`
 	Payload string `json:"payload"`
-	State   string `json:"state"`
-	Reason  string `json:"reason,omitempty"`
+	// TabID, WorkspaceID and AllProjects are what the DOOR derived rather
+	// than what the caller passed, and §9.3 re-runs the verb as the original
+	// call — so a re-run without them files the row differently from the one
+	// the gate deferred, or looks for it on the wrong board.
+	TabID       string `json:"tab_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+	AllProjects bool   `json:"all_projects,omitempty"`
+	State       string `json:"state"`
+	Reason      string `json:"reason,omitempty"`
 	// Error is why the verb failed when the operator resolved it. A parked
 	// action that was decided and did not happen is not a resolved one, and
 	// the operator needs to see which.
@@ -42,9 +49,11 @@ func (s *Store) Park(p Parked, now int64) (string, error) {
 		p.Payload = "{}"
 	}
 	_, err := s.db.Exec(
-		`INSERT INTO parked (id, project, subject, verb, target, payload, state, reason, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, 'parked', ?, ?)`,
-		id, p.Project, p.Subject, p.Verb, p.Target, p.Payload, nullIfEmpty(p.Reason), now)
+		`INSERT INTO parked (id, project, subject, verb, target, payload, state, reason, created_at,
+		                     tab_id, workspace_id, all_projects)
+		 VALUES (?, ?, ?, ?, ?, ?, 'parked', ?, ?, ?, ?, ?)`,
+		id, p.Project, p.Subject, p.Verb, p.Target, p.Payload, nullIfEmpty(p.Reason), now,
+		nullIfEmpty(p.TabID), nullIfEmpty(p.WorkspaceID), p.AllProjects)
 	return id, wrap(err)
 }
 
@@ -55,7 +64,8 @@ func (s *Store) Park(p Parked, now int64) (string, error) {
 func (s *Store) ListParked(project string) ([]Parked, error) {
 	rows, err := s.db.Query(
 		`SELECT id, project, subject, verb, target, payload, state, COALESCE(reason, ''),
-		        COALESCE(error, ''), COALESCE(resolved_by, ''), created_at
+		        COALESCE(error, ''), COALESCE(resolved_by, ''), created_at,
+		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0)
 		 FROM parked WHERE project = ? AND state IN ('parked', 'failed') ORDER BY id ASC`, project)
 	if err != nil {
 		return nil, wrap(err)
@@ -65,7 +75,8 @@ func (s *Store) ListParked(project string) ([]Parked, error) {
 	for rows.Next() {
 		var p Parked
 		if err := rows.Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload,
-			&p.State, &p.Reason, &p.Error, &p.ResolvedBy, &p.CreatedAt); err != nil {
+			&p.State, &p.Reason, &p.Error, &p.ResolvedBy, &p.CreatedAt,
+			&p.TabID, &p.WorkspaceID, &p.AllProjects); err != nil {
 			return nil, wrap(err)
 		}
 		out = append(out, p)
@@ -82,10 +93,11 @@ func (s *Store) GetParked(project, id string) (*Parked, error) {
 	var p Parked
 	err := s.db.QueryRow(
 		`SELECT id, project, subject, verb, target, payload, state, COALESCE(reason, ''),
-		        COALESCE(error, ''), COALESCE(resolved_by, ''), created_at
+		        COALESCE(error, ''), COALESCE(resolved_by, ''), created_at,
+		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0)
 		 FROM parked WHERE project = ? AND id = ?`, project, id).
 		Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload, &p.State, &p.Reason,
-			&p.Error, &p.ResolvedBy, &p.CreatedAt)
+			&p.Error, &p.ResolvedBy, &p.CreatedAt, &p.TabID, &p.WorkspaceID, &p.AllProjects)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, codes.Errorf(codes.NotFound, "no parked action %s", id)
 	}

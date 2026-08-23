@@ -648,10 +648,17 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	if !ok {
 		return nil, codes.Errorf(codes.Usage, "parked verb %q is not a verb of this plugin", p.Verb)
 	}
+	// Everything the ORIGINAL door derived, not only the parts a subject can
+	// be read back out of: the tab and the workspace the pane sat in are what
+	// a created row is filed under, and the scope is which boards the verb
+	// was allowed to look at (§4.4).
 	rerun := protocol.Request{
-		Verb:    verb.Name,
-		Project: p.Project,
-		Args:    map[string]any{},
+		Verb:        verb.Name,
+		Project:     p.Project,
+		TabID:       p.TabID,
+		WorkspaceID: p.WorkspaceID,
+		AllProjects: p.AllProjects,
+		Args:        map[string]any{},
 	}
 	if err := decodeArgs(p.Payload, &rerun.Args); err != nil {
 		return nil, err

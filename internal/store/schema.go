@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -189,4 +189,15 @@ CREATE INDEX parked_project_state ON parked (project, state);
 	// store.
 	{SQL: `ALTER TABLE tasks ADD COLUMN amended_at INTEGER;
 ALTER TABLE tasks ADD COLUMN amend_count INTEGER;`},
+	// 10 — the tab, the workspace and the project scope a deferred call was
+	// made with. NEW columns beside payload, never a change to it: §9.3
+	// re-runs the verb as the ORIGINAL call, and the payload only ever held
+	// the verb's own arguments, so everything the door derived — where the
+	// pane sat, and whether the caller asked for the whole fleet — was gone
+	// by the time the operator resolved it. A row written before this
+	// migration reads back NULL and 0, which is what a call with no tab, no
+	// workspace and no --all-projects looks like.
+	{SQL: `ALTER TABLE parked ADD COLUMN tab_id TEXT;
+ALTER TABLE parked ADD COLUMN workspace_id TEXT;
+ALTER TABLE parked ADD COLUMN all_projects INTEGER;`},
 }

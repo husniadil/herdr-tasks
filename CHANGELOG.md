@@ -19,6 +19,15 @@ never asked; and no door starts a daemon in order to stop it — `htask stop`
 with nothing listening prints that and exits 0, while the MCP tool answers
 `UNAVAILABLE`.
 
+Three new `--json` fields on a parked action, `tab_id`, `workspace_id` and
+`all_projects`, all `omitempty`. They are what the door derived rather than
+what the caller passed, and §9.3 re-runs a resolved verb as the ORIGINAL call
+— without them a task created through the gate was filed with a pane of origin
+and no tab or workspace beside it, and a call made with `--all-projects` was
+re-run against the resolver's board alone. Schema version 10 adds the columns;
+a row parked before it reads back absent, which is what a call with no tab, no
+workspace and no `--all-projects` looks like.
+
 The declared contract revision is now 0.10.0, up from 0.6.0. It is the value
 `doctor --json` reports as `contract`, and a caller that reads it to decide
 which contract's rules this daemon answers to sees a different answer than it
