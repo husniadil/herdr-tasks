@@ -667,8 +667,9 @@ because a survived no-op is not a finding. The mutation set lives in the task
 a suite anyone should run again.
 
 **38 MUSTs were proven this way. Five of them had no pin until this task and
-now have one. Eleven more are listed as unpinned or unproven below, with which
-of the two they are.** Where a MUST is unpinned, the second question 0.9.0
+now have one. Eleven more were listed as unpinned or unproven, and task 88
+closed that list: thirteen further tests, two arguments, nothing left
+open.** Where a MUST is unpinned, the second question 0.9.0
 actually cares about — is it a missing test, or a MUST this plugin does not
 satisfy — is answered for each. Every one came back "missing test": no MUST in
 this contract was found unimplemented.
@@ -754,30 +755,123 @@ read the argv0 of whatever command blocks they find, so a manifest with no
 startup block at all satisfied them. `stop` was equally loose, and Herdr has no
 shutdown hook, which is why the contract names it.
 
-### Unpinned, and left unpinned
+### The eleven that were unpinned, and what each one answered
 
-Behaviour verified by reading the source; no test fails when it is removed. All
-are missing tests, not unmet MUSTs. They are listed rather than closed because
-each is a guard against a change nobody is proposing, and a test per line of
-this list is a bigger commitment than this task should make on its own.
+Task 88 took the list below as it stood and closed it: thirteen new tests,
+each proven the way the 38 above were proven — the behaviour removed from the
+source, the suite run, the pin counted only when the named test went red. Two
+entries are arguments rather than tests, and both say why. Nothing on the list
+was left unanswered.
 
-- **§1.1, §1.2, §1.3, §1.4** — no `tmux`/`zmx` reference, no PTY, no
-  `net/http`, no import of or path into a sibling plugin. Verified by search
-  across the non-test source; all four hold and nothing guards them.
-- **§4.3** — `workspace_id`/`tab_id`/`pane_id` are on rows for display only;
-  every key in `internal/store/schema.go` is `id` or `(project, seq)`.
-- **§12.2** — a test MUST cite the § it enforces.
-  `TestContractCitationsResolve` checks that citations which EXIST resolve, and
-  nothing fails when a test drops its citation. The obligation is on new tests
-  and is currently held by review.
-- **§14** — the forbidden nouns (`sidebar`, `card`, `widget`, `seat`,
-  `instance`, `session` outside Herdr's own) appear in no schema or verb name.
-  Nothing greps for them.
-- **§3.5's README half**, **§8.4's self-filter and no-poll halves**, **§11.4's
-  authoritative-store and no-receipt halves**, **§11.5**, **§13.1–§13.4**:
-  cited by tests that hold a NEIGHBOURING fact, so removing the MUST's own
-  behaviour was not shown to fail anything. Recorded as unproven rather than as
-  pinned, which is the distinction 0.9.0 exists to make.
+Two of the mutations here are worth naming as a method note. Where a MUST is a
+statement about the SOURCE — "MUST NOT drive tmux", "MUST NOT import
+net/http" — removing the behaviour means adding the forbidden thing, and a
+mutation that only breaks the build proves nothing. Every mutation below was
+gated on `go build ./...` succeeding first, so each kill is a test failing on
+what it asserts and not a compiler failing on an unused import.
+
+| Was unpinned | Now held by | The mutation that killed it |
+|---|---|---|
+| §1.1 no other multiplexer, no PTY of its own | `TestHerdrIsTheOnlyTerminalSubstrate` | a package-level `tmux` reference in `internal/daemon/daemon.go` |
+| §1.2 no registry of running agents | `TestNoRegistryOfRunningAgents` | an `agents` table in `internal/store/schema.go` |
+| §1.3 no browser or web server for the core function | `TestNoBrowserOrWebServerInTheCoreFunction` | `net/http` imported and used in `internal/daemon/doctor.go` |
+| §1.4 no sibling plugin's code or store | `TestNoSiblingPluginCodeOrStore` | a `herdr-mail` string outside a comment |
+| §4.3 Herdr's ids are context, never the partition key | `TestHerdrContextIsNeverAPartitionKey` | `pane_id` added to `tasks_project_status` |
+| §14 the forbidden nouns are in no schema or verb name | `TestTheForbiddenNounsAreInNoSchemaOrVerbName` | a `card` table |
+| §12.2 a test cites the § it enforces | `TestEveryTestFileCitesTheContract` | every `§` stripped from `internal/tui/model_test.go` |
+| §3.5's README half | `TestTheREADMEDocumentsTheTrustBoundary` | the trust-boundary sentence reworded in README.md |
+| §8.4's self-filter half | `TestPaneGoneLeavesAnotherPanesWorkAlone` | `sweep --pane "$HERDR_PANE_ID"` → `sweep` in the shipped hook |
+| §8.4's no-poll half | `TestHerdrIsNotPolledForWhatAnEventCovers` | a package-level ticker in `internal/herdrclient` |
+| §11.4's authoritative-store and no-receipt halves | `TestNothingDeliversTextToAnAgent` | a method on `Daemon` calling `Herdr.Prompt` |
+| §11.5's bounded-timer half | `TestTheBoundedTimerSweepsWithoutBeingAsked` | `d.Sweep()` dropped from `sweepLoop`'s tick |
+| §13.4's doctor half | `TestDoctorDeclaresTheContractRevision` | `Contract: ""` in `internal/daemon/doctor.go` |
+
+### The citation group, which was the interesting half
+
+Task 88 was asked to take this group first and report what it found, because a
+test citing a § it does not enforce is its own defect and might have been the
+whole finding. It was not: in every case the cited test was doing honest work
+on a NEIGHBOURING sentence of the same section, and the section had a second
+sentence nobody held. The honest fix was a new test each time, and no citation
+was found pointing at a section its test had nothing to do with.
+
+- **§3.5** has two MUSTs. `TestEnsureStateDirIsPrivate` and the `cli_test`
+  mode checks hold the 0700/0600 half properly. The README half — the sentence
+  that tells an operator the boundary IS the local user account — was held by
+  nothing, and it is the half a human depends on, because a mode nobody
+  explains is a number.
+- **§8.4's self-filter.** `TestPaneGoneWithNoPaneIDTouchesNobody` holds the
+  no-id case. The sentence is about a hook firing for EVERY matching event, so
+  the case it is actually about is pane A dying while pane B works, and that
+  was untested: a reaction that swept the whole board passed both existing
+  tests.
+- **§8.4's no-poll.** Nothing held it and nothing can hold it completely — no
+  test proves a daemon never calls Herdr too often. What is holdable is the
+  layer that owns the rule: `internal/herdrclient` is the one place that talks
+  to `herdr`, so a poll would be built there, and the pin fails the moment a
+  loop or a timer appears in it. The limit is stated in the test's own comment
+  rather than left for a reader to discover.
+- **§11.4's two 0.5.0 halves** were recorded here as satisfied VACUOUSLY —
+  nothing in this plugin delivers text to an agent — and that record was
+  itself unheld. Holding the record is the useful thing: the day a caller
+  appears, the two halves stop being vacuous and become obligations nobody
+  would be reminded of. `Prompt` stays, because it is the §11.4-conformant
+  primitive; the test fails when something calls it, and says what the caller
+  then owes.
+- **§11.5.** `TestSweepReleasesExpiredLease` calls `Sweep` itself, so what it
+  proves is that a sweep releases and records. §11.5 says a plugin with leases
+  sweeps them on a BOUNDED TIMER, and the wiring from the configured cadence
+  to the sweep was answerable to nothing: a daemon that built the ticker and
+  never ran it passed every §11.5 test in the file while an abandoned claim
+  sat until someone typed `sweep`.
+- **§13.1** is two claims. The id half is pinned by
+  `TestTheManifestIdentityDidNotFollowTheBinary`. The other half — nothing a
+  plugin commits names the umbrella project — is **argued, not tested**, and
+  this is the one place where a test would be self-defeating: the only way to
+  grep for a name is to write it down, and writing it down in this repository
+  is the thing §13.1 forbids. The vendored contract already removes it (see
+  the §13.3 entry above), so there is no name here to search for. Review holds
+  this one, as it holds the sibling rule that a test cite the § it enforces.
+- **§13.2** was on the list and should not have been. `TestRenamingTheBinaryMovesNoStoredPath` opens with `Name != "tasks"` as a fatal guard, and
+  changing the short name fails it. The citation is correct and the pin is
+  real; it reads as a guard clause rather than the point of the test, which is
+  how it came to be read as unpinned. **No new test — corrected reading.**
+- **§13.3** likewise. `TestTheChangelogHasAnEntryForThisVersion` holds the
+  changelog clause and `cli_test`'s version test holds `version` printing the
+  version. The remaining clause — a consumer that needs a floor checks it and
+  fails `UNAVAILABLE` — binds a CONSUMER of this plugin, not this plugin.
+  **No new test — the clause is not this repository's to satisfy.**
+- **§13.4** is the README **and** `doctor`. `TestTheDeclaredRevisionIsTheVendoredOne` holds the README half. `TestDoctorAndDump` checks that a
+  `contract` KEY exists, which is §10.3's requirement about doctor's shape and
+  a neighbouring fact here — doctor could report an empty string and nothing
+  went red. Doctor is the surface a program reads at runtime, where the README
+  is not.
+
+### One spelling the §14 pin had to decide
+
+§14 forbids `session` in APIs and schemas "except Herdr's own
+`agent_session`". This schema spells that exception `claimed_by_session` and
+`submitted_by_session`: the value in both is exactly Herdr's native session
+reference for the agent that acted, which is what the exception names, under a
+suffix rather than the contract's compound. The pin allows the two by name
+rather than by a looser `*_session` pattern, because a pattern that let any
+suffix through would let a session of this plugin's own invention through with
+it. This is a spelling gap, not a conformance gap, and it is recorded here
+rather than papered over.
+
+### §12.2 at file granularity, and the three files it exempts
+
+`TestEveryTestFileCitesTheContract` holds §12.2 per FILE, not per test
+function. Per function it would fire on helpers and table rows, which are not
+tests enforcing a section, and a rule that has to be silenced everywhere
+teaches people to silence it. Three test files hold a rule of this REPOSITORY
+rather than a section of the contract and are listed with a reason, in the
+shape `docs_test.go` and `annotations_test.go` already use:
+`cmd/htask/deps_test.go` (the dependency budget is a CLAUDE.md
+non-negotiable), `cmd/htask/annotations_test.go` (this repository's writing
+rule), and `internal/e2e/wait_test.go` (layer 3's own harness helpers). The
+list is checked in both directions: an entry naming a file that does not exist
+fails, and so does a listed file that starts citing a section.
 
 ### One MUST deliberately not mutation-proved
 

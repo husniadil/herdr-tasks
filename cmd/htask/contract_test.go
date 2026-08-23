@@ -193,6 +193,24 @@ func TestTheDeclaredRevisionIsTheVendoredOne(t *testing.T) {
 	}
 }
 
+// §13.4's other half. The section requires the declared revision in the
+// README **and in `doctor` output**, and only the README half was held:
+// `TestDoctorAndDump` checks that a `contract` KEY exists, which is §10.3's
+// requirement about doctor's shape and a neighbouring fact here. Doctor could
+// report an empty string, or a revision this binary does not declare, and
+// nothing went red — and doctor is the surface a consumer reads at runtime,
+// where the README is not.
+func TestDoctorDeclaresTheContractRevision(t *testing.T) {
+	w := newWorld(t)
+	doctor := w.json(w.env(), "doctor")
+	got, _ := doctor["contract"].(string)
+	if got != daemon.ContractVersion {
+		t.Errorf("doctor reports contract %q and this binary declares %q. §13.4 makes the "+
+			"declaration a conformance claim stated in the README and in doctor output, and "+
+			"doctor is the one a program reads", got, daemon.ContractVersion)
+	}
+}
+
 // revisionNumbers turns "0.7.0" or "0.4.0-draft" into its numeric fields. A
 // pre-release suffix orders BELOW the release it leads to, which is the order
 // this repository's own history used when 0.4.0-draft became 0.4.0.

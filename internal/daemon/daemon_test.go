@@ -392,6 +392,45 @@ func TestSweepReleasesExpiredLease(t *testing.T) {
 	}
 }
 
+// §11.5's timer half, which the test above does not hold: it calls `Sweep`
+// itself, so what it proves is that a sweep releases and records — a
+// neighbouring fact. §11.5 says a plugin with leases sweeps them on a BOUNDED
+// TIMER, and the wiring from the configured cadence to the sweep was
+// answerable to nothing. A daemon that built the ticker and never ran it, or
+// ran it on a cadence nothing configured, passed every §11.5 test in this
+// file while an abandoned claim sat until someone typed `sweep`.
+func TestTheBoundedTimerSweepsWithoutBeingAsked(t *testing.T) {
+	d := newDaemon(t, &config.Config{LeaseSeconds: 1, SweepSeconds: 1})
+	task := createTask(t, d, "abandoned by a pane that stopped")
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1",
+		Args: map[string]any{"id": task.Task.ID}})
+	base := d.Now()
+	d.Now = func() int64 { return base + 10_000 }
+
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	go d.sweepLoop(ctx)
+
+	// The cadence is one second and the wait is generous, because what is
+	// being held is that the timer fires at all, not how punctual it is.
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": task.Task.ID}})
+		if strings.Contains(string(raw), `"todo"`) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the §11.5 timer never released an expired lease on its own; the "+
+				"cadence is configured and nothing runs it: %s", raw)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	raw := mustCall(t, d, protocol.Request{Verb: "events", Args: map[string]any{"entity": "task"}})
+	if !strings.Contains(string(raw), `"tasks.task.swept"`) {
+		t.Fatalf("the timer's sweep must be in the trail (§11.5): %s", raw)
+	}
+}
+
 // §8.1: events are named tasks.<entity>.<verb> in past tense.
 func TestEventNamesFollowTheContract(t *testing.T) {
 	d := newDaemon(t, nil)

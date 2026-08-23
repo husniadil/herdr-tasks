@@ -640,6 +640,47 @@ func TestPaneGoneWithNoPaneIDTouchesNobody(t *testing.T) {
 	}
 }
 
+// §8.4's self-filter half, which is the sentence the two tests above do not
+// hold: a hook fires for EVERY matching event, not only the plugin's own
+// subjects, so it MUST self-filter. `TestPaneGoneWithNoPaneIDTouchesNobody`
+// holds the no-id case — a neighbouring fact — and left the case the sentence
+// is actually about untested: pane A dies while pane B is working. A reaction
+// that swept the board would take live work off B, and the operator would see
+// a task go back to todo under an agent still holding it.
+func TestPaneGoneLeavesAnotherPanesWorkAlone(t *testing.T) {
+	w := newWorld(t)
+	script := pluginRoot(t, w)
+
+	w.json(w.env(), "task", "create", "held by the pane that dies")
+	w.json(w.env(), "task", "create", "held by the pane that lives")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+	w.json(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "2")
+
+	out, errOut, status := run(t, script, w.env("HERDR_PANE_ID=wF:p1"))
+	if status != 0 {
+		t.Fatalf("the reaction exited %d: %s%s", status, out, errOut)
+	}
+
+	dead := w.json(w.env(), "task", "get", "1")["task"].(map[string]any)
+	if dead["status"] != "todo" {
+		t.Fatalf("the dead pane's work did not come back: %v", dead["status"])
+	}
+	live := w.json(w.env(), "task", "get", "2")["task"].(map[string]any)
+	if live["status"] != "doing" || live["claimed_by"] != "agent:wF:p2" {
+		t.Fatalf("a pane event about wF:p1 took work off wF:p2, so the reaction did not "+
+			"self-filter (§8.4): %v / %v", live["status"], live["claimed_by"])
+	}
+	// And it is idempotent, the other half of the same sentence: a second
+	// firing for the same pane changes nothing and still exits clean.
+	if _, _, status := run(t, script, w.env("HERDR_PANE_ID=wF:p1")); status != 0 {
+		t.Fatalf("a second firing exited %d, and §8.4 requires the reaction to be idempotent", status)
+	}
+	again := w.json(w.env(), "task", "get", "2")["task"].(map[string]any)
+	if again["claimed_by"] != "agent:wF:p2" {
+		t.Fatalf("the second firing took work off a live pane: %v", again["claimed_by"])
+	}
+}
+
 // pluginRoot lays out the shipped script over the world's binary the way the
 // plugin ships: <root>/scripts/on-pane-gone.sh next to <root>/bin/htask.
 func pluginRoot(t *testing.T, w *world) string {
