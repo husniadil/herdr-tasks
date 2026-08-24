@@ -370,7 +370,7 @@ func (w *world) mustInPane(pane string, args ...string) map[string]any {
 // task reads one task back as a map, from outside any pane.
 func (w *world) task(ref string) map[string]any {
 	w.t.Helper()
-	doc := w.htask("task", "get", ref)
+	doc := w.htask("get", ref)
 	t, _ := doc["task"].(map[string]any)
 	if t == nil {
 		w.t.Fatalf("task get %s returned %v", ref, doc)

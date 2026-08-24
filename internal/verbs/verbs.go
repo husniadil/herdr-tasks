@@ -33,7 +33,8 @@ type Arg struct {
 type Verb struct {
 	// Name is the daemon verb on the socket.
 	Name string
-	// CLI is the subcommand path, e.g. {"task", "claim"}.
+	// CLI is the subcommand path, e.g. {"note", "add"}. The task group is
+	// flat: {"claim"}, not {"task", "claim"}.
 	CLI []string
 	// MCP is the tool name: the verb alone, with dots as underscores
 	// (§7.1). Every verb has one, and §7.3 admits no CLI-only verb: the only
@@ -81,7 +82,7 @@ func idArg(desc string) Arg {
 // All is the registry. Order is the order the CLI lists them in.
 var All = []Verb{
 	{
-		Name: "task.create", CLI: []string{"task", "create"}, MCP: "create",
+		Name: "task.create", CLI: []string{"create"}, MCP: "create",
 		Short:   "File a task in the backlog",
 		Gated:   "tasks.create",
 		Who:     "Anyone: filing work is not destructive, and §3.5 trusts the local user.",
@@ -96,7 +97,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.list", CLI: []string{"task", "list"}, MCP: "list",
+		Name: "task.list", CLI: []string{"list"}, MCP: "list",
 		Short:       "List tasks in this project",
 		AllProjects: true,
 		Args: []Arg{
@@ -109,13 +110,13 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.get", CLI: []string{"task", "get"}, MCP: "get",
+		Name: "task.get", CLI: []string{"get"}, MCP: "get",
 		Short:       "Read one task in full",
 		AllProjects: true,
 		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.claim", CLI: []string{"task", "claim"}, MCP: "claim",
+		Name: "task.claim", CLI: []string{"claim"}, MCP: "claim",
 		Short:       "Take a task and its lease",
 		AllProjects: true,
 		Gated:       "tasks.claim",
@@ -124,7 +125,7 @@ var All = []Verb{
 		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.touch", CLI: []string{"task", "touch"}, MCP: "touch",
+		Name: "task.touch", CLI: []string{"touch"}, MCP: "touch",
 		Short:       "Renew the lease on a task you hold",
 		AllProjects: true,
 		Long:        "Run this at the start of each turn: a lease that lapses is swept and the task returns to the queue.",
@@ -134,7 +135,7 @@ var All = []Verb{
 		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.release", CLI: []string{"task", "release"}, MCP: "release",
+		Name: "task.release", CLI: []string{"release"}, MCP: "release",
 		Short:       "Hand a task back with a note saying what is left",
 		AllProjects: true,
 		Who:         "The holder, or the operator.",
@@ -146,7 +147,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.submit", CLI: []string{"task", "submit"}, MCP: "submit",
+		Name: "task.submit", CLI: []string{"submit"}, MCP: "submit",
 		Short:       "Send a task to review with a report and its evidence",
 		AllProjects: true,
 		Gated:       "tasks.submit",
@@ -160,7 +161,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.amend", CLI: []string{"task", "amend"}, MCP: "amend",
+		Name: "task.amend", CLI: []string{"amend"}, MCP: "amend",
 		Short:       "Correct the report and evidence of work already in review",
 		AllProjects: true,
 		Long: "Submit is made once and judged once, so it refuses a second call. This is the other half: " +
@@ -180,7 +181,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.approve", CLI: []string{"task", "approve"}, MCP: "approve",
+		Name: "task.approve", CLI: []string{"approve"}, MCP: "approve",
 		Short:       "Accept submitted work",
 		AllProjects: true,
 		Long:        "A principal may not approve work it, its own pane, or its own agent session produced (§6.6). The harness does not recuse: claude reviews claude from another session. The operator is exempt.",
@@ -190,7 +191,7 @@ var All = []Verb{
 		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.reject", CLI: []string{"task", "reject"}, MCP: "reject",
+		Name: "task.reject", CLI: []string{"reject"}, MCP: "reject",
 		Short:       "Send submitted work back with feedback",
 		AllProjects: true,
 		Gated:       "tasks.reject",
@@ -202,7 +203,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.goal", CLI: []string{"task", "goal"}, MCP: "goal",
+		Name: "task.goal", CLI: []string{"goal"}, MCP: "goal",
 		Short: "Print a paste-ready /goal condition for a task",
 		Long: "The document form is for a human to paste. --one-line renders the same condition with no " +
 			"newline in it, for the argv of `herdr agent start`, which refuses a newline outright. A line " +
@@ -215,7 +216,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.cancel", CLI: []string{"task", "cancel"}, MCP: "cancel",
+		Name: "task.cancel", CLI: []string{"cancel"}, MCP: "cancel",
 		Short:       "End a task that will not be done",
 		AllProjects: true,
 		Gated:       "tasks.cancel",
@@ -227,7 +228,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.update", CLI: []string{"task", "update"}, MCP: "update",
+		Name: "task.update", CLI: []string{"update"}, MCP: "update",
 		Short:       "Edit a live task",
 		AllProjects: true,
 		Gated:       "tasks.update",
@@ -243,7 +244,7 @@ var All = []Verb{
 		},
 	},
 	{
-		Name: "task.archive", CLI: []string{"task", "archive"}, MCP: "archive",
+		Name: "task.archive", CLI: []string{"archive"}, MCP: "archive",
 		Short:       "Hide a finished task from the default list",
 		AllProjects: true,
 		Who:         "Anyone, and only a terminal task. Arranging the default view is the operator's call, so an agent asks before tidying someone else's board (§3.7).",
@@ -252,7 +253,7 @@ var All = []Verb{
 		Args:        []Arg{idArg("The task id or number")},
 	},
 	{
-		Name: "task.delete", CLI: []string{"task", "delete"}, MCP: "delete",
+		Name: "task.delete", CLI: []string{"delete"}, MCP: "delete",
 		Short:   "Remove a task that was never claimed",
 		Long:    "Only a never-claimed task is deleted (§5.7). Everything else is cancelled or archived.",
 		Who:     "Anyone, and only a task that was never claimed (§5.7). Deleting removes the row rather than ending it, so an agent confirms with the operator first and reaches for `cancel` otherwise (§3.7).",

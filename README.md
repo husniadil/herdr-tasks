@@ -54,15 +54,15 @@ a copy is a second version of the truth from the next commit onwards.
 ## Using it
 
 ```sh
-htask task list --ready                       # unblocked, unclaimed work
-htask task claim 12                           # one winner
-htask task touch 12                           # renew the lease, every turn
-htask task submit 12 --report "…" --evidence "make test-full: ok" \
-                     --evidence-for "1: make test-full: ok, 214 tests"
-htask task amend 12 --report "…"              # correct a report still in review
-htask task approve 12                         # not if your session wrote it
+htask list --ready                  # unblocked, unclaimed work
+htask claim 12                      # one winner
+htask touch 12                      # renew the lease, every turn
+htask submit 12 --report "…" --evidence "make test-full: ok" \
+                --evidence-for "1: make test-full: ok, 214 tests"
+htask amend 12 --report "…"         # correct a report still in review
+htask approve 12                    # not if your session wrote it
 htask note add "the sweep releases a lease without logging why"
-htask task goal 12                            # a paste-ready /goal condition
+htask goal 12                       # a paste-ready /goal condition
 htask doctor
 ```
 
@@ -103,7 +103,7 @@ from its body.
 
 `--evidence` is proof for the task as a whole. `--evidence-for` is proof for
 one acceptance criterion, written as `"<criterion>: what it printed"` where the
-number is the criterion's place in the list `htask task get` prints. Cite one
+number is the criterion's place in the list `htask get` prints. Cite one
 and `task get` shows the criteria as a checklist — `[x]` where a citation
 landed, `[ ]` where none did — with the citing lines under the criterion they
 prove. Citing is opt-in: a submit that cites nothing behaves exactly as it
@@ -199,12 +199,12 @@ use, so a consumer does not manage its lifetime either.
 
 ```sh
 htask doctor --json
-htask task list --ready --all-projects --json
-htask task get 12 --json
-htask task goal 12 --one-line
+htask list --ready --all-projects --json
+htask get 12 --json
+htask goal 12 --one-line
 ```
 
-**Handing a task to an agent.** `htask task goal <id>` prints the condition a
+**Handing a task to an agent.** `htask goal <id>` prints the condition a
 human pastes. A program that starts the agent itself wants `--one-line`: Herdr
 refuses a newline in agent argv outright, so the document form cannot be
 delivered as the initial prompt of `herdr agent start` at all, while the same

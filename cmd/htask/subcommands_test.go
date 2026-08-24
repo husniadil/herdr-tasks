@@ -64,6 +64,14 @@ func TestEveryCLISubcommandIsAVerbOrAWrittenDownException(t *testing.T) {
 			switch {
 			case fromRegistry[joined]:
 			case len(path) == 1 && notAVerb[sub.Name()] != "":
+			// The hidden `htask task <verb>` group is the transition window:
+			// every command under it IS a registry verb, reached by a second
+			// path. §7.3's parity is about a verb the CLI serves and no door
+			// does, and there is none here — the door serves each of these
+			// under its flat name. The walk skips them by that shape, hidden
+			// and under `task`, rather than by a list of names that would go
+			// stale the moment a verb is added.
+			case path[0] == "task" && sub.Hidden:
 			default:
 				t.Errorf("`htask %s` is on the CLI, is not a verb of the registry, and is not "+
 					"written down in notAVerb. §7.3 admits no CLI-only verb: put it in "+

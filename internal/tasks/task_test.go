@@ -756,7 +756,7 @@ func TestSubmitBindsEvidenceToTheCriterionItProves(t *testing.T) {
 	a := agent("wF:p1", "claude")
 	mustClaim(t, task, a)
 	if _, err := Submit(task, a, "done", []string{"make build: ok"},
-		[]string{"1: make test-full -> exit 0", " 2 :  htask task get 5 -> Done when"}, t0+10); err != nil {
+		[]string{"1: make test-full -> exit 0", " 2 :  htask get 5 -> Done when"}, t0+10); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	if len(task.EvidenceFor) != 2 {
@@ -765,7 +765,7 @@ func TestSubmitBindsEvidenceToTheCriterionItProves(t *testing.T) {
 	if task.EvidenceFor[0] != (Citation{Criterion: 1, Text: "make test-full -> exit 0"}) {
 		t.Fatalf("first citation = %+v", task.EvidenceFor[0])
 	}
-	if task.EvidenceFor[1] != (Citation{Criterion: 2, Text: "htask task get 5 -> Done when"}) {
+	if task.EvidenceFor[1] != (Citation{Criterion: 2, Text: "htask get 5 -> Done when"}) {
 		t.Fatalf("second citation = %+v", task.EvidenceFor[1])
 	}
 	// Task-level evidence stays where it was: citations are a parallel field,

@@ -16,7 +16,7 @@ func TestPrincipalIsDerivedInsideAManagedPane(t *testing.T) {
 	w := startWorld(t)
 	pane := w.pane("principal")
 
-	doc := w.mustInPane(pane, "task", "create", "written from a pane")
+	doc := w.mustInPane(pane, "create", "written from a pane")
 	task, _ := doc["task"].(map[string]any)
 	if task == nil {
 		t.Fatalf("create in a pane returned %v", doc)
@@ -26,7 +26,7 @@ func TestPrincipalIsDerivedInsideAManagedPane(t *testing.T) {
 	}
 
 	// The same binary, the same daemon, outside the pane: `human` (§3.6).
-	outside := w.htask("task", "create", "written from a terminal")
+	outside := w.htask("create", "written from a terminal")
 	t2, _ := outside["task"].(map[string]any)
 	if got := t2["created_by"]; got != "human" {
 		t.Fatalf("created_by outside a pane = %v, want human", got)
@@ -41,11 +41,11 @@ func TestAgentGetSnapshotIsTakenFromRealHerdrAtClaim(t *testing.T) {
 	pane := w.pane("snapshot")
 	w.beAgent(pane, "codex", "reviewer")
 
-	created := w.htask("task", "create", "claim me")
+	created := w.htask("create", "claim me")
 	task, _ := created["task"].(map[string]any)
 	id, _ := task["id"].(string)
 
-	claimed := w.mustInPane(pane, "task", "claim", id)
+	claimed := w.mustInPane(pane, "claim", id)
 	got, _ := claimed["task"].(map[string]any)
 	if got["claimed_by"] != "agent:"+pane {
 		t.Fatalf("claimed_by = %v, want agent:%s", got["claimed_by"], pane)
@@ -76,15 +76,15 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 	pane := w.pane("lifecycle")
 	w.beAgent(pane, "claude", "builder")
 
-	created := w.htask("task", "create", "wire the door", "--validation", "make test: ok")
+	created := w.htask("create", "wire the door", "--validation", "make test: ok")
 	id, _ := created["task"].(map[string]any)["id"].(string)
 
-	w.mustInPane(pane, "task", "claim", id)
+	w.mustInPane(pane, "claim", id)
 	if s := w.task(id)["status"]; s != "doing" {
 		t.Fatalf("after claim the task is %v, want doing", s)
 	}
 
-	w.mustInPane(pane, "task", "submit", id, "--report", "wired it", "--evidence", "make test: ok")
+	w.mustInPane(pane, "submit", id, "--report", "wired it", "--evidence", "make test: ok")
 	submitted := w.task(id)
 	if submitted["status"] != "review" {
 		t.Fatalf("after submit the task is %v, want review", submitted["status"])
@@ -96,13 +96,13 @@ func TestLifecycleCreateClaimSubmitApproveThroughRealHerdr(t *testing.T) {
 	// Recusal (§6.6) is by principal and by agent session, and the operator is
 	// exempt: the same approve from the claiming pane must be refused, and
 	// from a terminal must go through.
-	if _, err := w.htInPane(pane, "task", "approve", id); err == nil {
+	if _, err := w.htInPane(pane, "approve", id); err == nil {
 		t.Fatal("the claiming pane approved its own work (§6.6)")
 	} else if !strings.Contains(err.Error(), "FORBIDDEN") {
 		t.Fatalf("self-review was refused with %v, want FORBIDDEN (§6.3)", err)
 	}
 
-	w.htask("task", "approve", id)
+	w.htask("approve", id)
 	done := w.task(id)
 	if done["status"] != "done" {
 		t.Fatalf("after approve the task is %v, want done", done["status"])
@@ -152,11 +152,11 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	pane := w.pane("amend")
 	w.beAgent(pane, "claude", "builder")
 
-	created := w.htask("task", "create", "wire the door", "--validation", "make test: ok")
+	created := w.htask("create", "wire the door", "--validation", "make test: ok")
 	id, _ := created["task"].(map[string]any)["id"].(string)
 
-	w.mustInPane(pane, "task", "claim", id)
-	w.mustInPane(pane, "task", "submit", id, "--report", "wired it", "--evidence", "make test: FAIL")
+	w.mustInPane(pane, "claim", id)
+	w.mustInPane(pane, "submit", id, "--report", "wired it", "--evidence", "make test: FAIL")
 	submitted := w.task(id)
 	if submitted["status"] != "review" {
 		t.Fatalf("after submit the task is %v, want review", submitted["status"])
@@ -176,7 +176,7 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	submittedAt, submittedBy := submitted["submitted_at"], submitted["submitted_by"]
 
 	// §6.5: the holder corrects the report while the row waits for a reviewer.
-	w.mustInPane(pane, "task", "amend", id,
+	w.mustInPane(pane, "amend", id,
 		"--report", "wired it, and the gate is green now",
 		"--evidence", "make test: ok")
 
@@ -203,7 +203,7 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	// row it does not hold, and the submission still does not move to them.
 	// Layer 1 pins this with a fabricated principal; here both principals are
 	// real — one derived from a Herdr pane, one from a terminal.
-	w.htask("task", "amend", id, "--report", "wired it, and the gate is green now")
+	w.htask("amend", id, "--report", "wired it, and the gate is green now")
 
 	twice := w.task(id)
 	if twice["submitted_by"] != submittedBy || twice["submitted_at"] != submittedAt {
@@ -220,7 +220,7 @@ func TestLifecycleAmendBeforeApproveThroughRealHerdr(t *testing.T) {
 	}
 
 	// The whole point: the approving read sees the correction.
-	approved := w.htask("task", "approve", id)
+	approved := w.htask("approve", id)
 	done, _ := approved["task"].(map[string]any)
 	if done == nil {
 		t.Fatalf("approve returned %v", approved)
@@ -267,11 +267,11 @@ func TestStaleApproveIsRefusedAfterAmendThroughRealHerdr(t *testing.T) {
 	pane := w.pane("stale")
 	w.beAgent(pane, "claude", "builder")
 
-	created := w.htask("task", "create", "a report a reviewer will read twice")
+	created := w.htask("create", "a report a reviewer will read twice")
 	id, _ := created["task"].(map[string]any)["id"].(string)
 
-	w.mustInPane(pane, "task", "claim", id)
-	w.mustInPane(pane, "task", "submit", id, "--report", "first draft", "--evidence", "make test: FAIL")
+	w.mustInPane(pane, "claim", id)
+	w.mustInPane(pane, "submit", id, "--report", "first draft", "--evidence", "make test: FAIL")
 
 	// What the reviewer read. Everything below turns on this value being the
 	// one the row carried BEFORE the amendment.
@@ -281,7 +281,7 @@ func TestStaleApproveIsRefusedAfterAmendThroughRealHerdr(t *testing.T) {
 		t.Fatalf("no updated_at to guard on after submit: %v", submitted["updated_at"])
 	}
 
-	w.mustInPane(pane, "task", "amend", id,
+	w.mustInPane(pane, "amend", id,
 		"--report", "second draft, the gate is green now",
 		"--evidence", "make test: ok")
 
@@ -292,7 +292,7 @@ func TestStaleApproveIsRefusedAfterAmendThroughRealHerdr(t *testing.T) {
 
 	// Half one: the decision built on the replaced report is refused, with the
 	// code §5.6 names and the §6.3 status that goes with it.
-	doc, status := w.htStatus("task", "approve", id,
+	doc, status := w.htStatus("approve", id,
 		"--base-updated-at", strconv.FormatInt(int64(stale), 10))
 	e, _ := doc["error"].(map[string]any)
 	if e == nil {
@@ -311,7 +311,7 @@ func TestStaleApproveIsRefusedAfterAmendThroughRealHerdr(t *testing.T) {
 	// Half two: the row was approvable all along — the refusal was the guard
 	// doing its job, not the task being stuck. The reviewer re-reads and
 	// approves with the value the row carries now.
-	doc, status = w.htStatus("task", "approve", id,
+	doc, status = w.htStatus("approve", id,
 		"--base-updated-at", strconv.FormatInt(int64(fresh), 10))
 	if status != 0 {
 		t.Fatalf("the approve carrying the current updated_at exited %d: %v", status, sprint(doc))
@@ -340,9 +340,9 @@ func TestLeaseIsReleasedAfterTheClaimingPaneDies(t *testing.T) {
 	pane := w.pane("lease")
 	w.beAgent(pane, "claude", "holder")
 
-	created := w.htask("task", "create", "held by a pane that dies")
+	created := w.htask("create", "held by a pane that dies")
 	id, _ := created["task"].(map[string]any)["id"].(string)
-	w.mustInPane(pane, "task", "claim", id)
+	w.mustInPane(pane, "claim", id)
 
 	w.herdr("pane", "close", pane)
 	for _, p := range w.herdr("pane", "list")["panes"].([]any) {
@@ -403,7 +403,7 @@ func TestDoctorSeesTheRealHerdrAndItsSchema(t *testing.T) {
 // because the failure mode is invisible until the machine has a dozen of them.
 func TestNoDaemonThisSuiteStartedSurvivesIt(t *testing.T) {
 	w := startWorld(t)
-	w.htask("task", "create", "a task, which starts a daemon")
+	w.htask("create", "a task, which starts a daemon")
 	started := w.daemonPIDs()
 	if len(started) == 0 {
 		t.Fatal("the CLI did not autostart a daemon; this test would prove nothing")
@@ -426,7 +426,7 @@ func TestFreeTextBoundsAreEnforcedThroughTheRealStack(t *testing.T) {
 	w.beAgent(pane, "claude", "builder")
 
 	huge := strings.Repeat("x", 100_000)
-	doc, status := w.htStatus("task", "create", huge)
+	doc, status := w.htStatus("create", huge)
 	if status != 2 {
 		t.Fatalf("an over-long title exited %d, want 2 (USAGE, §6.3): %v", status, doc)
 	}
@@ -441,14 +441,14 @@ func TestFreeTextBoundsAreEnforcedThroughTheRealStack(t *testing.T) {
 
 	// The bound must not have made ordinary work harder: everything the rest
 	// of this suite creates is well inside it.
-	created := w.htask("task", "create", "an ordinary title",
+	created := w.htask("create", "an ordinary title",
 		"--validation", "make test-full exits 0")
 	if created["task"] == nil {
 		t.Fatalf("a normal create was refused: %v", created)
 	}
 	id, _ := created["task"].(map[string]any)["id"].(string)
-	w.mustInPane(pane, "task", "claim", id)
-	w.mustInPane(pane, "task", "submit", id, "--report", "did it", "--evidence", "make test-full: exit 0")
+	w.mustInPane(pane, "claim", id)
+	w.mustInPane(pane, "submit", id, "--report", "did it", "--evidence", "make test-full: exit 0")
 	if s := w.task(id)["status"]; s != "review" {
 		t.Fatalf("a submission inside the bounds did not reach review: %v", s)
 	}
@@ -465,9 +465,9 @@ func TestClosingAPaneReleasesItsLeasesWithoutBeingAsked(t *testing.T) {
 	pane := w.pane("automatic")
 	w.beAgent(pane, "claude", "holder")
 
-	created := w.htask("task", "create", "held by a pane that is about to close")
+	created := w.htask("create", "held by a pane that is about to close")
 	id, _ := created["task"].(map[string]any)["id"].(string)
-	w.mustInPane(pane, "task", "claim", id)
+	w.mustInPane(pane, "claim", id)
 	if held := w.task(id); held["claimed_by"] != "agent:"+pane {
 		t.Fatalf("precondition: the pane holds it; claimed_by = %v", held["claimed_by"])
 	}

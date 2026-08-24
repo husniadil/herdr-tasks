@@ -11,7 +11,7 @@ description: The task backlog and notes board for this Herdr fleet. Use when pic
 says which project it searched and how many rows match elsewhere; read that
 line before concluding there is no work.
 
-A task's 26-character id is the cross-board address: `htask task get <id>
+A task's 26-character id is the cross-board address: `htask get <id>
 --all-projects` finds it whichever board it was filed on, and says which. The
 `#<n>` number is per project — `#24` exists on every board that has filed 24
 tasks — so a number with `--all-projects` is refused rather than guessed at.
@@ -52,10 +52,10 @@ submit  { "id": "12",
 The same thing from a shell, if you have one:
 
 ```sh
-htask task list --ready
-htask task submit 12 --report "what you did and how you verified it" \
-                  --evidence "make test-full: ok, 214 tests" \
-                  --evidence-for "1: make test-full: ok, 214 tests"
+htask list --ready
+htask submit 12 --report "what you did and how you verified it" \
+                --evidence "make test-full: ok, 214 tests" \
+                --evidence-for "1: make test-full: ok, 214 tests"
 ```
 
 Submit once. If you then find something to fix — a mutation that proves a test
@@ -89,7 +89,7 @@ If you cannot finish — blocked, out of scope, out of turns — hand it back
 rather than sitting on it:
 
 ```sh
-htask task release 12 --note "schema migration written, the sweep path is untouched"
+htask release 12 --note "schema migration written, the sweep path is untouched"
 ```
 
 The note is what the next claimer reads first. Write it for them.
@@ -103,7 +103,7 @@ shows them passing, not by a claim that they do.
 
 `--evidence-for` is the same kind of proof, bound to the criterion it proves.
 Write it as `"<criterion>: what it printed"`, where the number is the
-criterion's place in the list `htask task get 12` prints. It is repeatable, and
+criterion's place in the list `htask get 12` prints. It is repeatable, and
 several citations may point at the same criterion. `--evidence` stays what it
 was: proof for the task as a whole rather than for one line of it.
 
@@ -227,7 +227,7 @@ Found real work while doing something else? Either file a note, or file the
 task and say where it came from:
 
 ```sh
-htask task create "Log the reason a lease was swept" --discovered-from 12
+htask create "Log the reason a lease was swept" --discovered-from 12
 ```
 
 Do not do it under the task you hold.
@@ -235,7 +235,7 @@ Do not do it under the task you hold.
 ## Dependencies and readiness
 
 ```sh
-htask task create "Ship the migration" --depends-on 4 --depends-on 5
+htask create "Ship the migration" --depends-on 4 --depends-on 5
 ```
 
 Only `done` satisfies a dependency. A task with an unfinished dependency is
@@ -248,7 +248,7 @@ Write criteria an evaluator can check from a transcript — a command and what
 its output must show:
 
 ```sh
-htask task create "Make the sweep speak" \
+htask create "Make the sweep speak" \
   --validation "\`make test-full\` passes and its output is shown" \
   --validation "\`htask events --json\` shows a tasks.task.swept entry after a sweep"
 ```
@@ -258,24 +258,24 @@ Add ` (optional)` to the end of a criterion that is nice to have.
 ## Handing a task to another agent
 
 ```sh
-htask task goal 12
+htask goal 12
 ```
 
 prints a paste-ready `/goal` condition: the directive, the context, the "Done
-when" including the obligation to run `htask task submit` and show its output, and
+when" including the obligation to run `htask submit` and show its output, and
 a stop clause that releases the claim rather than pushing past the scope.
 
-`htask task goal 12 --one-line` renders the same condition with no newline in
+`htask goal 12 --one-line` renders the same condition with no newline in
 it, for the argv of `herdr agent start`, which refuses one. It fits the same
 ceiling, so it gives up context and criteria sooner and says what it dropped.
 
 ## Everything else
 
 ```sh
-htask task list --mine            htask task update 12 --priority 5
-htask task cancel 12 --reason …   htask task archive 12
-htask events --follow             htask doctor
-htask dump --json                 htask --help
+htask list --mine            htask update 12 --priority 5
+htask cancel 12 --reason …   htask archive 12
+htask events --follow        htask doctor
+htask dump --json            htask --help
 ```
 
 `htask stop` ends the daemon, and it is **not yours to call**: one daemon

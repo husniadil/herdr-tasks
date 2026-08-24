@@ -84,10 +84,10 @@ func TestGoalKeepsItsMandatoryPartsUnderPressure(t *testing.T) {
 	for _, want := range []string{
 		"Make the lease sweep write an event.", // the directive
 		"Done when:",
-		"htask task submit 7", // the submit obligation
+		"htask submit 7", // the submit obligation
 		"its output is shown",
-		"htask task release 7 --note", // the stop clause
-		"htask task touch 7",
+		"htask release 7 --note", // the stop clause
+		"htask touch 7",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trimming dropped %q:\n%s", want, got)
@@ -111,7 +111,7 @@ func TestGoalSaysWhenItDroppedCriteria(t *testing.T) {
 	if !strings.Contains(got, "further criteria") {
 		t.Fatalf("a truncated criteria list must say so:\n%s", got)
 	}
-	if !strings.Contains(got, "htask task get 7") {
+	if !strings.Contains(got, "htask get 7") {
 		t.Fatal("a truncated criteria list must point at the full one")
 	}
 }
@@ -151,7 +151,7 @@ func TestGoalCarriesTitleAndCriteria(t *testing.T) {
 // show its output.
 func TestGoalCarriesTheSubmitObligation(t *testing.T) {
 	got := BuildGoal(goalTask())
-	if !strings.Contains(got, "htask task submit 7") {
+	if !strings.Contains(got, "htask submit 7") {
 		t.Fatalf("goal does not oblige a submit:\n%s", got)
 	}
 	if !strings.Contains(got, "--report") || !strings.Contains(got, "--evidence") {
@@ -166,7 +166,7 @@ func TestGoalCarriesTheSubmitObligation(t *testing.T) {
 // and sends out-of-scope findings to notes or a discovered-from task.
 func TestGoalCarriesTheReleaseStopClause(t *testing.T) {
 	got := BuildGoal(goalTask())
-	if !strings.Contains(got, "htask task release 7 --note") {
+	if !strings.Contains(got, "htask release 7 --note") {
 		t.Fatalf("goal has no release stop clause:\n%s", got)
 	}
 	if !strings.Contains(got, "htask note add") || !strings.Contains(got, "--discovered-from 7") {
@@ -176,7 +176,7 @@ func TestGoalCarriesTheReleaseStopClause(t *testing.T) {
 
 // §16.3: the goal tells the agent to renew its lease each turn.
 func TestGoalTellsTheAgentToTouch(t *testing.T) {
-	if got := BuildGoal(goalTask()); !strings.Contains(got, "htask task touch 7") {
+	if got := BuildGoal(goalTask()); !strings.Contains(got, "htask touch 7") {
 		t.Fatalf("goal does not teach touch:\n%s", got)
 	}
 }
@@ -209,8 +209,8 @@ func TestTheGoalNamesTheBinaryThatExists(t *testing.T) {
 	// And it really does teach the verbs, or the check above passes on an
 	// empty goal.
 	for _, want := range []string{
-		"htask task touch 7", "htask task submit 7", "htask task release 7 --note",
-		"htask note add", "htask task create",
+		"htask touch 7", "htask submit 7", "htask release 7 --note",
+		"htask note add", "htask create",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the goal does not teach %q:\n%s", want, got)
@@ -271,7 +271,7 @@ func TestTheOneLineGoalSaysWhatTheMultiLineGoalSays(t *testing.T) {
 	if back := strings.ReplaceAll(one, oneLineSep, "\n"); back != strings.TrimSuffix(multi, "\n") {
 		t.Fatalf("one-line goal is not the multi-line one flattened.\nwant:\n%q\ngot:\n%q", strings.TrimSuffix(multi, "\n"), back)
 	}
-	for _, want := range []string{task.Title, "Context: ", "The reviewer said: ", "Done when:", "htask task touch 7", "htask task submit 7", "htask task release 7 --note"} {
+	for _, want := range []string{task.Title, "Context: ", "The reviewer said: ", "Done when:", "htask touch 7", "htask submit 7", "htask release 7 --note"} {
 		if !strings.Contains(one, want) {
 			t.Fatalf("one-line goal is missing %q:\n%s", want, one)
 		}
@@ -307,7 +307,7 @@ func TestTheOneLineGoalIsBudgetedOnWhatItPrints(t *testing.T) {
 	if len(one) > GoalLimit {
 		t.Fatalf("one-line goal is %d characters, past the %d the contract fixes", len(one), GoalLimit)
 	}
-	for _, want := range []string{task.Title, "Done when:", "htask task submit 7", "htask task release 7 --note", "did not fit here"} {
+	for _, want := range []string{task.Title, "Done when:", "htask submit 7", "htask release 7 --note", "did not fit here"} {
 		if !strings.Contains(one, want) {
 			t.Fatalf("one-line goal dropped %q, which never gives way:\n%s", want, one)
 		}

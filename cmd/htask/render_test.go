@@ -109,17 +109,17 @@ func TestWantsJSONReadsTheRawArgv(t *testing.T) {
 		argv []string
 		want bool
 	}{
-		{[]string{"task", "list"}, false},
-		{[]string{"task", "list", "--json"}, true},
-		{[]string{"--json", "task", "list"}, true},
-		{[]string{"task", "list", "--json=true"}, true},
-		{[]string{"task", "list", "--json=false"}, false},
-		{[]string{"task", "list", "--json=0"}, false},
+		{[]string{"list"}, false},
+		{[]string{"list", "--json"}, true},
+		{[]string{"--json", "list"}, true},
+		{[]string{"list", "--json=true"}, true},
+		{[]string{"list", "--json=false"}, false},
+		{[]string{"list", "--json=0"}, false},
 		// A value cobra will refuse still counts as asking for a document:
 		// the refusal is the answer, and it should arrive in the shape the
 		// caller asked for.
-		{[]string{"task", "list", "--json=maybe"}, true},
-		{[]string{"task", "list", "--nonesuch", "--json"}, true},
+		{[]string{"list", "--json=maybe"}, true},
+		{[]string{"list", "--nonesuch", "--json"}, true},
 		// After the terminator it is an argument, not this flag.
 		{[]string{"note", "add", "--", "--json"}, false},
 		{[]string{"note", "add", "--json", "--", "--json=false"}, true},
@@ -209,7 +209,7 @@ func verbNameOf(c *cobra.Command) string {
 	return strings.Join(parts, ".")
 }
 
-// §6.1: the prose half. `htask task get` on a task blocked by something that was
+// §6.1: the prose half. `htask get` on a task blocked by something that was
 // cancelled says which one — the operator reading prose needs the same fact
 // the JSON carries.
 func TestProseNamesACancelledBlocker(t *testing.T) {
@@ -362,7 +362,7 @@ func TestAWaitIsReadInTheUnitThatFitsIt(t *testing.T) {
 	}
 }
 
-// §6.1, the prose half of criterion 2: a reviewer reading `htask task get` is
+// §6.1, the prose half of criterion 2: a reviewer reading `htask get` is
 // told the report above is not the one that was submitted. The --json caller
 // has amend_count; the human reading prose has this line, and without it the
 // two surfaces would answer the same question differently.

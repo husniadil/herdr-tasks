@@ -48,9 +48,21 @@ func newRootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&g.as, "as", "", "Act as a cron, trigger or plugin principal (§3.2)")
 
 	groups := map[string]*cobra.Command{}
+	taken := map[string]string{"daemon": "system", "mcp": "system", "tui": "system", "version": "system"}
 	for _, v := range verbs.All {
 		cmd := buildVerb(v)
 		if len(v.CLI) == 1 {
+			// §6.1 gives every verb one name on this surface, so a second
+			// verb claiming a name already taken is a CLI where one of the
+			// two is unreachable. cobra takes both and answers with the
+			// first, silently. Refusing here, at startup, is the operator's
+			// decision in task 92: no collision exists today, and one that
+			// appears must stop the binary rather than shadow a verb.
+			if owner, clash := taken[v.CLI[0]]; clash {
+				panic("htask: `" + v.CLI[0] + "` is claimed twice on the CLI, by " + owner +
+					" and by " + v.Name + "; the task verbs are flat (task 92) and a collision has no winner")
+			}
+			taken[v.CLI[0]] = v.Name
 			root.AddCommand(cmd)
 			continue
 		}
@@ -65,31 +77,68 @@ func newRootCmd() *cobra.Command {
 			// failure code. RunE makes the parent Runnable so NoArgs is
 			// reached, and NoArgs turns the stray argument into the parse
 			// error the door already renders as a USAGE envelope. Zero
-			// arguments is not a stray argument, so `htask task` still
+			// arguments is not a stray argument, so `htask note` still
 			// answers with its help.
 			parent = &cobra.Command{
 				Use: v.CLI[0], Short: groupShort(v.CLI[0]), Args: cobra.NoArgs,
 				RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
-				// Being Runnable makes cobra add `htask task [flags]` to the
+				// Being Runnable makes cobra add `htask note [flags]` to the
 				// usage block, which is an artifact of the mechanism rather
 				// than a fact about the command: a group takes no flags of its
 				// own. Suppressed, so the help a reader already knows comes
 				// back byte for byte.
 				DisableFlagsInUseLine: true,
 			}
+			if owner, clash := taken[v.CLI[0]]; clash {
+				panic("htask: `" + v.CLI[0] + "` is claimed twice on the CLI, by " + owner +
+					" and by the " + v.CLI[0] + " group; a collision has no winner")
+			}
+			taken[v.CLI[0]] = v.CLI[0] + " group"
 			groups[v.CLI[0]] = parent
 			root.AddCommand(parent)
 		}
 		parent.AddCommand(cmd)
 	}
+	root.AddCommand(newTaskAliasCmd())
 	root.AddCommand(newDaemonCmd(), newMCPCmd(), newTUICmd(), newVersionCmd())
 	return root
 }
 
+// newTaskAliasCmd rebuilds the task verbs under their old `htask task <verb>`
+// path for one transition window. The sibling adapters — herdr-dispatch's
+// internal/htask and herdr-sched's action adapter — and an operator's muscle
+// memory both still spell it that way, and breaking them in the same commit
+// that moves the verbs would make one change into three repos' worth of
+// outage. The whole group is hidden: it answers, and --help teaches only the
+// flat form, so nothing new learns the old one. Removing it is a follow-up
+// task, not part of this one.
+//
+// Each alias is a SECOND cobra command over the same registry entry rather
+// than a shared pointer: a cobra command belongs to one parent, and adding one
+// command in two places gives it whichever parent was last to claim it.
+func newTaskAliasCmd() *cobra.Command {
+	group := &cobra.Command{
+		Use:    "task",
+		Short:  "Deprecated: the task verbs are top-level now (`htask claim 12`)",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+		RunE:   func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
+
+		DisableFlagsInUseLine: true,
+	}
+	for _, v := range verbs.All {
+		if !strings.HasPrefix(v.Name, "task.") {
+			continue
+		}
+		alias := buildVerb(v)
+		alias.Hidden = true
+		group.AddCommand(alias)
+	}
+	return group
+}
+
 func groupShort(name string) string {
 	switch name {
-	case "task":
-		return "Work with tasks"
 	case "note":
 		return "Work with notes on the board"
 	case "parked":

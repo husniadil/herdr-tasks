@@ -78,7 +78,7 @@ func TestAPaneWaitThatRunsOutOfTimeSaysSoInsteadOfBlamingTheOutput(t *testing.T)
 		t.Fatalf("the wait gave up after %s, before its own timeout", waited)
 	}
 
-	err := timedOut("w1:p1", []string{"task", "claim", "01H"}, 200*time.Millisecond, `{"partial":`)
+	err := timedOut("w1:p1", []string{"claim", "01H"}, 200*time.Millisecond, `{"partial":`)
 	for _, want := range []string{"timed out", "200ms", "task claim 01H", "w1:p1", `{\"partial\":`} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("the timeout does not name %q: %v", want, err)

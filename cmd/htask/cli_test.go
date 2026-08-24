@@ -143,7 +143,7 @@ func TestCLIAutostartsTheDaemon(t *testing.T) {
 	if _, err := os.Stat(sock); err == nil {
 		t.Fatal("precondition: no socket yet")
 	}
-	doc := w.json(w.env(), "task", "list")
+	doc := w.json(w.env(), "list")
 	if doc["count"] != float64(0) {
 		t.Fatalf("count = %v", doc["count"])
 	}
@@ -163,9 +163,9 @@ func TestCLIAutostartsTheDaemon(t *testing.T) {
 // error envelope and exits with the code's status.
 func TestJSONEnvelopeAndExitStatuses(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "the first task")
+	w.json(w.env(), "create", "the first task")
 
-	stdout, _, status := w.run(w.env(), "task", "get", "404", "--json")
+	stdout, _, status := w.run(w.env(), "get", "404", "--json")
 	if status != codes.Exit(codes.NotFound) {
 		t.Fatalf("exit = %d, want %d for NOT_FOUND", status, codes.Exit(codes.NotFound))
 	}
@@ -183,17 +183,17 @@ func TestJSONEnvelopeAndExitStatuses(t *testing.T) {
 	}
 
 	// USAGE / 2 for a caller-validatable input error.
-	if _, _, status := w.run(w.env(), "task", "create", "--json"); status != codes.Exit(codes.Usage) {
+	if _, _, status := w.run(w.env(), "create", "--json"); status != codes.Exit(codes.Usage) {
 		t.Fatalf("exit = %d, want 2 for USAGE", status)
 	}
 	// CONFLICT / 6 for a claim someone else holds.
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
-	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "1", "--json"); status != codes.Exit(codes.Conflict) {
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "claim", "1")
+	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p2"), "claim", "1", "--json"); status != codes.Exit(codes.Conflict) {
 		t.Fatalf("exit = %d, want 6 for CONFLICT", status)
 	}
 	// FORBIDDEN / 8 for recusal: the submitter reviewing its own work.
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "submit", "1", "--report", "done")
-	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "task", "approve", "1", "--json"); status != codes.Exit(codes.Forbidden) {
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "submit", "1", "--report", "done")
+	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p1"), "approve", "1", "--json"); status != codes.Exit(codes.Forbidden) {
 		t.Fatalf("exit = %d, want 8 for FORBIDDEN (§6.6)", status)
 	}
 }
@@ -201,8 +201,8 @@ func TestJSONEnvelopeAndExitStatuses(t *testing.T) {
 // §6.2: without --json, output is for humans and stdout carries no JSON.
 func TestHumanOutputIsNotJSON(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "readable")
-	stdout, _, status := w.run(w.env(), "task", "list")
+	w.json(w.env(), "create", "readable")
+	stdout, _, status := w.run(w.env(), "list")
 	if status != 0 {
 		t.Fatalf("exit = %d", status)
 	}
@@ -218,8 +218,8 @@ func TestHumanOutputIsNotJSON(t *testing.T) {
 // from herdr through HERDR_BIN_PATH.
 func TestPrincipalAndHarnessComeFromTheEnvironment(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "claimable")
-	doc := w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+	w.json(w.env(), "create", "claimable")
+	doc := w.json(w.env("HERDR_PANE_ID=wF:p1"), "claim", "1")
 	task := doc["task"].(map[string]any)
 	if task["claimed_by"] != "agent:wF:p1" || task["claimed_by_harness"] != "claude" {
 		t.Fatalf("task = %+v", task)
@@ -241,8 +241,8 @@ func TestProjectScopeIsTheRepository(t *testing.T) {
 	sub := filepath.Join(w.project, "internal", "deep")
 	os.MkdirAll(sub, 0o755)
 
-	w.json(w.env(), "task", "create", "from the root")
-	cmd := exec.Command(w.bin, "task", "list", "--json")
+	w.json(w.env(), "create", "from the root")
+	cmd := exec.Command(w.bin, "list", "--json")
 	cmd.Dir, cmd.Env = sub, w.env()
 	out, err := cmd.Output()
 	if err != nil {
@@ -256,7 +256,7 @@ func TestProjectScopeIsTheRepository(t *testing.T) {
 // §10.3 and §5.8: doctor reports and never fails; dump prints the whole store.
 func TestDoctorAndDump(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "dumped")
+	w.json(w.env(), "create", "dumped")
 	doctor := w.json(w.env(), "doctor")
 	for _, key := range []string{"version", "contract", "state_dir", "config_dir", "socket_live",
 		"herdr_reachable", "gate_configured", "hook_configured", "degraded", "gated_verbs"} {
@@ -280,17 +280,17 @@ func TestDoctorAndDump(t *testing.T) {
 // §16.2: `task goal` prints a paste-ready condition under 4,000 characters.
 func TestTaskGoalPrintsAPasteReadyCondition(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "Teach the sweep to speak",
+	w.json(w.env(), "create", "Teach the sweep to speak",
 		"--description", "The sweep releases a lease silently.",
 		"--validation", "`make test-full` passes and its output is shown")
-	stdout, _, status := w.run(w.env(), "task", "goal", "1")
+	stdout, _, status := w.run(w.env(), "goal", "1")
 	if status != 0 {
 		t.Fatalf("exit = %d", status)
 	}
 	if len(stdout) >= 4000 {
 		t.Fatalf("goal is %d characters", len(stdout))
 	}
-	for _, want := range []string{"Teach the sweep to speak", "Done when:", "htask task submit 1", "htask task release 1 --note", "htask task touch 1"} {
+	for _, want := range []string{"Teach the sweep to speak", "Done when:", "htask submit 1", "htask release 1 --note", "htask touch 1"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("goal is missing %q:\n%s", want, stdout)
 		}
@@ -302,10 +302,10 @@ func TestTaskGoalPrintsAPasteReadyCondition(t *testing.T) {
 // one line for a program to deliver it at all.
 func TestTaskGoalOneLineFitsAnArgvThatRefusesNewlines(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "Teach the sweep to speak",
+	w.json(w.env(), "create", "Teach the sweep to speak",
 		"--description", "The sweep releases a lease silently.\n\nNobody reading the trail can tell.",
 		"--validation", "`make test-full` passes and its output is shown")
-	stdout, _, status := w.run(w.env(), "task", "goal", "1", "--one-line")
+	stdout, _, status := w.run(w.env(), "goal", "1", "--one-line")
 	if status != 0 {
 		t.Fatalf("exit = %d", status)
 	}
@@ -317,7 +317,7 @@ func TestTaskGoalOneLineFitsAnArgvThatRefusesNewlines(t *testing.T) {
 	}
 	// Including both halves of a description written over two paragraphs: the
 	// break is what has to go, not the sentence after it.
-	for _, want := range []string{"Teach the sweep to speak", "Done when:", "htask task submit 1", "htask task touch 1",
+	for _, want := range []string{"Teach the sweep to speak", "Done when:", "htask submit 1", "htask touch 1",
 		"The sweep releases a lease silently.", "Nobody reading the trail can tell."} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("one-line goal is missing %q:\n%s", want, stdout)
@@ -328,9 +328,9 @@ func TestTaskGoalOneLineFitsAnArgvThatRefusesNewlines(t *testing.T) {
 // §8.2: the event trail streams, and every state change is in it.
 func TestEventsCarryEveryStateChange(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "watched")
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "release", "1", "--note", "handing back")
+	w.json(w.env(), "create", "watched")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "claim", "1")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "release", "1", "--note", "handing back")
 	doc := w.json(w.env(), "events")
 	events := doc["events"].([]any)
 	names := []string{}
@@ -388,7 +388,7 @@ func TestNoteBoardIsAgentProposesAndConfirmsBeforeDeciding(t *testing.T) {
 			t.Fatalf("a criterion is required unless marked optional (§16.1): %+v", c)
 		}
 	}
-	list := w.json(w.env(), "task", "list")
+	list := w.json(w.env(), "list")
 	if list["count"] != float64(1) {
 		t.Fatalf("the promotion did not file a task: %+v", list)
 	}
@@ -407,7 +407,7 @@ func TestVersion(t *testing.T) {
 // It streams what is already there, then keeps going as new events land.
 func TestEventsFollowStreams(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "first")
+	w.json(w.env(), "create", "first")
 
 	cmd := exec.Command(w.bin, "events", "--follow", "--json")
 	cmd.Dir, cmd.Env = w.project, w.env()
@@ -443,7 +443,7 @@ func TestEventsFollowStreams(t *testing.T) {
 	// what makes this a subscription rather than a read.
 	go func() {
 		time.Sleep(300 * time.Millisecond)
-		w.json(w.env(), "task", "create", "second")
+		w.json(w.env(), "create", "second")
 	}()
 	for i, expect := range want {
 		select {
@@ -473,21 +473,21 @@ func TestVerbsScopeToTheHerdrContextNotTheWorkingDirectory(t *testing.T) {
 		`"focused_pane_cwd":"` + looking + `"}`)
 
 	// Run from the plugin root — w.run's directory — with that context.
-	w.json(inPane, "task", "create", "filed from a plugin pane")
+	w.json(inPane, "create", "filed from a plugin pane")
 
 	// It landed in the project Herdr said was focused, not the working
 	// directory the command happened to start in.
-	there := w.json(w.env(), "task", "list", "--project", looking)
+	there := w.json(w.env(), "list", "--project", looking)
 	if there["count"] != float64(1) {
 		t.Fatalf("the focused project holds %v tasks, want 1", there["count"])
 	}
-	here := w.json(w.env(), "task", "list")
+	here := w.json(w.env(), "list")
 	if here["count"] != float64(0) {
 		t.Fatalf("the working directory's project holds %v tasks, want 0", here["count"])
 	}
 
 	// And the pane door reads the same scope back without being told.
-	back := w.json(inPane, "task", "list")
+	back := w.json(inPane, "list")
 	if back["count"] != float64(1) {
 		t.Fatalf("reading from the pane found %v tasks, want 1", back["count"])
 	}
@@ -516,7 +516,7 @@ func TestSkewIsReportedByTheDoor(t *testing.T) {
 			w := newWorld(t)
 			ln := fakeDaemon(t, w, tc.answer)
 			defer ln.Close()
-			stdout, stderr, status := w.run(w.env(), "task", "list", "--json")
+			stdout, stderr, status := w.run(w.env(), "list", "--json")
 			if status != 0 {
 				t.Fatalf("skew must warn, not fail: exit %d: %s%s", status, stdout, stderr)
 			}
@@ -556,7 +556,7 @@ func TestSkewIsSilentWhenTheSurfacesMatch(t *testing.T) {
 	ln := fakeDaemon(t, w,
 		`{"result":{"tasks":[],"count":0},"fingerprint":"`+verbs.Fingerprint()+`","build":`+buildOf(t, w.bin)+`}`)
 	defer ln.Close()
-	_, stderr, status := w.run(w.env(), "task", "list", "--json")
+	_, stderr, status := w.run(w.env(), "list", "--json")
 	if status != 0 {
 		t.Fatalf("exit %d: %s", status, stderr)
 	}
@@ -597,14 +597,14 @@ func TestPaneGoneReleasesThatPanesWorkAtOnce(t *testing.T) {
 	w := newWorld(t)
 	script := pluginRoot(t, w)
 
-	w.json(w.env(), "task", "create", "held by a pane that dies")
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
+	w.json(w.env(), "create", "held by a pane that dies")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "claim", "1")
 
 	out, errOut, status := run(t, script, w.env("HERDR_PANE_ID=wF:p1"))
 	if status != 0 {
 		t.Fatalf("the reaction exited %d: %s%s", status, out, errOut)
 	}
-	doc := w.json(w.env(), "task", "get", "1")
+	doc := w.json(w.env(), "get", "1")
 	task := doc["task"].(map[string]any)
 	if task["status"] != "todo" {
 		t.Fatalf("the dead pane's work did not come back: %v", task["status"])
@@ -626,14 +626,14 @@ func TestPaneGoneWithNoPaneIDTouchesNobody(t *testing.T) {
 	w := newWorld(t)
 	script := pluginRoot(t, w)
 
-	w.json(w.env(), "task", "create", "held by a pane that is fine")
-	w.json(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "1")
+	w.json(w.env(), "create", "held by a pane that is fine")
+	w.json(w.env("HERDR_PANE_ID=wF:p2"), "claim", "1")
 
 	out, errOut, status := run(t, script, w.env())
 	if status != 0 {
 		t.Fatalf("a pane event with no id must not fail: exit %d: %s%s", status, out, errOut)
 	}
-	doc := w.json(w.env(), "task", "get", "1")
+	doc := w.json(w.env(), "get", "1")
 	task := doc["task"].(map[string]any)
 	if task["status"] != "doing" || task["claimed_by"] != "agent:wF:p2" {
 		t.Fatalf("a live pane's unexpired claim was taken: %v / %v", task["status"], task["claimed_by"])
@@ -651,21 +651,21 @@ func TestPaneGoneLeavesAnotherPanesWorkAlone(t *testing.T) {
 	w := newWorld(t)
 	script := pluginRoot(t, w)
 
-	w.json(w.env(), "task", "create", "held by the pane that dies")
-	w.json(w.env(), "task", "create", "held by the pane that lives")
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "task", "claim", "1")
-	w.json(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "2")
+	w.json(w.env(), "create", "held by the pane that dies")
+	w.json(w.env(), "create", "held by the pane that lives")
+	w.json(w.env("HERDR_PANE_ID=wF:p1"), "claim", "1")
+	w.json(w.env("HERDR_PANE_ID=wF:p2"), "claim", "2")
 
 	out, errOut, status := run(t, script, w.env("HERDR_PANE_ID=wF:p1"))
 	if status != 0 {
 		t.Fatalf("the reaction exited %d: %s%s", status, out, errOut)
 	}
 
-	dead := w.json(w.env(), "task", "get", "1")["task"].(map[string]any)
+	dead := w.json(w.env(), "get", "1")["task"].(map[string]any)
 	if dead["status"] != "todo" {
 		t.Fatalf("the dead pane's work did not come back: %v", dead["status"])
 	}
-	live := w.json(w.env(), "task", "get", "2")["task"].(map[string]any)
+	live := w.json(w.env(), "get", "2")["task"].(map[string]any)
 	if live["status"] != "doing" || live["claimed_by"] != "agent:wF:p2" {
 		t.Fatalf("a pane event about wF:p1 took work off wF:p2, so the reaction did not "+
 			"self-filter (§8.4): %v / %v", live["status"], live["claimed_by"])
@@ -675,7 +675,7 @@ func TestPaneGoneLeavesAnotherPanesWorkAlone(t *testing.T) {
 	if _, _, status := run(t, script, w.env("HERDR_PANE_ID=wF:p1")); status != 0 {
 		t.Fatalf("a second firing exited %d, and §8.4 requires the reaction to be idempotent", status)
 	}
-	again := w.json(w.env(), "task", "get", "2")["task"].(map[string]any)
+	again := w.json(w.env(), "get", "2")["task"].(map[string]any)
 	if again["claimed_by"] != "agent:wF:p2" {
 		t.Fatalf("the second firing took work off a live pane: %v", again["claimed_by"])
 	}
@@ -794,12 +794,12 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 	if err := os.MkdirAll(empty, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
-	w.json(w.env(), "task", "create", "the work is over here", "--project", other)
+	w.json(w.env(), "create", "the work is over here", "--project", other)
 	w.json(w.env(), "note", "add", "and so is the idea", "--project", other)
 
 	// The incident: a project of its own with nothing in it, while the store
 	// holds work elsewhere.
-	stdout, _, status := w.run(w.env(), "task", "list", "--project", w.project)
+	stdout, _, status := w.run(w.env(), "list", "--project", w.project)
 	if status != 0 {
 		t.Fatalf("an empty list is not an error: exit %d", status)
 	}
@@ -815,7 +815,7 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical path: %v", err)
 	}
-	doc := w.json(w.env(), "task", "list", "--project", w.project)
+	doc := w.json(w.env(), "list", "--project", w.project)
 	if doc["project"] != want {
 		t.Fatalf(`--json "project" = %v, want %q`, doc["project"], want)
 	}
@@ -834,7 +834,7 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 
 	// A hint that is not true must not appear. Nothing matches `--status
 	// cancelled` anywhere, so there is nowhere to send the operator.
-	stdout, _, _ = w.run(w.env(), "task", "list", "--project", empty, "--status", "cancelled")
+	stdout, _, _ = w.run(w.env(), "list", "--project", empty, "--status", "cancelled")
 	if strings.Contains(stdout, "--all-projects") {
 		t.Fatalf("a hint appeared with nothing to point at: %q", stdout)
 	}
@@ -843,7 +843,7 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 	}
 	// The count is of the SAME filter, not of the store: `--status todo`
 	// matches the other project's task, `--status done` matches nothing.
-	doc = w.json(w.env(), "task", "list", "--project", w.project, "--status", "done")
+	doc = w.json(w.env(), "list", "--project", w.project, "--status", "done")
 	if doc["elsewhere"] != nil && doc["elsewhere"] != float64(0) {
 		t.Fatalf("elsewhere counted rows the suggested command would not show: %v", doc["elsewhere"])
 	}
@@ -851,16 +851,16 @@ func TestEmptyNamesTheProjectAndWhereTheWorkIs(t *testing.T) {
 	// §4.4: an --all-projects answer was never scoped to a project, so an
 	// empty one must not name the project that happened to resolve — that
 	// would describe a scope the caller did not ask for.
-	stdout, _, _ = w.run(w.env(), "task", "list", "--project", w.project, "--all-projects", "--status", "cancelled")
+	stdout, _, _ = w.run(w.env(), "list", "--project", w.project, "--all-projects", "--status", "cancelled")
 	if strings.Contains(stdout, w.project) {
 		t.Fatalf("an --all-projects answer named a project it did not scope to: %q", stdout)
 	}
-	if doc := w.json(w.env(), "task", "list", "--project", w.project, "--all-projects"); doc["project"] != nil {
+	if doc := w.json(w.env(), "list", "--project", w.project, "--all-projects"); doc["project"] != nil {
 		t.Fatalf(`--all-projects still claimed "project": %v`, doc["project"])
 	}
 
 	// A board with rows on it explains nothing: the line is for the empty case.
-	stdout, _, _ = w.run(w.env(), "task", "list", "--project", other)
+	stdout, _, _ = w.run(w.env(), "list", "--project", other)
 	if strings.Contains(stdout, "--all-projects") {
 		t.Fatalf("a full board carried the empty state: %q", stdout)
 	}
@@ -914,7 +914,7 @@ func TestAKilledDaemonDoesNotWedgeTheNextOne(t *testing.T) {
 		t.Fatalf("precondition: the killed daemon should have left its socket: %v", err)
 	}
 
-	doc := w.json(w.env(), "task", "list")
+	doc := w.json(w.env(), "list")
 	if doc["count"] != float64(0) {
 		t.Fatalf("the next daemon did not serve: %v", doc)
 	}
@@ -990,8 +990,8 @@ func oneEnvelope(t *testing.T, stdout string) string {
 func TestDoorSideJSONFailuresPrintOneEnvelope(t *testing.T) {
 	w := newWorld(t)
 	for name, args := range map[string][]string{
-		"a missing required positional": {"task", "claim"},
-		"a flag cobra does not know":    {"task", "list", "--nonesuch"},
+		"a missing required positional": {"claim"},
+		"a flag cobra does not know":    {"list", "--nonesuch"},
 	} {
 		stdout, stderr, status := w.run(w.env(), append(args, "--json")...)
 		if status != codes.Exit(codes.Usage) {
@@ -1012,7 +1012,7 @@ func TestDoorSideJSONFailuresPrintOneEnvelope(t *testing.T) {
 // stdout, the same status.
 func TestWithoutJSONADoorFailureStillSpeaksProse(t *testing.T) {
 	w := newWorld(t)
-	stdout, stderr, status := w.run(w.env(), "task", "claim")
+	stdout, stderr, status := w.run(w.env(), "claim")
 	if status != codes.Exit(codes.Usage) {
 		t.Fatalf("exit %d, want %d", status, codes.Exit(codes.Usage))
 	}
@@ -1158,7 +1158,7 @@ func TestAStreamThatFailsPartWayEndsWithTheEnvelope(t *testing.T) {
 func TestABrokenPluginContextWarnsWithoutSpoilingTheDocument(t *testing.T) {
 	w := newWorld(t)
 	broken := `{"focused_pane_cwd": "/tmp/marker-7c1e2b", `
-	stdout, stderr, status := w.run(w.env("HERDR_PLUGIN_CONTEXT_JSON="+broken), "task", "list", "--json")
+	stdout, stderr, status := w.run(w.env("HERDR_PLUGIN_CONTEXT_JSON="+broken), "list", "--json")
 	if status != 0 {
 		t.Fatalf("the verb did not answer: exit %d, %s%s", status, stdout, stderr)
 	}
@@ -1188,7 +1188,7 @@ func TestABrokenPluginContextWarnsWithoutSpoilingTheDocument(t *testing.T) {
 
 	// And a well-formed context says nothing at all.
 	good := `{"workspace_id":"wM","focused_pane_cwd":` + strconv.Quote(w.project) + `}`
-	_, stderr, status = w.run(w.env("HERDR_PLUGIN_CONTEXT_JSON="+good), "task", "list", "--json")
+	_, stderr, status = w.run(w.env("HERDR_PLUGIN_CONTEXT_JSON="+good), "list", "--json")
 	if status != 0 {
 		t.Fatalf("exit %d", status)
 	}
@@ -1276,11 +1276,11 @@ func (f *follower) documents() []string {
 // promising something it does not do. It streams that many and stops.
 func TestAFollowHonoursItsLimit(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "first")
+	w.json(w.env(), "create", "first")
 	f := startFollower(t, w, "--limit", "1")
 	// More events than the limit, so an unbounded stream would show it.
 	for i := 0; i < 3; i++ {
-		w.json(w.env(), "task", "create", fmt.Sprintf("more %d", i))
+		w.json(w.env(), "create", fmt.Sprintf("more %d", i))
 	}
 	if status := f.wait(t, 15*time.Second); status != 0 {
 		t.Fatalf("a stream that reached its limit exited %d: %s%s", status, f.out, f.errOut)
@@ -1295,7 +1295,7 @@ func TestAFollowHonoursItsLimit(t *testing.T) {
 // stream were the same thing and the caller silently stopped watching.
 func TestAFollowerOutlivedByItsDaemonExitsUnavailable(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "so the daemon is up")
+	w.json(w.env(), "create", "so the daemon is up")
 	f := startFollower(t, w)
 	// Let it connect and drain the backlog before the daemon goes.
 	deadline := time.Now().Add(10 * time.Second)
@@ -1330,7 +1330,7 @@ func killDaemon(t *testing.T, w *world) {
 func TestAStreamThatEndsOnPurposeExitsZero(t *testing.T) {
 	w := newWorld(t)
 	f := startFollower(t, w, "--limit", "1")
-	w.json(w.env(), "task", "create", "the one event")
+	w.json(w.env(), "create", "the one event")
 	if status := f.wait(t, 15*time.Second); status != 0 {
 		t.Fatalf("exit %d, want 0: %s%s", status, f.out, f.errOut)
 	}
@@ -1351,7 +1351,7 @@ func TestAStreamThatEndsOnPurposeExitsZero(t *testing.T) {
 func TestAFollowWithNoSinceReplaysTheWholeTrail(t *testing.T) {
 	w := newWorld(t)
 	for _, title := range []string{"oldest", "middle", "newest"} {
-		w.json(w.env(), "task", "create", title)
+		w.json(w.env(), "create", title)
 	}
 	trail, _ := w.json(w.env(), "events")["events"].([]any)
 	if len(trail) != 3 {
@@ -1407,7 +1407,7 @@ var eventFields = []string{"id", "entity", "entity_id", "project", "at", "actor"
 // are there and — for the follow form — that no envelope key is.
 func TestBothJSONShapesOfEventsArePublic(t *testing.T) {
 	w := newWorld(t)
-	w.json(w.env(), "task", "create", "an event with a detail")
+	w.json(w.env(), "create", "an event with a detail")
 
 	batch := w.json(w.env(), "events")
 	list, ok := batch["events"].([]any)
@@ -1475,6 +1475,11 @@ func parentCommands() []string {
 			out = append(out, v.CLI[0])
 		}
 	}
+	// `task` is a grouping command the registry no longer declares: its verbs
+	// are flat now and it survives as the hidden alias group of the transition
+	// window. It is still a parent a caller can mistype under, so it answers
+	// the same way the declared groups do.
+	out = append(out, "task")
 	return out
 }
 
@@ -1488,7 +1493,7 @@ func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
 	w := newWorld(t)
 	parents := parentCommands()
 	if len(parents) < 3 {
-		t.Fatalf("found %d grouping commands in the registry, want at least task, note and parked", len(parents))
+		t.Fatalf("found %d grouping commands, want at least the task alias group, note and parked", len(parents))
 	}
 	for _, parent := range parents {
 		stdout, stderr, status := w.run(w.env(), parent, "frobnicate", "--json")
@@ -1509,7 +1514,7 @@ func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
 		// stdout. Pinned against the door's own unknown-flag refusal rather
 		// than against a literal, so the two cannot drift apart.
 		stdout, stderr, status = w.run(w.env(), parent, "frobnicate")
-		flagOut, flagErr, flagStatus := w.run(w.env(), "task", "list", "--frobnicate")
+		flagOut, flagErr, flagStatus := w.run(w.env(), "list", "--frobnicate")
 		if status != flagStatus {
 			t.Errorf("%s frobnicate exited %d; the door exits %d for an unknown flag: %s%s",
 				parent, status, flagStatus, stdout, stderr)
@@ -1532,6 +1537,12 @@ func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
 		stdout, stderr, status := w.run(w.env(), parent)
 		if status != 0 {
 			t.Errorf("%s with no subcommand exited %d, want its help: %s%s", parent, status, stdout, stderr)
+		}
+		// The task alias group lists nothing, on purpose: every verb under it
+		// is hidden, because --help teaches the flat form alone. It still has
+		// to answer rather than fail, which the status check above is.
+		if parent == "task" {
+			continue
 		}
 		if !strings.Contains(stdout+stderr, "Available Commands:") {
 			t.Errorf("%s with no subcommand printed no help:\n%s%s", parent, stdout, stderr)
@@ -1567,11 +1578,11 @@ func TestNotePromoteCrossesProjects(t *testing.T) {
 		t.Fatalf("the note is %v, want task", note["status"])
 	}
 	// The task is on the OTHER board: this project's board must not show it.
-	here := w.json(w.env(), "task", "list")
+	here := w.json(w.env(), "list")
 	if list, _ := here["tasks"].([]any); len(list) != 0 {
 		t.Fatalf("the task was created on the note's own board too: %+v", list)
 	}
-	there := w.json(w.env(), "task", "list", "--project", other)
+	there := w.json(w.env(), "list", "--project", other)
 	if list, _ := there["tasks"].([]any); len(list) != 1 {
 		t.Fatalf("the target board has %d tasks, want 1", len(list))
 	}
@@ -1601,7 +1612,7 @@ func TestNotePromoteKeepsProvenanceAcrossProjects(t *testing.T) {
 		t.Fatalf("task_project = %v, want %v", note["task_project"], task["project"])
 	}
 	// The task the note points at is really there, on the board it names.
-	back := w.json(w.env(), "task", "get", task["id"].(string), "--project", other)
+	back := w.json(w.env(), "get", task["id"].(string), "--project", other)
 	if got, _ := back["task"].(map[string]any); got["id"] != task["id"] {
 		t.Fatalf("the task the note points at is not on the board it names: %+v", back)
 	}
@@ -1627,7 +1638,7 @@ func TestNotePromoteRefusesAnUnresolvableTarget(t *testing.T) {
 	if note["status"] != "inbox" || note["task_id"] != nil {
 		t.Fatalf("the note moved on a refused promote: %+v", note)
 	}
-	here := w.json(w.env(), "task", "list")
+	here := w.json(w.env(), "list")
 	if list, _ := here["tasks"].([]any); len(list) != 0 {
 		t.Fatalf("a refused promote created a task: %+v", list)
 	}
@@ -1714,14 +1725,14 @@ func TestGetAcrossProjectsTakesAULIDAndRefusesANumber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("canonical path: %v", err)
 	}
-	created := w.json(w.env(), "task", "create", "filed on another board", "--project", other)
+	created := w.json(w.env(), "create", "filed on another board", "--project", other)
 	id, _ := created["task"].(map[string]any)["id"].(string)
 	if id == "" {
 		t.Fatalf("no id in %v", created)
 	}
 
 	// Without the flag: the caller's own board, and the refusal names it.
-	stdout, stderr, status := w.run(w.env(), "task", "get", id, "--project", w.project)
+	stdout, stderr, status := w.run(w.env(), "get", id, "--project", w.project)
 	if status == 0 {
 		t.Fatalf("a task on another board resolved without the flag: %q", stdout)
 	}
@@ -1733,7 +1744,7 @@ func TestGetAcrossProjectsTakesAULIDAndRefusesANumber(t *testing.T) {
 	}
 
 	// With it: found, and the answer says which board it was found on.
-	doc := w.json(w.env(), "task", "get", id, "--project", w.project, "--all-projects")
+	doc := w.json(w.env(), "get", id, "--project", w.project, "--all-projects")
 	task, _ := doc["task"].(map[string]any)
 	if task == nil || task["id"] != id {
 		t.Fatalf("--all-projects get did not return the task: %v", doc)
@@ -1741,7 +1752,7 @@ func TestGetAcrossProjectsTakesAULIDAndRefusesANumber(t *testing.T) {
 	if task["project"] != canonical {
 		t.Fatalf(`--json task.project = %v, want %q`, task["project"], canonical)
 	}
-	stdout, _, status = w.run(w.env(), "task", "get", id, "--project", w.project, "--all-projects")
+	stdout, _, status = w.run(w.env(), "get", id, "--project", w.project, "--all-projects")
 	if status != 0 {
 		t.Fatalf("prose get exit %d: %q", status, stdout)
 	}
@@ -1750,7 +1761,7 @@ func TestGetAcrossProjectsTakesAULIDAndRefusesANumber(t *testing.T) {
 	}
 
 	// A number is not an address across boards: #1 exists on both of these.
-	stdout, stderr, status = w.run(w.env(), "task", "get", "1", "--project", w.project, "--all-projects")
+	stdout, stderr, status = w.run(w.env(), "get", "1", "--project", w.project, "--all-projects")
 	if status == 0 {
 		t.Fatalf("a number resolved across projects: %q", stdout)
 	}

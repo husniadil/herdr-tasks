@@ -34,7 +34,7 @@ func newTUICmd() *cobra.Command {
 				return err
 			}
 			if !isTTY() {
-				return codes.New(codes.Unsupported, "htask tui needs a terminal; use `htask task list` from a script")
+				return codes.New(codes.Unsupported, "htask tui needs a terminal; use `htask list` from a script")
 			}
 			return tui.Run(view, base)
 		},

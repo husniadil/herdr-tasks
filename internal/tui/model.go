@@ -38,7 +38,7 @@ func ParseView(s string) (View, error) {
 }
 
 // Columns are the board's state columns, in lifecycle order. Cancelled and
-// archived tasks are not on the board; `htask task list --status cancelled` is
+// archived tasks are not on the board; `htask list --status cancelled` is
 // where they are read.
 var Columns = []tasks.Status{tasks.StatusTodo, tasks.StatusDoing, tasks.StatusReview, tasks.StatusDone}
 

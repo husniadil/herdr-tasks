@@ -186,7 +186,7 @@ func TestAmendIsRefusedOnceAVerdictIsIn(t *testing.T) {
 }
 
 // The same rule at the door, where the distinction actually lives: `has` tells
-// an absent flag from an empty one, so `htask task amend 12 --report "…"`
+// an absent flag from an empty one, so `htask amend 12 --report "…"`
 // keeps the evidence the row already carries.
 func TestAmendThroughTheDoorKeepsEvidenceTheCallerDidNotName(t *testing.T) {
 	d := newDaemon(t, nil)
