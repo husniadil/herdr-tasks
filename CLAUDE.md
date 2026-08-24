@@ -91,6 +91,17 @@ in the amendment the same way a test cites the § it enforces.
    and a program parsing `--json`, are both supported callers. A change that
    serves one at the other's expense needs a reason.
 
+## The sibling repo standard
+
+This repo is one of three Herdr plugins — herdr-dispatch (`hdis`),
+herdr-tasks (`htask`), herdr-mail (`hmail`) — maintained as one discipline.
+`docs/repo-standard.md` **in the herdr-dispatch checkout** is where that shape
+is written down: what the short name governs on disk, the internal package
+names, the one verb registry both doors are built from, the Makefile targets,
+and the README shape. Read it before adding a verb, a package, or a Makefile
+target, and file a delta on the owning repo's board rather than diverging
+quietly.
+
 ## Working agreements
 
 - **Development is test-first.** Failing test, then the code that makes it

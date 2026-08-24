@@ -445,7 +445,7 @@ Layer 3 is deliberately out of `test-full`, because CI has no Herdr and a
 machine without one must still have a green gate. That leaves it able to sit
 red unnoticed, so it has one place where it must be green: `make release-check`
 on the machine cutting the tag. Run it before a release tag, and after any
-change to `internal/herdrclient` or the pane lifecycle. `HTASK_E2E_REQUIRED=1`
+change to `internal/herdrclient` or the pane lifecycle. `TASKS_E2E_REQUIRED=1`
 is what turns layer 3's loud skips into failures, so a release cannot be
 satisfied by a suite that proved nothing.
 

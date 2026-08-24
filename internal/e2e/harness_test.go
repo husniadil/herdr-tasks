@@ -167,10 +167,10 @@ func copyBinary(t *testing.T, from, to string) string {
 // may have no Herdr, that is a loud skip: the suite says what was missing
 // rather than passing quietly. On the release path it is a FAILURE, because a
 // release gate that can be satisfied by a skip is not a gate — set
-// HTASK_E2E_REQUIRED=1 (what `make release-check` does) to demand a real run.
+// TASKS_E2E_REQUIRED=1 (what `make release-check` does) to demand a real run.
 func unavailable(t *testing.T, format string, args ...any) {
 	t.Helper()
-	if os.Getenv("HTASK_E2E_REQUIRED") == "1" {
+	if os.Getenv("TASKS_E2E_REQUIRED") == "1" {
 		t.Fatalf("layer 3 (§12.1) REQUIRED but unavailable: "+format, args...)
 	}
 	t.Skipf("layer 3 (§12.1) SKIPPED LOUDLY: "+format, args...)
