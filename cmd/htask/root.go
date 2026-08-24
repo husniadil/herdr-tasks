@@ -105,42 +105,8 @@ func newRootCmdFrom(list []verbs.Verb) *cobra.Command {
 		}
 		parent.AddCommand(cmd)
 	}
-	root.AddCommand(newTaskAliasCmd(list))
 	root.AddCommand(newDaemonCmd(), newMCPCmd(), newTUICmd(), newVersionCmd())
 	return root
-}
-
-// newTaskAliasCmd rebuilds the task verbs under their old `htask task <verb>`
-// path for one transition window. The sibling adapters — herdr-dispatch's
-// internal/htask and herdr-sched's action adapter — and an operator's muscle
-// memory both still spell it that way, and breaking them in the same commit
-// that moves the verbs would make one change into three repos' worth of
-// outage. The whole group is hidden: it answers, and --help teaches only the
-// flat form, so nothing new learns the old one. Removing it is a follow-up
-// task, not part of this one.
-//
-// Each alias is a SECOND cobra command over the same registry entry rather
-// than a shared pointer: a cobra command belongs to one parent, and adding one
-// command in two places gives it whichever parent was last to claim it.
-func newTaskAliasCmd(list []verbs.Verb) *cobra.Command {
-	group := &cobra.Command{
-		Use:    "task",
-		Short:  "Deprecated: the task verbs are top-level now (`htask claim 12`)",
-		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE:   func(cmd *cobra.Command, _ []string) error { return cmd.Help() },
-
-		DisableFlagsInUseLine: true,
-	}
-	for _, v := range list {
-		if !strings.HasPrefix(v.Name, "task.") {
-			continue
-		}
-		alias := buildVerb(v)
-		alias.Hidden = true
-		group.AddCommand(alias)
-	}
-	return group
 }
 
 func groupShort(name string) string {

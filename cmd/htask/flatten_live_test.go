@@ -7,33 +7,29 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/codes"
 )
 
-// §6.1: one registry, two spellings of the same path on one door. The
-// transition window against a real daemon: the flat form is the one a
-// reader is taught, the old form is the one the sibling adapters still send,
-// and both reach the same verb on the socket.
-func TestBothFormsAnswerTheSameDaemon(t *testing.T) {
+// The transition window is over: `htask task <verb>` was a hidden alias for
+// one release and is now an unknown command, refused the way every other
+// unknown command is (§6.2, §6.3). The flat form is the only one.
+func TestTheOldTaskFormIsRefused(t *testing.T) {
 	w := newWorld(t)
 	w.json(w.env(), "create", "filed through the flat form")
-	if doc := w.json(w.env(), "task", "list"); doc["count"] != float64(1) {
-		t.Fatalf("`htask task list` saw count = %v; the alias must reach the same board", doc["count"])
+
+	stdout, stderr, status := w.run(w.env(), "task", "list", "--json")
+	if status != codes.Exit(codes.Usage) {
+		t.Fatalf("`htask task list --json` exited %d, want %d: %s%s",
+			status, codes.Exit(codes.Usage), stdout, stderr)
+	}
+	if got := oneEnvelope(t, stdout); got != codes.Usage {
+		t.Errorf("`htask task list --json` answered %q, want USAGE", got)
 	}
 
-	// The old form still writes, not merely reads.
-	w.json(w.env(), "task", "create", "filed through the alias")
-	if doc := w.json(w.env(), "list"); doc["count"] != float64(2) {
-		t.Fatalf("`htask list` saw count = %v after a write through the alias", doc["count"])
-	}
-
-	// A claim taken by one form is held against the other, which is the same
-	// claim in the store rather than two commands that happen to look alike.
-	w.json(w.env("HERDR_PANE_ID=wF:p1"), "claim", "1")
-	if _, _, status := w.run(w.env("HERDR_PANE_ID=wF:p2"), "task", "claim", "1", "--json"); status != codes.Exit(codes.Conflict) {
-		t.Fatalf("the alias did not see the claim the flat form took: exit %d, want %d",
-			status, codes.Exit(codes.Conflict))
+	// The flat form still reads the board the refused call was aiming at.
+	if doc := w.json(w.env(), "list"); doc["count"] != float64(1) {
+		t.Fatalf("`htask list` saw count = %v, want 1", doc["count"])
 	}
 }
 
-// §6.1 again, the human half: --help teaches the flat form and says nothing about the alias.
+// --help teaches the flat form and knows nothing of a task group.
 func TestHelpTeachesTheFlatFormOnly(t *testing.T) {
 	w := newWorld(t)
 	stdout, stderr, status := w.run(w.env(), "--help")
@@ -47,6 +43,6 @@ func TestHelpTeachesTheFlatFormOnly(t *testing.T) {
 		}
 	}
 	if strings.Contains(help, "\n  task ") || strings.Contains(help, "\n  task\n") {
-		t.Errorf("`htask --help` lists the `task` alias group; it is hidden:\n%s", help)
+		t.Errorf("`htask --help` lists a `task` group; the verbs are flat:\n%s", help)
 	}
 }

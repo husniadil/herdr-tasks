@@ -62,31 +62,6 @@ func TestEveryTaskVerbIsATopLevelCommand(t *testing.T) {
 	}
 }
 
-// The transition window: the old form keeps answering for the sibling
-// adapters and for muscle memory, and stays out of --help so nothing learns
-// it from here.
-func TestTheOldTaskFormsSurviveAsHiddenAliases(t *testing.T) {
-	root := newRootCmd()
-	group := find(root, "task")
-	if group == nil {
-		t.Fatal("`htask task` is gone; the old forms answer for one transition window")
-	}
-	if !group.Hidden {
-		t.Error("the `task` alias group is in --help; it is a transition alias, not a taught form")
-	}
-	for _, v := range taskVerbs(t) {
-		name := strings.TrimPrefix(v.Name, "task.")
-		cmd := find(root, "task "+name)
-		if cmd == nil {
-			t.Errorf("`htask task %s` no longer answers; the alias window is not over", name)
-			continue
-		}
-		if !cmd.Hidden {
-			t.Errorf("`htask task %s` is in --help; aliases are hidden", name)
-		}
-	}
-}
-
 // The note group is deliberately NOT flattened: `htask note add` stays a
 // group spelled with a space, and no underscore form appears on the CLI.
 func TestTheNoteGroupStaysAGroup(t *testing.T) {
@@ -189,7 +164,7 @@ func TestATaskVerbCollidingWithASystemVerbIsRefused(t *testing.T) {
 			system[v.CLI[0]] = true
 		}
 	}
-	for _, name := range []string{"daemon", "mcp", "tui", "version", "note", "parked", "task"} {
+	for _, name := range []string{"daemon", "mcp", "tui", "version", "note", "parked"} {
 		system[name] = true
 	}
 	for _, v := range taskVerbs(t) {

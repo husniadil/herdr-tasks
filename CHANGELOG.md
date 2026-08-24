@@ -7,6 +7,19 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+Breaking, CLI only. The task verbs are spelled flat: `htask claim 12`, not
+`htask task claim 12`. Every verb of the task group moved to the top level —
+`create`, `get`, `list`, `claim`, `touch`, `release`, `submit`, `amend`,
+`approve`, `reject`, `cancel`, `update`, `archive`, `delete`, `goal` — so the
+CLI's shape matches the MCP door's bare tool names and the binary's own name
+stops being repeated. The `note` and `parked` groups stay groups, spelled with
+a space.
+
+A caller that spells `htask task <verb>` is refused with `USAGE`, the same way
+any unknown command is. Drop the word `task` from the call site. The MCP tool
+names do not move, so a client that reaches the board through MCP has nothing
+to change.
+
 ## 0.7.0 — 2026-08-24
 
 Nothing shipped is repurposed or removed, and a caller that only reads fields

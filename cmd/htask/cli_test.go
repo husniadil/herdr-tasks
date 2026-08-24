@@ -1475,11 +1475,6 @@ func parentCommands() []string {
 			out = append(out, v.CLI[0])
 		}
 	}
-	// `task` is a grouping command the registry no longer declares: its verbs
-	// are flat now and it survives as the hidden alias group of the transition
-	// window. It is still a parent a caller can mistype under, so it answers
-	// the same way the declared groups do.
-	out = append(out, "task")
 	return out
 }
 
@@ -1492,8 +1487,8 @@ func parentCommands() []string {
 func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
 	w := newWorld(t)
 	parents := parentCommands()
-	if len(parents) < 3 {
-		t.Fatalf("found %d grouping commands, want at least the task alias group, note and parked", len(parents))
+	if len(parents) < 2 {
+		t.Fatalf("found %d grouping commands, want at least note and parked", len(parents))
 	}
 	for _, parent := range parents {
 		stdout, stderr, status := w.run(w.env(), parent, "frobnicate", "--json")
@@ -1537,12 +1532,6 @@ func TestAnUnknownSubcommandAnswersWithOneEnvelope(t *testing.T) {
 		stdout, stderr, status := w.run(w.env(), parent)
 		if status != 0 {
 			t.Errorf("%s with no subcommand exited %d, want its help: %s%s", parent, status, stdout, stderr)
-		}
-		// The task alias group lists nothing, on purpose: every verb under it
-		// is hidden, because --help teaches the flat form alone. It still has
-		// to answer rather than fail, which the status check above is.
-		if parent == "task" {
-			continue
 		}
 		if !strings.Contains(stdout+stderr, "Available Commands:") {
 			t.Errorf("%s with no subcommand printed no help:\n%s%s", parent, stdout, stderr)
