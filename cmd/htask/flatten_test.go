@@ -174,3 +174,74 @@ func TestATaskVerbCollidingWithASystemVerbIsRefused(t *testing.T) {
 		}
 	}
 }
+
+// The startup refusal itself, not just the absence of a collision today.
+// TestATaskVerbCollidingWithASystemVerbIsRefused reads the registry and finds
+// no clash, which is a fact about today's names and passes just as happily
+// with no guard in the code at all — a mutation that deletes the panic leaves
+// every test green. This one appends a colliding verb to the registry and
+// requires newRootCmd to stop, because cobra's own answer to two commands
+// with one name is to take both and serve the first, silently.
+func TestARegistryCollisionStopsTheBinaryAtStartup(t *testing.T) {
+	saved := verbs.All
+	t.Cleanup(func() { verbs.All = saved })
+
+	// A second verb claiming `list`, which the task group already holds.
+	verbs.All = append(append([]verbs.Verb{}, saved...), verbs.Verb{
+		Name: "test.collision", CLI: []string{"list"}, MCP: "test_collision",
+		Short: "a verb whose CLI name is already taken",
+	})
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("newRootCmd built a CLI with `list` claimed twice; a collision has no winner and must stop the binary")
+		}
+		if msg, ok := r.(string); !ok || !strings.Contains(msg, "list") {
+			t.Errorf("the panic does not name the colliding command: %v", r)
+		}
+	}()
+	newRootCmd()
+}
+
+// The same guard read from the other end. newRootCmd refuses a collision in
+// two places — a flat verb onto a name already taken, and a GROUP onto one —
+// and which branch fires depends only on which of the two the registry lists
+// first. This is the group's branch: `list` is a flat verb, and a grouped
+// verb declared after it would build a parent over the same name.
+func TestAGroupCollidingWithAFlatVerbStopsTheBinaryAtStartup(t *testing.T) {
+	saved := verbs.All
+	t.Cleanup(func() { verbs.All = saved })
+
+	verbs.All = append(append([]verbs.Verb{}, saved...), verbs.Verb{
+		Name: "test.groupoververb", CLI: []string{"list", "deep"}, MCP: "test_group_over_verb",
+		Short: "a grouped verb whose parent is already a flat verb",
+	})
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("newRootCmd built a `list` group over the `list` verb; a collision has no winner")
+		}
+		if msg, ok := r.(string); !ok || !strings.Contains(msg, "list") {
+			t.Errorf("the panic does not name the colliding command: %v", r)
+		}
+	}()
+	newRootCmd()
+}
+
+// And a verb hoisting onto a name a group already holds, which is the flat
+// branch reached through a group's name.
+func TestAVerbCollidingWithAGroupStopsTheBinaryAtStartup(t *testing.T) {
+	saved := verbs.All
+	t.Cleanup(func() { verbs.All = saved })
+
+	verbs.All = append(append([]verbs.Verb{}, saved...), verbs.Verb{
+		Name: "test.groupcollision", CLI: []string{"note"}, MCP: "test_group_collision",
+		Short: "a verb whose CLI name is a group's",
+	})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("newRootCmd built a CLI with `note` claimed by both a verb and a group")
+		}
+	}()
+	newRootCmd()
+}
