@@ -157,7 +157,7 @@ func noteStatuses() []string {
 	return out
 }
 
-// entities is the two event tables §8.1 names. It is not derived from a
+// entities is the three event tables §8.1 names. It is not derived from a
 // vocabulary elsewhere because there is no elsewhere: store.Events itself
-// spells the pair out.
-func entities() []string { return []string{"task", "note"} }
+// spells the set out.
+func entities() []string { return []string{"task", "note", "parked"} }

@@ -284,7 +284,7 @@ func (s *Store) ListNotes(f NoteFilter) ([]*tasks.Note, error) {
 
 // DeleteNote removes a note for good. Only an inbox note qualifies, and only
 // its author or the operator (§5.7, §3.1).
-func (s *Store) DeleteNote(project, ref string, by tasks.Actor) error {
+func (s *Store) DeleteNote(project, ref string, by tasks.Actor, now int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return wrap(err)
@@ -301,6 +301,13 @@ func (s *Store) DeleteNote(project, ref string, by tasks.Actor) error {
 	// (§5.5). notes_events is append-only, and an inbox note that was filed
 	// and withdrawn is exactly the history a reader looks for.
 	if _, err := tx.Exec("DELETE FROM notes WHERE id = ?", n.ID); err != nil {
+		return wrap(err)
+	}
+	// And the removal is appended, for the reason DeleteTask appends its own.
+	if err := appendEvent(tx, "notes_events", n.ID, n.Project, tasks.Event{
+		Kind: tasks.KindNoteDeleted, Actor: by.Principal, At: now,
+		Detail: map[string]any{"seq": n.Seq},
+	}); err != nil {
 		return wrap(err)
 	}
 	return wrap(tx.Commit())

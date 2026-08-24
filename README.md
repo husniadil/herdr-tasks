@@ -367,7 +367,8 @@ The gated verbs, for a future policy plugin to name:
 ```
 tasks.create       tasks.claim         tasks.submit       tasks.amend
 tasks.approve      tasks.reject        tasks.cancel       tasks.update
-tasks.note_add     tasks.note_update   tasks.note_promote tasks.note_fold
+tasks.delete       tasks.note_add      tasks.note_update  tasks.note_promote
+tasks.note_fold    tasks.note_delete
 ```
 
 ## Configuration

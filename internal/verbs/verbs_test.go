@@ -37,8 +37,31 @@ func TestEveryWritingVerbStatesItsRuleAndItsGate(t *testing.T) {
 	// The count is pinned so that adding an ungated writing verb is a
 	// deliberate edit to this number, read by a reviewer, rather than a line
 	// that slips in.
-	if want := 13; ungated != want {
+	if want := 11; ungated != want {
 		t.Errorf("%d writing verbs are outside the policy gate, was %d — if that is intended, say so here", ungated, want)
+	}
+}
+
+// §9.4: the two verbs that destroy a stored entity outright are offered to the
+// gate. Everything else that writes either moves a task through the state
+// machine or is reversible; a delete removes the entity and its history from
+// the board and nothing puts it back. While these were Ungated no policy the
+// operator could write was able to hold an agent back from hard-deleting a
+// never-claimed task or an inbox note on any project's board — the gate was
+// not consulted at all, so a deny it never saw could not have applied.
+func TestTheDestructiveVerbsPassThroughTheGate(t *testing.T) {
+	want := map[string]string{
+		"task.delete": "tasks.delete",
+		"note.delete": "tasks.note_delete",
+	}
+	for name, gated := range want {
+		v, ok := ByName(name)
+		if !ok {
+			t.Fatalf("%s is not in the registry", name)
+		}
+		if v.Gated != gated {
+			t.Errorf("%s is gated as %q, want %q: a hard delete no policy can see is a hard delete no policy can deny (§9.4)", name, v.Gated, gated)
+		}
 	}
 }
 

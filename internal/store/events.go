@@ -28,7 +28,7 @@ type Event struct {
 type EventFilter struct {
 	Project     string
 	AllProjects bool
-	Entity      string // "task", "note", or empty for both
+	Entity      string // "task", "note", "parked", or empty for all three
 	EntityID    string
 	SinceID     string
 	SinceAt     int64
@@ -62,7 +62,7 @@ func (s *Store) Events(f EventFilter) ([]Event, error) {
 	parts := []string{}
 	args := []any{}
 	for _, src := range []struct{ table, entity string }{
-		{"tasks_events", "task"}, {"notes_events", "note"},
+		{"tasks_events", "task"}, {"notes_events", "note"}, {"parked_events", "parked"},
 	} {
 		if f.Entity != "" && f.Entity != src.entity {
 			continue

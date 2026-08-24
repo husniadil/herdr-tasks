@@ -6,13 +6,14 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
 
-// §5.5: an events table is APPEND-ONLY. Hard delete removed the entity's
-// events with the entity, so the one operation the trail most needed to
-// survive was the one that erased it: a row that was created and then removed
-// left no record that either had happened. §5.7 lets the ROW go; nothing lets
-// the trail go with it, and the events carry their own entity_id rather than a
+// §5.5: an events table is APPEND-ONLY, and the delete is a write like any
+// other. Hard delete first removed the entity's events with the entity, so the
+// one operation the trail most needed to survive was the one that erased it;
+// then it kept them and wrote nothing, which left a task that was created and
+// silently vanished. §5.7 lets the ROW go; the trail keeps what happened to it
+// INCLUDING its removal, and the events carry their own entity_id rather than a
 // foreign key, so nothing joins them to a live row.
-func TestDeletingATaskLeavesItsTrailStanding(t *testing.T) {
+func TestDeletingATaskAppendsToItsTrail(t *testing.T) {
 	s := open(t)
 	task := create(t, s, "typo")
 	before, err := s.Events(EventFilter{Project: proj, Entity: "task", EntityID: task.ID})
@@ -22,15 +23,29 @@ func TestDeletingATaskLeavesItsTrailStanding(t *testing.T) {
 	if len(before) == 0 {
 		t.Fatal("the create wrote no event, so this proves nothing")
 	}
-	if err := s.DeleteTask(proj, task.ID); err != nil {
+	if err := s.DeleteTask(proj, task.ID, operator, tick(t)); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
 	after, err := s.Events(EventFilter{Project: proj, Entity: "task", EntityID: task.ID})
 	if err != nil {
 		t.Fatalf("Events after the delete: %v", err)
 	}
-	if len(after) != len(before) {
-		t.Errorf("%d events for a deleted task, want the %d it had", len(after), len(before))
+	if len(after) != len(before)+1 {
+		t.Fatalf("%d events for a deleted task, want the %d it had plus the deletion", len(after), len(before))
+	}
+	// Everything it had is still there, in order: the delete appends, it does
+	// not replace.
+	for i := range before {
+		if after[i].ID != before[i].ID {
+			t.Fatalf("event %d changed from %s to %s; the trail is append-only", i, before[i].ID, after[i].ID)
+		}
+	}
+	last := after[len(after)-1]
+	if last.Kind != tasks.KindDeleted {
+		t.Errorf("the last event is %q, want %q", last.Kind, tasks.KindDeleted)
+	}
+	if last.Actor != operator.Principal {
+		t.Errorf("the deletion was recorded as %q, want %q", last.Actor, operator.Principal)
 	}
 	// And the whole-project listing still reads, so a gap in what an entity
 	// points at does not break the stream every consumer resumes from (§8.2).
@@ -40,7 +55,7 @@ func TestDeletingATaskLeavesItsTrailStanding(t *testing.T) {
 }
 
 // The same for a note (§5.5, §5.7).
-func TestDeletingANoteLeavesItsTrailStanding(t *testing.T) {
+func TestDeletingANoteAppendsToItsTrail(t *testing.T) {
 	s := open(t)
 	n, err := s.CreateNote(tasks.NewNoteInput{Project: proj, Body: "an idea"}, operator, tick(t))
 	if err != nil {
@@ -53,15 +68,19 @@ func TestDeletingANoteLeavesItsTrailStanding(t *testing.T) {
 	if len(before) == 0 {
 		t.Fatal("the create wrote no event, so this proves nothing")
 	}
-	if err := s.DeleteNote(proj, n.ID, operator); err != nil {
+	if err := s.DeleteNote(proj, n.ID, operator, tick(t)); err != nil {
 		t.Fatalf("DeleteNote: %v", err)
 	}
 	after, err := s.Events(EventFilter{Project: proj, Entity: "note", EntityID: n.ID})
 	if err != nil {
 		t.Fatalf("Events after the delete: %v", err)
 	}
-	if len(after) != len(before) {
-		t.Errorf("%d events for a deleted note, want the %d it had", len(after), len(before))
+	if len(after) != len(before)+1 {
+		t.Fatalf("%d events for a deleted note, want the %d it had plus the deletion", len(after), len(before))
+	}
+	last := after[len(after)-1]
+	if last.Kind != tasks.KindNoteDeleted {
+		t.Errorf("the last event is %q, want %q", last.Kind, tasks.KindNoteDeleted)
 	}
 }
 

@@ -282,7 +282,7 @@ func TestCrossProjectDepRejected(t *testing.T) {
 func TestDeleteTaskOnlyNeverClaimed(t *testing.T) {
 	s := open(t)
 	task := create(t, s, "typo")
-	if err := s.DeleteTask(proj, task.ID); err != nil {
+	if err := s.DeleteTask(proj, task.ID, operator, tick(t)); err != nil {
 		t.Fatalf("DeleteTask: %v", err)
 	}
 	if _, err := s.GetTask(proj, task.ID); codeOf(t, err) != codes.NotFound {
@@ -294,7 +294,7 @@ func TestDeleteTaskOnlyNeverClaimed(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	if got := codeOf(t, s.DeleteTask(proj, other.ID)); got != codes.Conflict {
+	if got := codeOf(t, s.DeleteTask(proj, other.ID, operator, tick(t))); got != codes.Conflict {
 		t.Fatalf("code = %q, want CONFLICT", got)
 	}
 }
@@ -781,7 +781,7 @@ func TestATaskWithDependentsIsNotDeleted(t *testing.T) {
 		t.Fatalf("add the edge: %v", err)
 	}
 
-	err := s.DeleteTask(proj, blocker.ID)
+	err := s.DeleteTask(proj, blocker.ID, operator, tick(t))
 	if got := codeOf(t, err); got != codes.Conflict {
 		t.Fatalf("code = %q, want CONFLICT", got)
 	}
@@ -812,7 +812,7 @@ func TestATaskWithDependentsIsNotDeleted(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("drop the edge: %v", err)
 	}
-	if err := s.DeleteTask(proj, blocker.ID); err != nil {
+	if err := s.DeleteTask(proj, blocker.ID, operator, tick(t)); err != nil {
 		t.Fatalf("delete after dropping the edge: %v", err)
 	}
 }

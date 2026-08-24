@@ -9,6 +9,16 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/tasks"
 )
 
+// Event kinds of the parked queue. They live here rather than in
+// internal/tasks because the parked queue has no state machine there: it is a
+// store entity, and these are exactly the four states its rows move through.
+const (
+	KindParked   = "parked"
+	KindResolved = "resolved"
+	KindRejected = "rejected"
+	KindFailed   = "failed"
+)
+
 // Parked is a verb the policy gate deferred: recorded, not performed, waiting
 // for the operator (§9.3).
 type Parked struct {
@@ -48,13 +58,28 @@ func (s *Store) Park(p Parked, now int64) (string, error) {
 	if p.Payload == "" {
 		p.Payload = "{}"
 	}
-	_, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", wrap(err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(
 		`INSERT INTO parked (id, project, subject, verb, target, payload, state, reason, created_at,
 		                     tab_id, workspace_id, all_projects)
 		 VALUES (?, ?, ?, ?, ?, ?, 'parked', ?, ?, ?, ?, ?)`,
 		id, p.Project, p.Subject, p.Verb, p.Target, p.Payload, nullIfEmpty(p.Reason), now,
-		nullIfEmpty(p.TabID), nullIfEmpty(p.WorkspaceID), p.AllProjects)
-	return id, wrap(err)
+		nullIfEmpty(p.TabID), nullIfEmpty(p.WorkspaceID), p.AllProjects); err != nil {
+		return "", wrap(err)
+	}
+	// The actor is the subject the gate stopped: the deferral is a fact about
+	// that principal's call, and no one else has acted yet.
+	if err := appendEvent(tx, "parked_events", id, p.Project, tasks.Event{
+		Kind: KindParked, Actor: tasks.Principal(p.Subject), At: now,
+		Detail: map[string]any{"verb": p.Verb, "target": p.Target, "reason": p.Reason},
+	}); err != nil {
+		return "", wrap(err)
+	}
+	return id, wrap(tx.Commit())
 }
 
 // ListParked returns the actions in a project that still want the operator's
@@ -111,7 +136,12 @@ func (s *Store) GetParked(project, id string) (*Parked, error) {
 // it. Any principal may reach this verb (§3.7); by is what the row says about
 // who did, which is why it is not optional.
 func (s *Store) ResolveParked(project, id, state string, by tasks.Principal, now int64) error {
-	res, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return wrap(err)
+	}
+	defer tx.Rollback()
+	res, err := tx.Exec(
 		"UPDATE parked SET state = ?, resolved_by = ?, resolved_at = ? WHERE project = ? AND id = ? AND state = 'parked'",
 		state, string(by), now, project, id)
 	if err != nil {
@@ -121,7 +151,15 @@ func (s *Store) ResolveParked(project, id, state string, by tasks.Principal, now
 	if n == 0 {
 		return codes.Errorf(codes.Conflict, "parked action %s is not waiting", id)
 	}
-	return nil
+	// The state a parked row moves to IS the kind of the event that moved it,
+	// and the actor is the principal that decided it — which the row itself
+	// keeps only until the next write touches it (§5.5).
+	if err := appendEvent(tx, "parked_events", id, project, tasks.Event{
+		Kind: state, Actor: by, At: now,
+	}); err != nil {
+		return wrap(err)
+	}
+	return wrap(tx.Commit())
 }
 
 // FailParked records that a verb the operator resolved did not run. The row
@@ -130,7 +168,20 @@ func (s *Store) ResolveParked(project, id, state string, by tasks.Principal, now
 // window this ordering exists to close. The operator sees why and decides
 // again, deliberately.
 func (s *Store) FailParked(project, id, message string, now int64) error {
-	res, err := s.db.Exec(
+	tx, err := s.db.Begin()
+	if err != nil {
+		return wrap(err)
+	}
+	defer tx.Rollback()
+	// Who decided it is on the row, put there by the resolve this call is
+	// reporting the failure of. Reading it inside the transaction is the only
+	// way the event names the decider rather than the deferred subject.
+	var by string
+	if err := tx.QueryRow("SELECT COALESCE(resolved_by, '') FROM parked WHERE project = ? AND id = ?",
+		project, id).Scan(&by); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return wrap(err)
+	}
+	res, err := tx.Exec(
 		"UPDATE parked SET state = 'failed', error = ?, resolved_at = ? WHERE project = ? AND id = ? AND state = 'resolved'",
 		message, now, project, id)
 	if err != nil {
@@ -139,5 +190,11 @@ func (s *Store) FailParked(project, id, message string, now int64) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return codes.Errorf(codes.Conflict, "parked action %s is not one this call resolved", id)
 	}
-	return nil
+	if err := appendEvent(tx, "parked_events", id, project, tasks.Event{
+		Kind: KindFailed, Actor: tasks.Principal(by), At: now,
+		Detail: map[string]any{"error": message},
+	}); err != nil {
+		return wrap(err)
+	}
+	return wrap(tx.Commit())
 }

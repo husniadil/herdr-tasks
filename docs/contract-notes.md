@@ -147,7 +147,9 @@ taking an argument the CLI does not, and `TestEveryVerbIsOnBothDoors` with
 and `note` reads as `task_events` / `note_events`. The tables here are
 `tasks_events` and `notes_events`, plural, matching the entity tables they sit
 beside (`tasks`, `notes`). No behaviour depends on the spelling; recorded so a
-future conformance suite that greps for the name is not surprised.
+future conformance suite that greps for the name is not surprised. The third,
+`parked_events`, sits beside `parked` and needs no pluralising to land on the
+same shape.
 
 ## §3.4 — `herdr agent get` takes no `--json`, and wraps its answer
 
@@ -992,3 +994,31 @@ Consequences recorded rather than left to be rediscovered:
 - The refusal is bypassable by anything that can send a signal, and nothing
   here pretends otherwise. What it buys is that an agent reaching for the
   board's own surface is told no rather than finding out afterwards.
+
+## §9.1 — eleven writing verbs pass no name to the gate, and each says why
+
+§9.1 sends every verb that changes the world through the gate. Eleven verbs
+here write and offer the gate no name at all: `task.touch`, `task.release`,
+`task.archive`, `note.discuss`, `note.verdict`, `note.unfold`, `note.keep`,
+`note.drop`, `parked.resolve`, `sweep` and `stop`. That is a divergence, and
+it is recorded here rather than left to be read off the registry by whoever
+notices.
+
+The class is not "these change nothing". It is verbs where a gate that could
+deny or defer would break the thing the gate exists to protect: renewing your
+own lease, handing work back, the gate's own resolution verb, and the sweep
+the daemon's §11.5 timer calls. Each one carries its own reason in the
+`Ungated` field of `internal/verbs`, and `TestEachUngatedReasonIsAboutItsOwnVerb`
+refuses two verbs the same reason — a reason two verbs share is a reason about
+a class, and a class reason is disproved the moment a sibling in that class is
+gated. `TestEveryWritingVerbStatesItsRuleAndItsGate` pins the count, so the
+eleven becoming twelve is an edit a reviewer reads rather than a line that
+slips in.
+
+What changed, and why this entry exists now: `task.delete` and `note.delete`
+were in this class and are not any more. They destroy the entity outright, and
+while they were ungated no policy the operator could write was consulted at
+all — a freeze that denied every other write still let an agent hard-delete a
+never-claimed task or an inbox note on any project's board. They are now
+`tasks.delete` and `tasks.note_delete`, and no verb outside the gate destroys
+anything.

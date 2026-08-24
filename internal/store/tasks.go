@@ -225,7 +225,7 @@ func (s *Store) ListTasks(f TaskFilter) ([]*tasks.Task, error) {
 
 // DeleteTask removes a task for good. Only a never-claimed one qualifies
 // (§5.7); everything else is cancelled or archived.
-func (s *Store) DeleteTask(project, ref string) error {
+func (s *Store) DeleteTask(project, ref string, by tasks.Actor, now int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return wrap(err)
@@ -259,6 +259,17 @@ func (s *Store) DeleteTask(project, ref string) error {
 	// event carries its own entity_id, not a foreign key — so the rows keep
 	// reading after the task they name has gone.
 	if _, err := tx.Exec("DELETE FROM tasks WHERE id = ?", task.ID); err != nil {
+		return wrap(err)
+	}
+	// And the removal itself is appended, in the same transaction as the
+	// delete. Keeping the earlier events without writing this one left the
+	// trail ending on whatever the task was last doing, which reads as a task
+	// still there — the reader had to infer the deletion from a `get` that
+	// says NOT_FOUND, and a trail consumer never sees that.
+	if err := appendEvent(tx, "tasks_events", task.ID, task.Project, tasks.Event{
+		Kind: tasks.KindDeleted, Actor: by.Principal, At: now,
+		Detail: map[string]any{"seq": task.Seq, "title": task.Title},
+	}); err != nil {
 		return wrap(err)
 	}
 	return wrap(tx.Commit())

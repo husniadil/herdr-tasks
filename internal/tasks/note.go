@@ -57,6 +57,7 @@ const (
 	KindNoteUnfolded   = "unfolded"
 	KindNoteKept       = "kept"
 	KindNoteDropped    = "dropped"
+	KindNoteDeleted    = "deleted"
 )
 
 // Note is a pre-decision idea awaiting a human call.

@@ -50,12 +50,13 @@ type Verb struct {
 	Args []Arg
 	// Gated is the §9.4 verb name passed to the policy gate. Empty means this
 	// verb is not offered to the gate, which is NOT the same as "changes
-	// nothing": thirteen verbs that write carry no gate name, three of them
-	// destructive. A Mutates verb with no Gated must say why in Ungated.
+	// nothing": eleven verbs that write carry no gate name. None of them
+	// destroys an entity any more — the two hard deletes were in that class and
+	// are gated. A Mutates verb with no Gated must say why in Ungated.
 	Gated string
 	// Ungated is why a verb that writes passes no name to the policy gate.
-	// Required exactly when Mutates is true and Gated is empty, so the thirteen
-	// cannot quietly become fourteen.
+	// Required exactly when Mutates is true and Gated is empty, so the eleven
+	// cannot quietly become twelve.
 	Ungated string
 	// Who is the principal rule: who may call this verb. Every verb that
 	// writes states one, because the alternative is a rule of "whoever asked"
@@ -255,7 +256,7 @@ var All = []Verb{
 		Short:   "Remove a task that was never claimed",
 		Long:    "Only a never-claimed task is deleted (§5.7). Everything else is cancelled or archived.",
 		Who:     "Anyone, and only a task that was never claimed (§5.7). Deleting removes the row rather than ending it, so an agent confirms with the operator first and reaches for `cancel` otherwise (§3.7).",
-		Ungated: "a task nobody ever claimed is nobody's work to protect",
+		Gated:   "tasks.delete",
 		Mutates: true,
 		Args:    []Arg{idArg("The task id or number")},
 	},
@@ -387,7 +388,7 @@ var All = []Verb{
 		Name: "note.delete", CLI: []string{"note", "delete"}, MCP: "note_delete",
 		Short:   "Remove a note that is still in the inbox",
 		Who:     "The author, or the operator, and only an inbox note (§5.7). This one still REFUSES another agent: erasing a peer's idea is wrong however the operator answers.",
-		Ungated: "an inbox note is pre-decision, and its author or the operator removing it decides nothing",
+		Gated:   "tasks.note_delete",
 		Mutates: true,
 		Args:    []Arg{idArg("The note id or number")},
 	},
@@ -418,7 +419,7 @@ var All = []Verb{
 			"sees every event again on every restart.",
 		Args: []Arg{
 			{Name: "since", Type: String, Desc: "An event id or a Unix-millisecond timestamp to resume from"},
-			{Name: "entity", Type: String, Desc: "task or note"},
+			{Name: "entity", Type: String, Desc: "task, note or parked"},
 			{Name: "limit", Type: Int, Desc: "Stop after this many"},
 		},
 	},

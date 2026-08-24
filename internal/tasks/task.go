@@ -141,6 +141,10 @@ const (
 	KindCancelled = "cancelled"
 	KindArchived  = "archived"
 	KindUpdated   = "updated"
+	// KindDeleted is the hard delete of §5.7. The row goes and this stays, so
+	// the trail says the task was removed rather than leaving a created task
+	// that silently stops existing.
+	KindDeleted = "deleted"
 )
 
 // Task is a unit of work with a lifecycle and a claim (§14).

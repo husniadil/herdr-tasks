@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 10
+const SchemaVersion = 11
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -200,4 +200,24 @@ ALTER TABLE tasks ADD COLUMN amend_count INTEGER;`},
 	{SQL: `ALTER TABLE parked ADD COLUMN tab_id TEXT;
 ALTER TABLE parked ADD COLUMN workspace_id TEXT;
 ALTER TABLE parked ADD COLUMN all_projects INTEGER;`},
+	// 11 — the append-only sibling of `parked`, which §5.5 gives every entity
+	// with a table and this one never had. The `parked` row is mutated in
+	// place, so what the gate deferred and what the operator then decided
+	// about it survived only as the row's current state: resolving one erased
+	// when and against whom it had been parked, and no §8.1 consumer — a hook
+	// or an `events --follow` stream — ever learned a gate decision had
+	// happened at all. The shape is the other two tables', column for column,
+	// so one reader serves all three.
+	{SQL: `
+CREATE TABLE parked_events (
+  id        TEXT    PRIMARY KEY,
+  entity_id TEXT    NOT NULL,
+  project   TEXT    NOT NULL,
+  at        INTEGER NOT NULL,
+  actor     TEXT    NOT NULL,
+  kind      TEXT    NOT NULL,
+  detail    TEXT
+);
+CREATE INDEX parked_events_entity ON parked_events (entity_id);
+`},
 }

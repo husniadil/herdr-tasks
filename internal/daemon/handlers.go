@@ -344,14 +344,15 @@ type DeleteResult struct {
 	Deleted bool   `json:"deleted"`
 }
 
-func hTaskDelete(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
+func hTaskDelete(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	t, err := d.Store.GetTask(req.Project, argString(req.Args, "id"))
 	if err != nil {
 		return nil, err
 	}
-	if err := d.Store.DeleteTask(req.Project, t.ID); err != nil {
+	if err := d.Store.DeleteTask(req.Project, t.ID, by, d.Now()); err != nil {
 		return nil, err
 	}
+	d.emitted(req.Project, "task", t.ID)
 	return DeleteResult{ID: t.ID, Deleted: true}, nil
 }
 
@@ -613,9 +614,10 @@ func hNoteDelete(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := d.Store.DeleteNote(req.Project, n.ID, by); err != nil {
+	if err := d.Store.DeleteNote(req.Project, n.ID, by, d.Now()); err != nil {
 		return nil, err
 	}
+	d.emitted(req.Project, "note", n.ID)
 	return DeleteResult{ID: n.ID, Deleted: true}, nil
 }
 
@@ -654,6 +656,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 		if err := d.Store.ResolveParked(req.Project, p.ID, "rejected", by.Principal, d.Now()); err != nil {
 			return nil, err
 		}
+		d.emitted(req.Project, "parked", p.ID)
 		return ParkedResolveResult{ID: p.ID, State: "rejected"}, nil
 	}
 	// §9.3: resolving re-runs the verb under the ORIGINAL subject, never the
@@ -703,6 +706,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", by.Principal, d.Now()); err != nil {
 		return nil, err
 	}
+	d.emitted(req.Project, "parked", p.ID)
 	out, err := d.dispatch(verb.Name, rerun, actor)
 	if err != nil {
 		// The decision stands; the verb did not run. Say why, in the verb's
@@ -711,6 +715,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 		if ferr := d.Store.FailParked(req.Project, p.ID, err.Error(), d.Now()); ferr != nil {
 			return nil, ferr
 		}
+		d.emitted(req.Project, "parked", p.ID)
 		return nil, err
 	}
 	return ParkedResolveResult{ID: p.ID, State: "resolved", Result: out}, nil

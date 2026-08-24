@@ -375,6 +375,11 @@ func (d *Daemon) admit(req protocol.Request) (verbs.Verb, tasks.Actor, error) {
 			if perr != nil {
 				return verbs.Verb{}, tasks.Actor{}, perr
 			}
+			// A deferral is a decision, so it fires the §8.3 hook and wakes
+			// `events --follow` like any other write. The operator finding out
+			// that the gate parked something is the whole point of the queue,
+			// and until this it depended on someone running `parked list`.
+			d.emitted(req.Project, "parked", id)
 			return verbs.Verb{}, tasks.Actor{}, &parkedError{
 				err: codes.Errorf(codes.Denied, "the policy gate parked %s for the operator: %s", v.Gated, res.Reason),
 				id:  id,
