@@ -31,7 +31,13 @@ type globals struct {
 
 var g globals
 
-func newRootCmd() *cobra.Command {
+func newRootCmd() *cobra.Command { return newRootCmdFrom(verbs.All) }
+
+// newRootCmdFrom assembles the CLI from an arbitrary verb table. newRootCmd
+// passes the real registry; a test passes a table with a collision in it,
+// which is the only way to reach the refusal below without editing the
+// registry itself.
+func newRootCmdFrom(list []verbs.Verb) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "htask",
 		Short: "A task backlog and notes board for agents running on Herdr",
@@ -49,7 +55,7 @@ func newRootCmd() *cobra.Command {
 
 	groups := map[string]*cobra.Command{}
 	taken := map[string]string{"daemon": "system", "mcp": "system", "tui": "system", "version": "system"}
-	for _, v := range verbs.All {
+	for _, v := range list {
 		cmd := buildVerb(v)
 		if len(v.CLI) == 1 {
 			// §6.1 gives every verb one name on this surface, so a second
@@ -99,7 +105,7 @@ func newRootCmd() *cobra.Command {
 		}
 		parent.AddCommand(cmd)
 	}
-	root.AddCommand(newTaskAliasCmd())
+	root.AddCommand(newTaskAliasCmd(list))
 	root.AddCommand(newDaemonCmd(), newMCPCmd(), newTUICmd(), newVersionCmd())
 	return root
 }
@@ -116,7 +122,7 @@ func newRootCmd() *cobra.Command {
 // Each alias is a SECOND cobra command over the same registry entry rather
 // than a shared pointer: a cobra command belongs to one parent, and adding one
 // command in two places gives it whichever parent was last to claim it.
-func newTaskAliasCmd() *cobra.Command {
+func newTaskAliasCmd(list []verbs.Verb) *cobra.Command {
 	group := &cobra.Command{
 		Use:    "task",
 		Short:  "Deprecated: the task verbs are top-level now (`htask claim 12`)",
@@ -126,7 +132,7 @@ func newTaskAliasCmd() *cobra.Command {
 
 		DisableFlagsInUseLine: true,
 	}
-	for _, v := range verbs.All {
+	for _, v := range list {
 		if !strings.HasPrefix(v.Name, "task.") {
 			continue
 		}

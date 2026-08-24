@@ -7,7 +7,8 @@ import (
 	"github.com/husniadil/herdr-tasks/internal/codes"
 )
 
-// The transition window against a real daemon: the flat form is the one a
+// §6.1: one registry, two spellings of the same path on one door. The
+// transition window against a real daemon: the flat form is the one a
 // reader is taught, the old form is the one the sibling adapters still send,
 // and both reach the same verb on the socket.
 func TestBothFormsAnswerTheSameDaemon(t *testing.T) {
@@ -32,7 +33,7 @@ func TestBothFormsAnswerTheSameDaemon(t *testing.T) {
 	}
 }
 
-// --help teaches the flat form and says nothing about the alias.
+// §6.1 again, the human half: --help teaches the flat form and says nothing about the alias.
 func TestHelpTeachesTheFlatFormOnly(t *testing.T) {
 	w := newWorld(t)
 	stdout, stderr, status := w.run(w.env(), "--help")

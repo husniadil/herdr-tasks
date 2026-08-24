@@ -98,11 +98,20 @@ func TestTheNoteGroupStaysAGroup(t *testing.T) {
 	if find(root, "note add") == nil {
 		t.Error("`htask note add` is gone")
 	}
-	for _, sub := range root.Commands() {
-		if strings.Contains(sub.Name(), "_") {
-			t.Errorf("`htask %s` is an underscore form; note_add is the MCP tool name and only that", sub.Name())
+	// Every depth, not just the root: an underscore form nested under a group
+	// is still an underscore form on the CLI, and `note note_add` would be a
+	// second spelling of the same verb on the same surface.
+	var walk func(cmd *cobra.Command, prefix string)
+	walk = func(cmd *cobra.Command, prefix string) {
+		for _, sub := range cmd.Commands() {
+			path := strings.TrimSpace(prefix + " " + sub.Name())
+			if strings.Contains(sub.Name(), "_") {
+				t.Errorf("`htask %s` is an underscore form; note_add is the MCP tool name (§7.1) and only that", path)
+			}
+			walk(sub, path)
 		}
 	}
+	walk(root, "")
 }
 
 // The MCP fingerprint does not move. §7.1's tool names are the agent surface's
@@ -127,8 +136,52 @@ func TestFlatteningLeavesTheMCPToolNamesAlone(t *testing.T) {
 	}
 }
 
-// The operator's decision says "no collision exists with the system verbs;
-// refuse at startup if one ever appears". newRootCmd is that startup.
+// The refusal itself, driven by a table that HAS the collision the registry
+// does not: cobra's own answer to two commands of one name is to accept both
+// and serve whichever it finds first, so the second verb is unreachable and
+// nothing says so. Building the tree must stop instead.
+func TestBuildingTheTreeOnACollidingRegistryStops(t *testing.T) {
+	// The two halves of the refusal are reached by ORDER, not by name: the
+	// planted verb after the registry meets a name already taken, and the
+	// planted verb before it makes the grouping parent the one that arrives
+	// second. Both halves have to stop, or one of them is a branch nothing
+	// runs.
+	for _, tc := range []struct {
+		name, why string
+		first     bool
+	}{
+		{name: "doctor", why: "a flat verb against a system verb"},
+		{name: "note", why: "a flat verb against a grouping parent already built"},
+		{name: "note", why: "a grouping parent against a flat verb already built", first: true},
+	} {
+		t.Run(tc.why, func(t *testing.T) {
+			planted := verbs.Verb{
+				Name: "task.collide", CLI: []string{tc.name}, MCP: "collide",
+				Short: "a verb planted to collide: " + tc.why,
+			}
+			var list []verbs.Verb
+			if tc.first {
+				list = append([]verbs.Verb{planted}, verbs.All...)
+			} else {
+				list = append(append([]verbs.Verb{}, verbs.All...), planted)
+			}
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("newRootCmdFrom accepted %q twice on the CLI; %s must stop at startup, "+
+						"because cobra serves the first and the second is unreachable with nothing said", tc.name, tc.why)
+				}
+				if msg, ok := r.(string); !ok || !strings.Contains(msg, tc.name) {
+					t.Errorf("the refusal does not name the colliding command: %v", r)
+				}
+			}()
+			newRootCmdFrom(list)
+		})
+	}
+}
+
+// And the registry as it actually stands has no collision to refuse, which is
+// the operator's "no collision exists with the system verbs".
 func TestATaskVerbCollidingWithASystemVerbIsRefused(t *testing.T) {
 	system := map[string]bool{}
 	for _, v := range verbs.All {
