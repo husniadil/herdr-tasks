@@ -793,3 +793,104 @@ func TestTheSupersededAuditGapEntrySaysSoInItsHeading(t *testing.T) {
 			"sweep that did is in this same file:\n  %s", heading)
 	}
 }
+
+// §13.3 makes the CLI and the MCP tool list changeable between minors WITH AN
+// ENTRY here, and until now nothing held that end of the promise. The version
+// guards above fire on a version that MOVED; a surface that moves without one
+// — every change between two releases, which is where a caller break is
+// actually written — had nothing watching it. Task 93's mutation pass proved
+// it by emptying the Unreleased entry: the whole prose and docs suite stayed
+// green while the file said nothing about a CLI break that renamed every task
+// verb.
+//
+// The mechanism is the one already in the repo, aimed one step further.
+// `verbs.Fingerprint` is the door surface the daemon reports in `doctor
+// --json`, and it is SHIPPED, so it cannot be widened to close this: a
+// consumer pins it. `verbs.CallerSurface` is the same idea over everything a
+// caller can be broken by, including the two the shipped fingerprint does not
+// hash — the CLI subcommand path and the MCP tool name. `daemon.ReleasedSurface`
+// records what that digest was at `daemon.Version`, and cutting a release
+// re-pins it beside the version bump.
+//
+// The rule is only "say something", not "say the right thing". A guard cannot
+// read prose for truth. What it can do is refuse the case that actually
+// happened: a surface that moved since the last release with an Unreleased
+// entry that is empty.
+func TestASurfaceThatMovedSinceTheReleasePinHasAnUnreleasedEntry(t *testing.T) {
+	if verbs.CallerSurface() == daemon.ReleasedSurface {
+		t.Skip("the caller surface has not moved since " + daemon.Version)
+	}
+	body, err := os.ReadFile(filepath.Join("..", "..", "CHANGELOG.md"))
+	if err != nil {
+		t.Fatalf("read CHANGELOG.md: %v", err)
+	}
+	if strings.TrimSpace(unreleasedEntry(string(body))) == "" {
+		t.Errorf("the caller surface is %s and %s shipped %s, so the CLI or the MCP tool "+
+			"list moved since the last release — and the `## Unreleased` entry in "+
+			"CHANGELOG.md is empty. §13.3 makes that move legal only with an entry saying "+
+			"what a caller does about it",
+			verbs.CallerSurface(), daemon.Version, daemon.ReleasedSurface)
+	}
+}
+
+// The pin is only worth what it catches, so this is the proof that it catches
+// the move that got past everything else: task 93's, where the verb names, the
+// gate names and every argument stayed exactly as they were and only the CLI
+// path changed. The shipped `verbs.Fingerprint` hashes none of that path, so
+// it does NOT move here — asserting both halves is the point.
+func TestTheCallerSurfaceMovesWhenOnlyTheCLIPathDoes(t *testing.T) {
+	flat := append([]verbs.Verb{}, verbs.All...)
+	grouped := append([]verbs.Verb{}, verbs.All...)
+	grouped[0].CLI = append([]string{"task"}, grouped[0].CLI...)
+
+	if verbs.CallerSurfaceOf(flat) == verbs.CallerSurfaceOf(grouped) {
+		t.Error("moving a verb's CLI path left the caller surface digest unchanged, so the " +
+			"guard above would sleep through exactly the break it exists for")
+	}
+	if verbs.FingerprintOf(flat) != verbs.FingerprintOf(grouped) {
+		t.Error("the shipped door fingerprint moved on a CLI-path-only change; it is " +
+			"semver-bound and this test's premise is that it does not")
+	}
+}
+
+// The MCP tool name is the other half a client wires in, and §7.1 pins the
+// list. It is not in the shipped fingerprint either.
+func TestTheCallerSurfaceMovesWhenOnlyTheMCPToolNameDoes(t *testing.T) {
+	before := append([]verbs.Verb{}, verbs.All...)
+	after := append([]verbs.Verb{}, verbs.All...)
+	after[0].MCP = after[0].MCP + "_renamed"
+
+	if verbs.CallerSurfaceOf(before) == verbs.CallerSurfaceOf(after) {
+		t.Error("renaming an MCP tool left the caller surface digest unchanged")
+	}
+}
+
+// unreleasedEntry is the body of the `## Unreleased` heading: everything up to
+// the next `## `, which is the most recent release. An absent heading and an
+// empty one are the same answer, because they leave a caller with the same
+// nothing.
+func unreleasedEntry(changelog string) string {
+	_, rest, found := strings.Cut(changelog, "\n## Unreleased\n")
+	if !found {
+		return ""
+	}
+	if next := strings.Index(rest, "\n## "); next >= 0 {
+		rest = rest[:next]
+	}
+	return rest
+}
+
+func TestUnreleasedEntryReadsTheEntryAndNotItsNeighbour(t *testing.T) {
+	const file = "# Changelog\n\n## Unreleased\n\nthe entry\n\n## 0.7.0 — 2026-08-24\n\nthe release\n"
+	if got := strings.TrimSpace(unreleasedEntry(file)); got != "the entry" {
+		t.Errorf("unreleasedEntry = %q, want %q", got, "the entry")
+	}
+	const emptied = "# Changelog\n\n## Unreleased\n\n## 0.7.0 — 2026-08-24\n\nthe release\n"
+	if got := strings.TrimSpace(unreleasedEntry(emptied)); got != "" {
+		t.Errorf("an emptied entry read as %q, want empty", got)
+	}
+	const missing = "# Changelog\n\n## 0.7.0 — 2026-08-24\n\nthe release\n"
+	if got := strings.TrimSpace(unreleasedEntry(missing)); got != "" {
+		t.Errorf("a missing heading read as %q, want empty", got)
+	}
+}

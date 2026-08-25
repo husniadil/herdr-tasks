@@ -41,6 +41,20 @@ import (
 // carried in the minor, as a 0.x version is allowed to.
 const Version = "0.7.0"
 
+// ReleasedSurface is `verbs.CallerSurface()` as it stood at Version: the CLI
+// paths, the MCP tool names, the arguments and the refusal-shaping flags that
+// release put in front of a caller. It is a RECORD, not a rule, and its one
+// reader asks a single question — has the surface moved since the last
+// release, and if it has, does the changelog's Unreleased entry say anything
+// about it. §13.3 makes a move between minors legal only with that entry, and
+// before this pin nothing in the gate held that end.
+//
+// Cutting a release re-pins it beside the version bump: set Version, then set
+// this to whatever `verbs.CallerSurface()` returns on the release commit. A
+// stale pin is loud, never silent — it can only ask for an entry that is
+// already there.
+const ReleasedSurface = "a9618e5f1eab4b64"
+
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in
 // `doctor` output, which is what a reader compares a binary against.
