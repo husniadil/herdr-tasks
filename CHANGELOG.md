@@ -7,6 +7,8 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.8.0 — 2026-08-25
+
 Breaking, CLI only. The task verbs are spelled flat: `htask claim 12`, not
 `htask task claim 12`. Every verb of the task group moved to the top level —
 `create`, `get`, `list`, `claim`, `touch`, `release`, `submit`, `amend`,

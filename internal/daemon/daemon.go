@@ -37,9 +37,10 @@ import (
 // `on_behalf_of_operator` event detail and `parked.resolved_by`; 0.6.0 adds
 // `task amend`; 0.7.0 adds `stop` and turns three accepted calls into
 // refusals — `--all-projects` on a verb that does not read it, `--as` with no
-// id, a filter value outside the vocabulary. All are major-shaped changes
+// id, a filter value outside the vocabulary; 0.8.0 flattens the CLI task
+// verbs to the top level, `htask claim 12`. All are major-shaped changes
 // carried in the minor, as a 0.x version is allowed to.
-const Version = "0.7.0"
+const Version = "0.8.0"
 
 // ReleasedSurface is `verbs.CallerSurface()` as it stood at Version: the CLI
 // paths, the MCP tool names, the arguments and the refusal-shaping flags that
@@ -53,7 +54,7 @@ const Version = "0.7.0"
 // this to whatever `verbs.CallerSurface()` returns on the release commit. A
 // stale pin is loud, never silent — it can only ask for an entry that is
 // already there.
-const ReleasedSurface = "a9618e5f1eab4b64"
+const ReleasedSurface = "b78ac8aae413da13"
 
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in

@@ -301,9 +301,9 @@ Deviations worth naming up front:
   where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
-  The binary is **0.7.0** since `stop` came to both doors and three accepted
-  calls became refusals, and was **0.6.0** when `task amend` came to both
-  doors; the names already on the list have not moved since 0.2.0.
+  The binary is **0.8.0** since the CLI spelled its task verbs flat, which
+  left every MCP tool name where it was, and was **0.7.0** when `stop` came
+  to both doors; the names already on the list have not moved since 0.2.0.
 - **§3.7 / §7.5** — `human` is not what a door falls back to when it knows
   nothing. A `htask mcp` door standing in a Herdr pane is that pane's agent;
   one standing in no pane has NO principal — `htask doctor` through it prints
