@@ -894,3 +894,146 @@ func TestUnreleasedEntryReadsTheEntryAndNotItsNeighbour(t *testing.T) {
 		t.Errorf("a missing heading read as %q, want empty", got)
 	}
 }
+
+// The two tests above pin two of the digest's inputs by name and leave the
+// rest to the reader's trust, which a mutation pass showed is not enough:
+// dropping AllProjects, Mutates, Required and Positional out of the hash left
+// the whole suite green. Each of those decides whether a call is ANSWERED or
+// refused with USAGE (§4.4, §5.6, §6.1), so a verb that quietly stops honouring
+// --all-projects is a caller break the pin would have slept through.
+//
+// So every field the digest claims to read gets a mutator here. A field added
+// to the hash without a line in this table is a field nothing proves is in it.
+func TestEveryFieldTheCallerSurfaceHashesMovesIt(t *testing.T) {
+	for _, tc := range []struct {
+		field string
+		move  func(*verbs.Verb)
+	}{
+		{"Name", func(v *verbs.Verb) { v.Name += ".renamed" }},
+		{"CLI", func(v *verbs.Verb) { v.CLI = append([]string{"task"}, v.CLI...) }},
+		{"MCP", func(v *verbs.Verb) { v.MCP += "_renamed" }},
+		{"Gated", func(v *verbs.Verb) { v.Gated += ".renamed" }},
+		{"AllProjects", func(v *verbs.Verb) { v.AllProjects = !v.AllProjects }},
+		{"Mutates", func(v *verbs.Verb) { v.Mutates = !v.Mutates }},
+		{"Args[].Name", func(v *verbs.Verb) { v.Args[0].Name += "_renamed" }},
+		{"Args[].Type", func(v *verbs.Verb) { v.Args[0].Type = verbs.Strings }},
+		{"Args[].Required", func(v *verbs.Verb) { v.Args[0].Required = !v.Args[0].Required }},
+		{"Args[].Positional", func(v *verbs.Verb) { v.Args[0].Positional = !v.Args[0].Positional }},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			before := append([]verbs.Verb{}, verbs.All...)
+			after := append([]verbs.Verb{}, verbs.All...)
+			// The Verb is copied by the append above, but Args is a slice
+			// header pointing at the registry's own backing array; mutating an
+			// element through it would corrupt verbs.All for every later test.
+			subject := after[0]
+			subject.Args = append([]verbs.Arg{}, subject.Args...)
+			tc.move(&subject)
+			after[0] = subject
+
+			if verbs.CallerSurfaceOf(before) == verbs.CallerSurfaceOf(after) {
+				t.Errorf("moving %s left the caller surface digest unchanged, so it is not "+
+					"in the hash and the release guard cannot see it move", tc.field)
+			}
+		})
+	}
+}
+
+// The pin the guard above compares against is a number in a source file, and a
+// mutation pass showed what that is worth on its own: re-pointing
+// daemon.ReleasedSurface at HEAD's own digest turned the guard from PASS to
+// SKIP and nothing anywhere went red. That is not a contrived input — it is
+// the cheapest way to make a red gate green, one edit, no changelog entry, and
+// it silences the exact rule §13.3 asks for.
+//
+// So the pin is checked against the thing it claims to be: verbs.CallerSurface
+// over the verbs package as it stood at tag v<daemon.Version>. The digest
+// function is copied onto that old package rather than reimplemented, so the
+// comparison is the same function over old data.
+//
+// A checkout with no tags cannot answer, and this SKIPS there rather than
+// failing a shallow CI clone. TASKS_PIN_REQUIRED=1 turns that skip into a
+// failure, the way TASKS_E2E_REQUIRED does for layer 3, and `make
+// release-check` sets it: the machine that cuts a tag is the machine that has
+// them, and it is the only place the pin's accuracy is load-bearing.
+func TestTheReleasedSurfacePinIsWhatThatTagActuallyShipped(t *testing.T) {
+	root := filepath.Join("..", "..")
+	tag := "v" + daemon.Version
+	required := os.Getenv("TASKS_PIN_REQUIRED") == "1"
+
+	if err := exec.Command("git", "-C", root, "rev-parse", "-q", "--verify",
+		"refs/tags/"+tag).Run(); err != nil {
+		if required {
+			t.Fatalf("TASKS_PIN_REQUIRED=1 and this checkout has no tag %s, so "+
+				"daemon.ReleasedSurface cannot be checked against what that release "+
+				"shipped: %v", tag, err)
+		}
+		t.Skipf("no tag %s in this checkout; run with TASKS_PIN_REQUIRED=1 where there is one", tag)
+	}
+
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "verbs")
+	if err := os.MkdirAll(filepath.Join(dir, "cmd"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Every non-test source file of the verbs package at that tag.
+	out, err := exec.Command("git", "-C", root, "ls-tree", "--name-only",
+		tag, "internal/verbs/").Output()
+	if err != nil {
+		t.Fatalf("list internal/verbs at %s: %v", tag, err)
+	}
+	for _, path := range strings.Fields(string(out)) {
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			continue
+		}
+		body, err := exec.Command("git", "-C", root, "show", tag+":"+path).Output()
+		if err != nil {
+			t.Fatalf("read %s at %s: %v", path, tag, err)
+		}
+		if err := os.WriteFile(filepath.Join(pkg, filepath.Base(path)), body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Today's digest, verbatim, on top of that old package. If the tag already
+	// had a surface.go this replaces it, which is what we want: the pin is
+	// today's question asked of old data.
+	today, err := os.ReadFile(filepath.Join(root, "internal", "verbs", "surface.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "surface.go"), today, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("go.mod", "module pin\n\ngo 1.22\n")
+	write(filepath.Join("cmd", "main.go"),
+		"package main\n\nimport (\n\t\"fmt\"\n\n\t\"pin/verbs\"\n)\n\nfunc main() { fmt.Print(verbs.CallerSurface()) }\n")
+
+	run := exec.Command("go", "run", "./cmd")
+	run.Dir = dir
+	// No network: the reconstructed module has no requirements, and a digest
+	// that suddenly needs one is a finding, not something to go fetch.
+	run.Env = append(os.Environ(), "GOFLAGS=-mod=mod", "GOPROXY=off")
+	shipped, err := run.CombinedOutput()
+	if err != nil {
+		t.Fatalf("could not compute the surface of %s: %v\n%s\n\nIf this is a compile "+
+			"error, the digest now reads a Verb field that did not exist at %s. That "+
+			"changes what the pin MEANS, so re-pin it by hand and say so in the "+
+			"changelog rather than deleting this test", tag, err, shipped, tag)
+	}
+	if got := strings.TrimSpace(string(shipped)); got != daemon.ReleasedSurface {
+		t.Errorf("daemon.ReleasedSurface is %q, but the verbs table at %s digests to %q. "+
+			"The pin is the record of what the last release put in front of a caller; a "+
+			"wrong one makes the changelog guard ask the wrong question, and pointing it "+
+			"at HEAD makes it ask none at all", daemon.ReleasedSurface, tag, got)
+	}
+}

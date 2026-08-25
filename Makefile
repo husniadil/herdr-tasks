@@ -63,11 +63,17 @@ e2e: build
 # push runs layer 3 — CI has no Herdr — so it is run here, on the machine that
 # cuts the tag, and a release is not cut until this is green.
 #
+# TASKS_PIN_REQUIRED=1 is the same shape one value over: away from here a
+# checkout with no tags SKIPS the ReleasedSurface pin check, and here the
+# absence of the tag is a failure. This is the machine that has the tags, and
+# the release is the only moment the pin's accuracy decides anything.
+#
 # TASKS_E2E_REQUIRED=1 is the difference between this and `make e2e`: ad hoc,
 # a missing Herdr is a loud skip; here it is a FAILURE. A gate that a skip can
 # satisfy reports green on a suite that proved nothing, which is how layer 3
 # was allowed to sit red and unrun for a day.
 release-check: test-full build
+	TASKS_PIN_REQUIRED=1 go test -count=1 -run TestTheReleasedSurfacePinIsWhatThatTagActuallyShipped ./cmd/htask/...
 	TASKS_E2E_REQUIRED=1 go test -tags e2e -count=1 -v ./internal/e2e/...
 
 install:
