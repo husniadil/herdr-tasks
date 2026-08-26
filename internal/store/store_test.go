@@ -1699,6 +1699,33 @@ func TestFoldAttachesANoteToATaskThatAlreadyExists(t *testing.T) {
 	}
 }
 
+// A task that is done or cancelled will not be worked, and a fold cannot be
+// undone, so folding into one would lose the note for good. Refused.
+func TestFoldRefusesATaskThatWillNotBeWorked(t *testing.T) {
+	s := open(t)
+	first, late := note(t, s, "the sweep is quiet"), note(t, s, "filed after the task")
+	_, task, err := s.PromoteNote(proj, first.ID, 0, tasks.NewTaskInput{Project: proj, Title: "make the sweep talk"}, nil, operator, tick(t))
+	if err != nil {
+		t.Fatalf("PromoteNote: %v", err)
+	}
+	if _, err := s.TaskTransition(proj, task.ID, 0, func(x *tasks.Task) (tasks.Event, error) {
+		return tasks.Cancel(x, operator, "not doing this", tick(t))
+	}); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	_, _, err = s.FoldNote(proj, late.ID, 0, proj, task.ID, operator, tick(t))
+	if codeOf(t, err) != codes.Conflict {
+		t.Fatalf("code = %q, want CONFLICT: %v", codeOf(t, err), err)
+	}
+	got, err := s.GetNote(proj, late.ID)
+	if err != nil {
+		t.Fatalf("GetNote: %v", err)
+	}
+	if got.Status == tasks.NoteTask || got.TaskID != "" {
+		t.Fatalf("the refused fold still moved the note: %+v", got)
+	}
+}
+
 // The way back, at the store: unfolding returns the row to the inbox and the
 // trail keeps both events.
 func TestUnfoldReturnsAFoldedNoteToTheBoard(t *testing.T) {

@@ -35,8 +35,11 @@ type Parked struct {
 	TabID       string `json:"tab_id,omitempty"`
 	WorkspaceID string `json:"workspace_id,omitempty"`
 	AllProjects bool   `json:"all_projects,omitempty"`
-	State       string `json:"state"`
-	Reason      string `json:"reason,omitempty"`
+	// BaseUpdatedAt is the §5.6 guard the deferred call carried, re-applied
+	// on the re-run so a resolve cannot overwrite what moved in between.
+	BaseUpdatedAt int64  `json:"base_updated_at,omitempty"`
+	State         string `json:"state"`
+	Reason        string `json:"reason,omitempty"`
 	// Error is why the verb failed when the operator resolved it. A parked
 	// action that was decided and did not happen is not a resolved one, and
 	// the operator needs to see which.
@@ -65,10 +68,10 @@ func (s *Store) Park(p Parked, now int64) (string, error) {
 	defer tx.Rollback()
 	if _, err := tx.Exec(
 		`INSERT INTO parked (id, project, subject, verb, target, payload, state, reason, created_at,
-		                     tab_id, workspace_id, all_projects)
-		 VALUES (?, ?, ?, ?, ?, ?, 'parked', ?, ?, ?, ?, ?)`,
+		                     tab_id, workspace_id, all_projects, base_updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, 'parked', ?, ?, ?, ?, ?, ?)`,
 		id, p.Project, p.Subject, p.Verb, p.Target, p.Payload, nullIfEmpty(p.Reason), now,
-		nullIfEmpty(p.TabID), nullIfEmpty(p.WorkspaceID), p.AllProjects); err != nil {
+		nullIfEmpty(p.TabID), nullIfEmpty(p.WorkspaceID), p.AllProjects, p.BaseUpdatedAt); err != nil {
 		return "", wrap(err)
 	}
 	// The actor is the subject the gate stopped: the deferral is a fact about
@@ -90,7 +93,8 @@ func (s *Store) ListParked(project string) ([]Parked, error) {
 	rows, err := s.db.Query(
 		`SELECT id, project, subject, verb, target, payload, state, COALESCE(reason, ''),
 		        COALESCE(error, ''), COALESCE(resolved_by, ''), created_at,
-		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0)
+		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0),
+		        COALESCE(base_updated_at, 0)
 		 FROM parked WHERE project = ? AND state IN ('parked', 'failed') ORDER BY id ASC`, project)
 	if err != nil {
 		return nil, wrap(err)
@@ -101,7 +105,7 @@ func (s *Store) ListParked(project string) ([]Parked, error) {
 		var p Parked
 		if err := rows.Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload,
 			&p.State, &p.Reason, &p.Error, &p.ResolvedBy, &p.CreatedAt,
-			&p.TabID, &p.WorkspaceID, &p.AllProjects); err != nil {
+			&p.TabID, &p.WorkspaceID, &p.AllProjects, &p.BaseUpdatedAt); err != nil {
 			return nil, wrap(err)
 		}
 		out = append(out, p)
@@ -119,10 +123,11 @@ func (s *Store) GetParked(project, id string) (*Parked, error) {
 	err := s.db.QueryRow(
 		`SELECT id, project, subject, verb, target, payload, state, COALESCE(reason, ''),
 		        COALESCE(error, ''), COALESCE(resolved_by, ''), created_at,
-		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0)
+		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0),
+		        COALESCE(base_updated_at, 0)
 		 FROM parked WHERE project = ? AND id = ?`, project, id).
 		Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload, &p.State, &p.Reason,
-			&p.Error, &p.ResolvedBy, &p.CreatedAt, &p.TabID, &p.WorkspaceID, &p.AllProjects)
+			&p.Error, &p.ResolvedBy, &p.CreatedAt, &p.TabID, &p.WorkspaceID, &p.AllProjects, &p.BaseUpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, codes.Errorf(codes.NotFound, "no parked action %s", id)
 	}

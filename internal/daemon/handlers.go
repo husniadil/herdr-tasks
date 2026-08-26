@@ -671,15 +671,25 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	// a created row is filed under, and the scope is which boards the verb
 	// was allowed to look at (§4.4).
 	rerun := protocol.Request{
-		Verb:        verb.Name,
-		Project:     p.Project,
-		TabID:       p.TabID,
-		WorkspaceID: p.WorkspaceID,
-		AllProjects: p.AllProjects,
-		Args:        map[string]any{},
+		Verb:          verb.Name,
+		Project:       p.Project,
+		TabID:         p.TabID,
+		WorkspaceID:   p.WorkspaceID,
+		AllProjects:   p.AllProjects,
+		BaseUpdatedAt: p.BaseUpdatedAt,
+		Args:          map[string]any{},
 	}
 	if err := decodeArgs(p.Payload, &rerun.Args); err != nil {
 		return nil, err
+	}
+	// The same refusal admit gives a live call: a row parked by an older
+	// daemon may carry an argument this verb no longer declares, and a re-run
+	// that dropped it would report a call that did not happen as one that did.
+	for _, name := range sortedKeys(rerun.Args) {
+		if !verb.Accepts(name) {
+			return nil, codes.Errorf(codes.Usage,
+				"%s no longer takes %q; the parked call was made against an older daemon", verb.Name, name)
+		}
 	}
 	// The subject is carried back in the form the door would have derived it:
 	// a pane for an agent, an explicit --as for the principals §3.2 allows to

@@ -386,7 +386,8 @@ func (d *Daemon) admit(req protocol.Request) (verbs.Verb, tasks.Actor, error) {
 			id, perr := d.Store.Park(store.Parked{
 				Project: req.Project, Subject: string(actor.Principal), Verb: v.Gated,
 				Target: target, Payload: string(payload), Reason: res.Reason,
-				TabID: req.TabID, WorkspaceID: req.WorkspaceID, AllProjects: req.AllProjects}, d.Now())
+				TabID: req.TabID, WorkspaceID: req.WorkspaceID, AllProjects: req.AllProjects,
+				BaseUpdatedAt: req.BaseUpdatedAt}, d.Now())
 			if perr != nil {
 				return verbs.Verb{}, tasks.Actor{}, perr
 			}

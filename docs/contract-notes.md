@@ -649,8 +649,9 @@ the same refusal in a different shape, so §3.7 teaches the duty and requires
 an honest trail instead, and the skill teaches it where an agent reads it.
 
 What the code does with `IsHuman` is the whole design: its job inverted from
-refusing to marking. Every one of the seven operator-authority paths now runs
-through `operatorVerb` in `internal/tasks/task.go`, which writes
+refusing to marking. Every one of the five operator-authority verbs (promote, fold,
+unfold, keep and drop) now runs through `operatorVerb` in
+`internal/tasks/task.go`, which writes
 `on_behalf_of_operator` into the event when the caller is not the operator and
 leaves the actor as the calling principal. The alternative was to trust each
 call site to remember, which is how `human` became a fallback in the first

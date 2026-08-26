@@ -94,7 +94,9 @@ func (s *Store) TaskTransition(project, ref string, baseUpdatedAt int64, fn func
 	if err := tx.Commit(); err != nil {
 		return nil, wrap(err)
 	}
-	task.Blocked, task.Abandoned, _ = blockedBy(s.db, task.ID)
+	if task.Blocked, task.Abandoned, err = blockedBy(s.db, task.ID); err != nil {
+		return nil, wrap(err)
+	}
 	return task, nil
 }
 

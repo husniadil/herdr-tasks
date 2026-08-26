@@ -168,6 +168,13 @@ func (s *Store) FoldNote(noteProject, ref string, baseUpdatedAt int64, taskProje
 	if err != nil {
 		return nil, nil, err
 	}
+	// A fold ends the note on the task that carries it. A task that is
+	// done or cancelled carries nothing further, and an unfold refuses to
+	// bring the note back, so the idea would be gone for good.
+	if task.Status.Terminal() {
+		return nil, nil, codes.Errorf(codes.Conflict,
+			"task %d is %s; a note cannot be folded into a task that will not be worked", task.Seq, task.Status)
+	}
 	n, err := foldInto(tx, noteProject, ref, task, by, now)
 	if err != nil {
 		return nil, nil, err

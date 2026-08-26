@@ -5,7 +5,7 @@ import "database/sql"
 // SchemaVersion is the migration the daemon in this binary knows. A store
 // stamped higher than this was written by a newer daemon: refuse, never
 // downgrade (§5.2).
-const SchemaVersion = 11
+const SchemaVersion = 12
 
 // migration is one numbered step. Most are SQL; one has to be Go, because
 // re-encoding every stored id is not something SQL can do.
@@ -220,4 +220,10 @@ CREATE TABLE parked_events (
 );
 CREATE INDEX parked_events_entity ON parked_events (entity_id);
 `},
+	// 12 — the §5.6 guard a deferred write was made with. The payload holds
+	// the verb's arguments and base_updated_at is not one: it rode on the
+	// request, so the re-run carried 0 and the guard the caller asked for
+	// was the one thing the resolve dropped. A row written before this
+	// migration reads back NULL and 0, which is a call made without one.
+	{SQL: `ALTER TABLE parked ADD COLUMN base_updated_at INTEGER;`},
 }

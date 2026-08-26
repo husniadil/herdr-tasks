@@ -50,7 +50,8 @@ func (s *Store) Dump() (*Dump, error) {
 	rows, err := s.db.Query(
 		`SELECT id, project, subject, verb, target, payload, state, COALESCE(reason, ''), created_at,
 		        COALESCE(resolved_at, 0), COALESCE(resolved_by, ''),
-		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0)
+		        COALESCE(tab_id, ''), COALESCE(workspace_id, ''), COALESCE(all_projects, 0),
+		        COALESCE(base_updated_at, 0)
 		 FROM parked ORDER BY id ASC`)
 	if err != nil {
 		return nil, wrap(err)
@@ -59,7 +60,7 @@ func (s *Store) Dump() (*Dump, error) {
 		var p Parked
 		if err := rows.Scan(&p.ID, &p.Project, &p.Subject, &p.Verb, &p.Target, &p.Payload,
 			&p.State, &p.Reason, &p.CreatedAt, &p.ResolvedAt, &p.ResolvedBy,
-			&p.TabID, &p.WorkspaceID, &p.AllProjects); err != nil {
+			&p.TabID, &p.WorkspaceID, &p.AllProjects, &p.BaseUpdatedAt); err != nil {
 			rows.Close()
 			return nil, wrap(err)
 		}
