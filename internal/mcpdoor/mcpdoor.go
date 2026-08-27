@@ -451,11 +451,12 @@ func GlobalsFor(v verbs.Verb) []string {
 }
 
 // withDeclarationHint says WHY an undeclared door was refused. A door with no
-// principal (§3.7) meets the operator verbs as a bare FORBIDDEN, and the
-// message the daemon writes — "only the operator promotes a note" — is true
-// and tells the caller nothing about the one thing that would change it. The
-// door is the surface that knows both facts, so it is the surface that says
-// them.
+// principal (§3.7) is `none`: it authored no note and holds no lease, so it
+// meets the refusals 0.10.0 left standing — a note's AUTHORSHIP ("its author
+// or the operator edits it") and a claim HOLDER's lease ("only the holder may
+// submit it") — as a bare FORBIDDEN. Each message is true and tells the caller
+// nothing about the one thing that would change it. The door is the surface
+// that knows both facts, so it is the surface that says them.
 func withDeclarationHint(err error, opt Options) error {
 	if opt.Operator || os.Getenv("HERDR_PANE_ID") != "" {
 		return err

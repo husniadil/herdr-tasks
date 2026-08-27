@@ -104,7 +104,7 @@ from its body.
 `--evidence` is proof for the task as a whole. `--evidence-for` is proof for
 one acceptance criterion, written as `"<criterion>: what it printed"` where the
 number is the criterion's place in the list `htask get` prints. Cite one
-and `task get` shows the criteria as a checklist — `[x]` where a citation
+and `htask get` shows the criteria as a checklist — `[x]` where a citation
 landed, `[ ]` where none did — with the citing lines under the criterion they
 prove. Citing is opt-in: a submit that cites nothing behaves exactly as it
 always has, and a submit that cites one criterion has to cite every required
@@ -165,6 +165,11 @@ is also clickable — the footer draws each verb where the mouse can reach it.
 | `tab` | either board | switch between the tasks board and the notes board |
 | `esc` | either board | close the detail, then clear the filter, then leave |
 
+Three more keys are not in the table because the footer does not draw them:
+they act on the popup rather than on a row. `1` and `2` go straight to the
+tasks board and the notes board, `r` (or `R`) re-reads from the daemon, and
+`q` (or `ctrl+c`) quits.
+
 The boards scroll. The wheel moves the region under the pointer and only that
 one, so a long report scrolls under the pointer while the list behind it stays
 where you left it, and the cursor keys drag the window along with the
@@ -216,14 +221,14 @@ sooner, and says how many criteria it dropped.
 **Scope.** Every verb resolves a project per call (§4.2). `--project <path>`
 sets it explicitly, which is what a consumer running from its own working
 directory wants, and `--all-projects` opts out of scoping for one watching
-several repositories at once. `task list --ready` is the unblocked, unclaimed
+several repositories at once. `htask list --ready` is the unblocked, unclaimed
 work.
 
 A task's 26-character id is its address across boards: it is minted once and
-names one task anywhere, so `task get <id> --all-projects` reads a task filed
+names one task anywhere, so `htask get <id> --all-projects` reads a task filed
 on any project's board and the answer names the project it was found in. The
 `#<n>` number is not an address across boards — it is minted per project, so
-`#24` exists on as many boards as have filed 24 tasks. `task get <n>
+`#24` exists on as many boards as have filed 24 tasks. `htask get <n>
 --all-projects` is refused with USAGE for that reason; pass the id instead, or
 scope the number to its board with `--project`. Without `--all-projects`
 nothing changes: an id filed elsewhere is NOT_FOUND, naming the project that
@@ -424,7 +429,7 @@ something got long.
 
 A bound is a check the verbs run, not a promise about what is already stored:
 rows written before these existed are still over them. Anything that renders
-stored text into a bounded artifact — `task goal` into a `/goal` condition —
+stored text into a bounded artifact — `htask goal` into a `/goal` condition —
 clamps at render time regardless, and says what it dropped.
 
 ## Your data

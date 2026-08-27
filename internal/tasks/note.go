@@ -32,7 +32,10 @@ func (s NoteStatus) Terminal() bool {
 }
 
 // Verdict is what a triaging agent proposes at the end of a discussion. It is
-// a proposal, never the decision: only the operator moves a note off the board.
+// a proposal, never the decision: the authority to move a note off the board
+// is the operator's, and since 0.10.0 an agent exercises it after confirming
+// with them rather than being refused (§3.7). What still refuses an agent is
+// authorship — NoteUpdate and CanHardDeleteNote keep a peer's note theirs.
 type Verdict string
 
 const (

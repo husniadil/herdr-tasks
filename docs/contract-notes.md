@@ -670,7 +670,7 @@ peer's work the caller's. `TestAnotherAgentStillCannotEditOrDeleteANote` and
 `TestAClaimIsTheHoldersAndStillRefusesAStranger` hold them. Recusal (§6.6) was
 not touched.
 
-`parked resolve` needed one thing the other six did not. §9.3 re-runs the verb
+`parked resolve` needed one thing the other five did not. §9.3 re-runs the verb
 under the ORIGINAL subject, so an agent resolving its own deferral would leave
 a trail showing only its own verb running and nothing about who let it. Hence
 migration 8, `parked.resolved_by`, and the §9.3 sentence requiring it.
@@ -1023,3 +1023,35 @@ all — a freeze that denied every other write still let an agent hard-delete a
 never-claimed task or an inbox note on any project's board. They are now
 `tasks.delete` and `tasks.note_delete`, and no verb outside the gate destroys
 anything.
+
+## §3.7 — `parked resolve` carries no operator mark
+
+Open. The five note verbs 0.10.0 turned from refusals into marks write
+`on_behalf_of_operator` through `operatorVerb`
+(`internal/tasks/note.go`), but `parked resolve` does not: the resolution
+event in `internal/store/parked.go` records the deciding principal as its
+actor and nothing else, so an agent resolving after confirming with the
+operator leaves a trail that reads as its own call. `parked.resolved_by`
+answers who resolved it, not on whose authority, which is the fact §3.7 asks
+the trail to carry. This closes when the resolution event carries the same
+`operatorVerb` detail as the note verbs, with a test pinning the mark.
+
+## §4.4 — `parked list` stays project-scoped
+
+§4.4 says list verbs accept `--all-projects`. `parked.list` does not declare
+it (`internal/verbs/verbs.go`), so the daemon refuses the flag with USAGE
+(`internal/daemon/daemon.go`). That is deliberate: a parked action is resolved
+on the board it was parked on, and the operator answers for one project at a
+time, so a fleet-wide queue would invite resolving a deferral in a repository
+the resolver is not working in. This closes when §4.4 scopes that sentence to
+list verbs over entities.
+
+## §16 — the `goal`, `submit`, `release` and `touch` spellings
+
+§16.2 and §16.3 write `task goal <id>`, `task submit <id>`,
+`task release <id>` and `task touch <id>`. The binary is named after the
+plugin's short name (§2.1), so the verbs are `htask goal`, `htask submit`,
+`htask release` and `htask touch`, which is what `internal/verbs/verbs.go`
+registers and what `BuildGoal` in `internal/daemon/goal.go` renders into the
+condition it prints. The divergence is spelling only. This closes when §16 is
+amended to the §2.1 form.
