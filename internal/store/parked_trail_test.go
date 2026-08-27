@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/husniadil/herdr-tasks/internal/tasks"
@@ -20,7 +21,7 @@ func TestParkingAndResolvingLeaveATrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Park: %v", err)
 	}
-	if err := s.ResolveParked(proj, id, "resolved", tasks.Principal("human"), tick(t)); err != nil {
+	if err := s.ResolveParked(proj, id, "resolved", tasks.Actor{Principal: tasks.PrincipalHuman}, tick(t)); err != nil {
 		t.Fatalf("ResolveParked: %v", err)
 	}
 	evs, err := s.Events(EventFilter{Project: proj, Entity: "parked", EntityID: id})
@@ -56,14 +57,14 @@ func TestRejectingAndFailingLeaveATrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Park: %v", err)
 	}
-	if err := s.ResolveParked(proj, rejected, "rejected", tasks.Principal("human"), tick(t)); err != nil {
+	if err := s.ResolveParked(proj, rejected, "rejected", tasks.Actor{Principal: tasks.PrincipalHuman}, tick(t)); err != nil {
 		t.Fatalf("ResolveParked: %v", err)
 	}
 	failed, err := s.Park(Parked{Project: proj, Subject: "agent:wF:p2", Verb: "tasks.approve", Target: "2"}, tick(t))
 	if err != nil {
 		t.Fatalf("Park: %v", err)
 	}
-	if err := s.ResolveParked(proj, failed, "resolved", tasks.Principal("human"), tick(t)); err != nil {
+	if err := s.ResolveParked(proj, failed, "resolved", tasks.Actor{Principal: tasks.PrincipalHuman}, tick(t)); err != nil {
 		t.Fatalf("ResolveParked: %v", err)
 	}
 	if err := s.FailParked(proj, failed, "the task is not in review", tick(t)); err != nil {
@@ -88,6 +89,58 @@ func TestRejectingAndFailingLeaveATrail(t *testing.T) {
 				t.Errorf("%s event %d is %q, want %q", c.id, i, evs[i].Kind, want)
 			}
 		}
+	}
+}
+
+// §3.7: resolving a deferral is the operator's authority, and since 0.10.0 an
+// agent reaches it after confirming with the user rather than being refused.
+// Nothing checks that the confirmation happened, so the trail is the whole
+// accountability and it is only honest if it says that the authority exercised
+// was somebody else's: the resolution event carries the same
+// `on_behalf_of_operator` mark the five note verbs write, and carries nothing
+// extra when the operator resolved it themselves. `resolved_by` answers who
+// resolved it, which is a different question from on whose authority.
+func TestResolvingMarksAnOperatorVerbAnAgentPerformed(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		by     tasks.Actor
+		marked bool
+	}{
+		{"an agent", tasks.Actor{Principal: "agent:wF:p1"}, true},
+		{"the operator", tasks.Actor{Principal: tasks.PrincipalHuman}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := open(t)
+			id, err := s.Park(Parked{Project: proj, Subject: "agent:wF:p2", Verb: "tasks.approve",
+				Target: "1", Payload: "{}"}, tick(t))
+			if err != nil {
+				t.Fatalf("Park: %v", err)
+			}
+			if err := s.ResolveParked(proj, id, "resolved", c.by, tick(t)); err != nil {
+				t.Fatalf("ResolveParked: %v", err)
+			}
+			evs, err := s.Events(EventFilter{Project: proj, Entity: "parked", EntityID: id})
+			if err != nil {
+				t.Fatalf("Events: %v", err)
+			}
+			if len(evs) != 2 || evs[1].Kind != "resolved" {
+				t.Fatalf("%d events, last %q; want a parked then a resolved", len(evs), evs[len(evs)-1].Kind)
+			}
+			if evs[1].Actor != c.by.Principal {
+				t.Fatalf("the resolve was recorded as %q, want %q: the trail names who acted",
+					evs[1].Actor, c.by.Principal)
+			}
+			detail := map[string]any{}
+			if len(evs[1].Detail) > 0 {
+				if err := json.Unmarshal(evs[1].Detail, &detail); err != nil {
+					t.Fatalf("detail %s: %v", evs[1].Detail, err)
+				}
+			}
+			if got := detail[tasks.OnBehalfOfOperator] == true; got != c.marked {
+				t.Errorf("detail = %v, %s = %v, want %v: %s resolved it",
+					detail, tasks.OnBehalfOfOperator, got, c.marked, c.name)
+			}
+		})
 	}
 }
 

@@ -653,7 +653,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 		return nil, err
 	}
 	if argBool(req.Args, "reject") {
-		if err := d.Store.ResolveParked(req.Project, p.ID, "rejected", by.Principal, d.Now()); err != nil {
+		if err := d.Store.ResolveParked(req.Project, p.ID, "rejected", by, d.Now()); err != nil {
 			return nil, err
 		}
 		d.emitted(req.Project, "parked", p.ID)
@@ -713,7 +713,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 	// resolves both read `parked` and both ran the verb — the side effect
 	// really happened twice, and the loser was told CONFLICT for work that had
 	// already committed.
-	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", by.Principal, d.Now()); err != nil {
+	if err := d.Store.ResolveParked(req.Project, p.ID, "resolved", by, d.Now()); err != nil {
 		return nil, err
 	}
 	d.emitted(req.Project, "parked", p.ID)

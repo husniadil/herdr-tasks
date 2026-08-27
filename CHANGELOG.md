@@ -7,6 +7,22 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+The declared contract revision is now 0.10.1, up from 0.10.0. It is the value
+`doctor --json` reports as `contract`, and 0.10.1 asks nothing new of this
+plugin: it writes down what the plugins already do, and the two divergences it
+closes here — `parked list` staying project-scoped, and §16's verb spellings —
+were questions about the document rather than about behaviour. No verb, no flag
+and no error code moved with it, so a caller that does not read the revision
+has nothing to do about this one.
+
+A `parked resolve` by a principal that is not the operator now carries
+`detail.on_behalf_of_operator: true` on the `resolved` or `rejected` event it
+writes, which is the mark the five note verbs already wrote (§3.7). The actor
+is the deciding principal as it was, `resolved_by` on the row is unchanged, and
+a resolve the operator performed carries no such key. A consumer reading the
+trail sees one added field on events it already receives, and nothing it read
+before has moved.
+
 ## 0.8.1 — 2026-08-27
 
 `htask mcp --project <path>` is now the board the MCP door serves. The flag was

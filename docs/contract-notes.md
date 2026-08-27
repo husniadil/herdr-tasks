@@ -692,6 +692,22 @@ CLI-only for a reason of its own. herdr-mail has taken this direction: every
 verb it serves is on its door, `dump` included, with the confidentiality
 boundary that verb crosses enforced in its daemon where both doors reach it.
 
+## 0.10.1 catches the contract up, and the declaration moves to it
+
+0.10.1 asks nothing new of this plugin. It writes down what four plugins
+already do, and three of its clauses land on divergences this file had open
+against 0.10.0. §4.4 now names the entity list verbs that take
+`--all-projects` and says `parked.list` is not one of them, which closes the
+entry below by text rather than by any change here. §16 spells its verbs in
+the §2.1 form (`htask goal <id>`), which closes the spelling entry below the
+same way. §5.4, §8.4, §13.2 and §14 name facts this repository already
+answered. So `daemon.ContractVersion` and the README move from **0.10.0** to
+**0.10.1** in the same change that reads the delta, which is what earns a
+declaration: this delta is one this plugin was already on the far side of.
+What did NOT come free is §3.7's mark on `parked resolve`. That was open
+against 0.10.0, it is still open in 0.10.1's text, and it is implemented here
+rather than declared away — its entry below says how.
+
 ## The 0.9.0 sweep: every MUST, and the test that fails without it
 
 The entry above headed "0.9.0 binds a MUST to a test, and this repository did
@@ -1024,34 +1040,37 @@ never-claimed task or an inbox note on any project's board. They are now
 `tasks.delete` and `tasks.note_delete`, and no verb outside the gate destroys
 anything.
 
-## §3.7 — `parked resolve` carries no operator mark
+## §3.7 — `parked resolve` carries the operator mark
 
-Open. The five note verbs 0.10.0 turned from refusals into marks write
-`on_behalf_of_operator` through `operatorVerb`
-(`internal/tasks/note.go`), but `parked resolve` does not: the resolution
-event in `internal/store/parked.go` records the deciding principal as its
-actor and nothing else, so an agent resolving after confirming with the
-operator leaves a trail that reads as its own call. `parked.resolved_by`
-answers who resolved it, not on whose authority, which is the fact §3.7 asks
-the trail to carry. This closes when the resolution event carries the same
-`operatorVerb` detail as the note verbs, with a test pinning the mark.
+Closed, and closed by implementing it rather than by an amendment. The five
+note verbs 0.10.0 turned from refusals into marks write
+`on_behalf_of_operator` through `operatorVerb` (`internal/tasks/note.go`), and
+the resolution event now writes the same detail through the same function:
+`ResolveParked` in `internal/store/parked.go` takes the whole Actor and passes
+it to `tasks.MarkOperatorVerb`, which is `operatorVerb` under an exported name
+for the one operator verb whose event is written outside `internal/tasks`. So
+a resolve an agent performed after confirming with the operator now reads the
+way its promote or its drop does, and a resolve the operator performed carries
+nothing extra. `parked.resolved_by` still answers who resolved it, which is a
+different question from on whose authority.
+`TestResolvingMarksAnOperatorVerbAnAgentPerformed` in `internal/store` fails
+in both directions §3.7 asks a plugin to pin: dropping the mark fails its
+agent case, and marking a resolve the operator performed fails its human one.
 
-## §4.4 — `parked list` stays project-scoped
+## §4.4 — `parked list` stays project-scoped (recorded against 0.10.0; amended in 0.10.1)
 
-§4.4 says list verbs accept `--all-projects`. `parked.list` does not declare
-it (`internal/verbs/verbs.go`), so the daemon refuses the flag with USAGE
-(`internal/daemon/daemon.go`). That is deliberate: a parked action is resolved
-on the board it was parked on, and the operator answers for one project at a
-time, so a fleet-wide queue would invite resolving a deferral in a repository
-the resolver is not working in. This closes when §4.4 scopes that sentence to
-list verbs over entities.
+Closed by the contract. §4.4 now scopes `--all-projects` to the entity list
+verbs and says `parked.list` is not one of them, for the reason this entry
+recorded: a parked action is resolved where it was parked, by an operator
+acting in that project. `parked.list` declares no such flag
+(`internal/verbs/verbs.go`) and the daemon refuses it with USAGE
+(`internal/daemon/daemon.go`), which is conformance now rather than a
+divergence.
 
-## §16 — the `goal`, `submit`, `release` and `touch` spellings
+## §16 — the `goal`, `submit`, `release` and `touch` spellings (recorded against 0.10.0; amended in 0.10.1)
 
-§16.2 and §16.3 write `task goal <id>`, `task submit <id>`,
-`task release <id>` and `task touch <id>`. The binary is named after the
-plugin's short name (§2.1), so the verbs are `htask goal`, `htask submit`,
-`htask release` and `htask touch`, which is what `internal/verbs/verbs.go`
-registers and what `BuildGoal` in `internal/daemon/goal.go` renders into the
-condition it prints. The divergence is spelling only. This closes when §16 is
-amended to the §2.1 form.
+Closed by the contract. §16 now writes its verbs in the §2.1 form, so the
+document says `htask goal <id>`, `htask submit <id>`, `htask release <id>` and
+`htask touch <id>` — which is what `internal/verbs/verbs.go` registers and what
+`BuildGoal` in `internal/daemon/goal.go` renders into the condition it prints.
+The divergence was spelling only and there is none of it left.

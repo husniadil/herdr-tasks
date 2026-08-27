@@ -421,7 +421,7 @@ func TestParkedActionRoundTrip(t *testing.T) {
 	if len(list) != 1 || list[0].ID != id || list[0].State != "parked" {
 		t.Fatalf("parked = %+v", list)
 	}
-	if err := s.ResolveParked(proj, id, "resolved", tasks.Principal("agent:wF:p1"), tick(t)); err != nil {
+	if err := s.ResolveParked(proj, id, "resolved", tasks.Actor{Principal: "agent:wF:p1"}, tick(t)); err != nil {
 		t.Fatalf("ResolveParked: %v", err)
 	}
 	list, _ = s.ListParked(proj)

@@ -59,7 +59,7 @@ const ReleasedSurface = "b78ac8aae413da13"
 // ContractVersion is the revision of the shared plugin contract this binary
 // satisfies. §13.4 requires a plugin to declare it in its README and in
 // `doctor` output, which is what a reader compares a binary against.
-const ContractVersion = "0.10.0"
+const ContractVersion = "0.10.1"
 
 // Daemon holds everything a verb needs to answer.
 type Daemon struct {

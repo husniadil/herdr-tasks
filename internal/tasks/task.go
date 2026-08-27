@@ -98,6 +98,14 @@ func operatorVerb(by Actor, detail map[string]any) map[string]any {
 	return detail
 }
 
+// MarkOperatorVerb is operatorVerb for the one operator verb whose event is
+// written outside this package: `parked resolve`, whose row and trail live in
+// internal/store. The fact §3.7 asks the trail to carry is the same one there,
+// so it is the same function rather than a second copy of the rule.
+func MarkOperatorVerb(by Actor, detail map[string]any) map[string]any {
+	return operatorVerb(by, detail)
+}
+
 // Criterion is one acceptance criterion: a proof an evaluator can check from a
 // transcript (§16.1).
 type Criterion struct {

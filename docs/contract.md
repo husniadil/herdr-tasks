@@ -1,6 +1,17 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.10.0. Date: 2026-08-23.
+Status: binding. Version: 0.10.1. Date: 2026-08-27.
+
+Changes in 0.10.1: the contract catches up with what all four plugins already
+do. §4.4 names the entity list verbs that take `--all-projects` and says
+`parked.list` is not one of them, because a parked action is resolved where it
+was parked; §5.4 binds the 26-char ULID rule to a SQLite store and says what a
+JSON-document store and an operator-named entity mint instead; §8.4 splits the
+Herdr event spelling in two, dotted in a manifest `[[events]]` hook because
+that is what Herdr matches `on` against, underscored everywhere a plugin names
+the event to itself; §13.2 corrects the fourth short name to `sched`; §14 adds
+`hsched` to the binary abbreviations; and §16 spells its verbs in the §2.1
+form (`htask goal <id>`) rather than as a bare `task`.
 
 Changes in 0.10.0: an operator verb is advice an agent confirms, not a refusal
 a door makes. §3.7 said a plugin MUST refuse a non-operator principal every
@@ -138,7 +149,7 @@ other's events (§8), and by the hooks in §9. A plugin MUST NOT import another
 plugin's code or read another plugin's SQLite file.
 
 §1.5 The layering, from the bottom: Herdr (panes, agents, workspaces, events)
-→ plugins (each owns one concern: tasks, dispatch, mail, schedule) →
+→ plugins (each owns one concern: tasks, dispatch, mail, sched) →
 the umbrella project (this contract, the glossary, and later the `kit`
 module and the installer that composes the plugins).
 
@@ -290,8 +301,11 @@ scope. A plugin MAY record them on a row for display and navigation and MUST
 NOT use them as the partition key of a table.
 
 §4.4 Every table that holds user-visible entities has a `project TEXT NOT
-NULL` column. List verbs default to the resolved project and accept
-`--all-projects`. Cross-project references (a dependency, a `discovered_from`)
+NULL` column. Entity list verbs — tasks, notes, messages, jobs, triggers,
+workers — default to the resolved project and accept `--all-projects`.
+`parked.list` is not one of them: it is project-scoped and takes no
+`--all-projects`, because a parked action is resolved where it was parked, by
+an operator acting in that project. Cross-project references (a dependency, a `discovered_from`)
 are an error unless a verb explicitly documents otherwise.
 
 ## §5 Storage
@@ -318,7 +332,11 @@ rule because a seconds/milliseconds mix-up shipped once already.
 
 §5.4 Entity ids are ULIDs stored as 26-char text. A plugin MAY additionally
 expose a per-project human-friendly `seq` integer (hird style) for humans and
-agents to type; the ULID remains the identity.
+agents to type; the ULID remains the identity. The 26-char rule binds a plugin
+whose store is SQLite. A plugin whose store is a JSON document instead — a §5.1
+divergence recorded under §12 — mints time-sortable text ids with a millisecond
+prefix, and an entity the operator names (a job, a trigger) keeps that name as
+its id. An id handed in from a sibling keeps the sibling's shape.
 
 §5.5 Every entity table has a sibling append-only events table named after
 the entity table itself (`tasks` → `tasks_events`)
@@ -508,7 +526,14 @@ for this revision.
 
 §8.4 Herdr event names are spelled exactly as its schema prints them
 (`pane_agent_status_changed`, `pane_exited`, ...); a plugin matches that
-spelling and invents no synonyms. The manifest's `[[events]]` reaction is
+spelling and invents no synonyms. One place is not that spelling: a manifest
+`[[events]]` hook names the event in Herdr's hook spelling, which is dotted
+(`pane.closed`, `pane.exited`), because Herdr matches `on` against the event's
+dot name (herdrdev/herdr `src/app/api/plugins/runtime.rs`,
+`event.event.dot_name()`), and a plugin that spells it with underscores there
+matches nothing. Everywhere else a plugin names a Herdr event to itself — a
+payload field, its own trail, its docs — the schema's underscore spelling
+stands. The manifest's `[[events]]` reaction is
 usable, and its payload contract is (measured in Herdr's source and in the
 wild): the hook command runs with `HERDR_PLUGIN_EVENT` (the event name),
 `HERDR_PLUGIN_EVENT_JSON` (the full event envelope), `HERDR_PLUGIN_CONTEXT_JSON`
@@ -659,7 +684,7 @@ command. Nothing a plugin commits — files, manifest, README, git history —
 names the umbrella project; a plugin cites "the shared plugin contract" and
 its version.
 
-§13.2 Short names in this revision: `tasks`, `dispatch`, `mail`, `schedule`.
+§13.2 Short names in this revision: `tasks`, `dispatch`, `mail`, `sched`.
 The binary abbreviations are decided per plugin and listed in the glossary
 (§14).
 
@@ -710,6 +735,7 @@ Binary abbreviations (§13.2), the names a developer types:
 - **hdis** — the binary of the `dispatch` plugin.
 - **hmail** — the binary of the `mail` plugin. `mail` itself is a common Unix
   command, which §13.1 forbids as a binary name.
+- **hsched** — the binary of the `sched` plugin.
 
 Forbidden in APIs and schemas: `sidebar`, `card`, `row`, `widget`, `seat`,
 `instance`, `session` (except Herdr's own `agent_session`).
@@ -732,14 +758,14 @@ shapes the task data model.
 proofs an evaluator can check from a transcript: a command and what its output
 must show. The TUI and CLI nudge toward that shape.
 
-§16.2 `task goal <id>` prints a paste-ready `/goal` condition under 4,000
+§16.2 `<name> goal <id>` prints a paste-ready `/goal` condition under 4,000
 characters: directive from the title, context from the description and the
 latest task notes and last reject feedback, "Done when" from the criteria plus
-the obligation to run `task submit <id> ...` and show its output, and a stop
-clause that runs `task release <id> --note "<what is left>"` and files
+the obligation to run `<name> submit <id> ...` and show its output, and a stop
+clause that runs `<name> release <id> --note "<what is left>"` and files
 out-of-scope findings as notes or `--discovered-from` tasks.
 
-§16.3 The claim lease is renewable (`task touch <id>`) and the skill instructs
+§16.3 The claim lease is renewable (`<name> touch <id>`) and the skill instructs
 the agent to renew at the start of each turn. Pane death releases the lease
 (§11.5) with the last note preserved.
 

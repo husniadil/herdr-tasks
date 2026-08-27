@@ -139,8 +139,11 @@ func (s *Store) GetParked(project, id string) (*Parked, error) {
 
 // ResolveParked closes a parked action, recording the principal that decided
 // it. Any principal may reach this verb (§3.7); by is what the row says about
-// who did, which is why it is not optional.
-func (s *Store) ResolveParked(project, id, state string, by tasks.Principal, now int64) error {
+// who did, which is why it is not optional. It is the whole Actor rather than
+// its principal because §3.7 asks the event for a second fact — whether the
+// operator's authority was exercised by someone else — and that is read off
+// the actor.
+func (s *Store) ResolveParked(project, id, state string, by tasks.Actor, now int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return wrap(err)
@@ -148,7 +151,7 @@ func (s *Store) ResolveParked(project, id, state string, by tasks.Principal, now
 	defer tx.Rollback()
 	res, err := tx.Exec(
 		"UPDATE parked SET state = ?, resolved_by = ?, resolved_at = ? WHERE project = ? AND id = ? AND state = 'parked'",
-		state, string(by), now, project, id)
+		state, string(by.Principal), now, project, id)
 	if err != nil {
 		return wrap(err)
 	}
@@ -158,9 +161,14 @@ func (s *Store) ResolveParked(project, id, state string, by tasks.Principal, now
 	}
 	// The state a parked row moves to IS the kind of the event that moved it,
 	// and the actor is the principal that decided it — which the row itself
-	// keeps only until the next write touches it (§5.5).
+	// keeps only until the next write touches it (§5.5). Resolving a deferral
+	// is the operator's authority (§3.7), so when the decider is not the
+	// operator the event carries the same mark the five note verbs write, and
+	// the trail of a resolve an agent performed after confirming reads the way
+	// a promote or a drop it performed does.
 	if err := appendEvent(tx, "parked_events", id, project, tasks.Event{
-		Kind: state, Actor: by, At: now,
+		Kind: state, Actor: by.Principal, At: now,
+		Detail: tasks.MarkOperatorVerb(by, nil),
 	}); err != nil {
 		return wrap(err)
 	}

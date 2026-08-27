@@ -283,7 +283,7 @@ than when its lease runs out.
 
 ## The shared plugin contract
 
-This plugin conforms to the **shared plugin contract**, revision 0.10.0,
+This plugin conforms to the **shared plugin contract**, revision 0.10.1,
 which §13.4 requires it to declare here and in `doctor` output — `htask version`
 and `htask doctor` both print it. The contract is vendored at
 [`docs/contract.md`](docs/contract.md), so every § this repository cites
@@ -373,7 +373,13 @@ Every world-changing verb passes through one gate before anything happens
 answer — unreachable, non-zero, malformed, oversized, slow — is a deny.** A
 `defer` parks the action and returns `DENIED` with a `parked_id`; resolving it
 is the operator's authority, which an agent exercises after confirming with
-them (§3.7), and the re-run happens under the original subject.
+them (§3.7), and the re-run happens under the original subject. The parked row
+carries `resolved_by`, the principal that ran or rejected it, and the
+resolution event names that principal as its actor and carries
+`detail.on_behalf_of_operator: true` when it is not the operator — the same
+mark `note promote`, `note fold`, `note unfold`, `note keep` and `note drop`
+write, because the trail is the whole accountability for a verb nothing
+refuses.
 
 The gated verbs, for a future policy plugin to name:
 
