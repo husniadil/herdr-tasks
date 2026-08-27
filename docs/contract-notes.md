@@ -3,9 +3,10 @@
 Gaps found while implementing the shared plugin contract. The rule is in
 `CLAUDE.md`: where implementation shows a contract rule is wrong or
 unimplementable as written, record it here and follow the contract until
-`docs/contract.md` is amended. The contract is in this repository, so an
-amendment is a change to that file, citing the § it changes and bumping the
-revision its Status line states. Nothing here is a licence to diverge quietly.
+`docs/contract.md` is amended. The contract is maintained in agamemnon
+(`docs/contract.md`) and vendored here as a byte copy, so an amendment is a
+change there, citing the § it changes and bumping the revision its Status line
+states, re-vendored to every copy in the same change. Nothing here is a licence to diverge quietly.
 
 ## §5.1 / §10.1 — the store is resolved without Herdr's injected dirs
 

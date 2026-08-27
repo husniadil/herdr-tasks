@@ -1,9 +1,10 @@
 # herdr-tasks
 
 A task backlog and notes board for agents running on Herdr, shipped as a Herdr
-plugin: one Go binary (`htask`) that is the daemon, the CLI, and a stdio MCP
-server. Tasks move todo → doing → review → done with claims, leases, evidence,
-and review; notes are pre-decision ideas a human promotes or drops.
+plugin: one Go binary (`htask`) that is the daemon, the CLI, a stdio MCP
+server, and the popup TUI board the manifest opens. Tasks move todo → doing →
+review → done with claims, leases, evidence, and review; notes are pre-decision
+ideas a human promotes or drops.
 
 ## Commands
 
@@ -17,22 +18,39 @@ and review; notes are pre-decision ideas a human promotes or drops.
   `herdr` on private socket paths. Out of the gate on purpose, because CI has
   no Herdr; run it before a release tag, and when anything touching
   `internal/herdrclient` or the pane lifecycle changes.
-- `make build` / `make install` — `./cmd/htask`.
+- `make release-check` — the release gate, run on the machine that cuts the
+  tag: `test-full`, a build, then the released-surface pin under
+  `TASKS_PIN_REQUIRED=1` and layer 3 under `TASKS_E2E_REQUIRED=1`, where a
+  missing Herdr is a failure instead of a skip.
+- `make build` / `make install` — `./cmd/htask`. `make clean` removes `bin`,
+  `dist` and `coverage.out`.
 
 A green `make test` is not a green gate. Nothing is committed on it alone.
 
 ## The contract comes first
 
-This plugin conforms to a **shared plugin contract** and declares that
-in its README and `htask doctor` output. The contract fixes the error codes and
-exit statuses, the `--json` envelope, identity and principals, project scoping,
-storage rules, MCP naming, events, the policy gate, and the testing layers.
+This plugin conforms to a **shared plugin contract** and declares the revision
+it conforms to in its README and in `htask version` and `htask doctor` output
+(§13.4). The contract fixes the error codes and exit statuses, the `--json`
+envelope, identity and principals, project scoping, storage rules, MCP naming,
+events, the policy gate, and the testing layers.
+
+The text is vendored at `docs/contract.md`, byte-identical with the copy each
+sibling plugin carries, so every § this repository cites resolves inside it —
+`TestContractCitationsResolve` fails on one that does not. An amendment is made
+where the contract is maintained and re-vendored here; editing this copy alone
+puts it out of step with the plugins written against the same words.
+
+`daemon.ContractVersion` is the revision this binary claims, and
+`TestTheDeclaredRevisionIsTheVendoredOne` lets it LAG the vendored document —
+only that way, and only while `docs/contract-notes.md` names both revisions in
+one entry. Declaring higher is conformance to a text nobody here can read.
 
 Tests cite the contract section they enforce (`// §5.6`) in a name or comment.
 If implementation shows a contract rule is wrong or unimplementable as written,
 do not silently diverge: record the gap in `docs/contract-notes.md` and follow
-the contract until `docs/contract.md` is amended, with the § it changes cited
-in the amendment the same way a test cites the § it enforces.
+the contract until it is amended, with the § it changes cited in the amendment
+the same way a test cites the § it enforces.
 
 ## Non-negotiables
 
@@ -81,7 +99,9 @@ in the amendment the same way a test cites the § it enforces.
 
 4. **The daemon is the only writer.** CLI and MCP talk to it over the Unix
    socket; neither opens the SQLite file. MCP is a thin door over the same
-   daemon calls as the CLI, and a parity test keeps the two surfaces identical.
+   daemon calls as the CLI, and `TestEveryVerbIsOnBothDoors` keeps the two
+   surfaces identical: every verb of the registry is on both (§7.3). `--as` is
+   the one CLI-only flag, and it is excluded on the surface, not by intent.
 
 5. **Tests must NEVER touch the operator's live Herdr, config, or state.**
    State and config dirs in tests are temp dirs; `herdr` in tests is a fake on
@@ -93,12 +113,14 @@ in the amendment the same way a test cites the § it enforces.
 
 ## The sibling repo standard
 
-This repo is one of three Herdr plugins — herdr-dispatch (`hdis`),
-herdr-tasks (`htask`), herdr-mail (`hmail`) — maintained as one discipline.
-`docs/repo-standard.md` **in the herdr-dispatch checkout** is where that shape
-is written down: what the short name governs on disk, the internal package
-names, the one verb registry both doors are built from, the Makefile targets,
-and the README shape. Read it before adding a verb, a package, or a Makefile
+This repo is one of four Herdr plugins — herdr-dispatch (`hdis`), herdr-tasks
+(`htask`), herdr-mail (`hmail`), herdr-sched (`hsched`), the short names §13.2
+fixes — maintained as one discipline. `docs/repo-standard.md` **in the
+herdr-dispatch checkout** is where that shape is written down (it was audited
+across the first three, before the fourth): what the short name governs on
+disk, the internal package names, the one verb registry both doors are built
+from, the Makefile targets, and the README shape.
+Read it before adding a verb, a package, or a Makefile
 target, and file a delta on the owning repo's board rather than diverging
 quietly.
 
@@ -111,13 +133,27 @@ quietly.
   drop. Lowercase conventional commit subjects, no co-author lines.
 - **Fail loud.** A gate that cannot answer denies; a sweep that releases a
   lease writes an event saying so; silent fallback is a bug by definition.
+- **The docs are under test.** `README.md` and `skills/tasks/SKILL.md` are
+  checked against the verb registry, not against anyone's memory of it: a verb,
+  a flag, a path or a test name they teach must exist. A surface change lands
+  with the documents in the same commit or the gate fails.
+- **A caller-visible move needs a changelog entry.** When `verbs.CallerSurface()`
+  — the CLI paths and MCP tool names a caller is broken by — no longer matches
+  the `daemon.ReleasedSurface` digest pinned at `daemon.Version`, `## Unreleased`
+  in `CHANGELOG.md` must say what a caller does about it (§13.3). The pin is
+  re-taken beside the version bump at release.
 
 ## Layering
 
 ```
+registry:   internal/verbs — the one list both doors are generated from
+                          │
 doors:      CLI (cmd/htask) · MCP (internal/mcpdoor) · TUI (internal/tui)
                           │
-daemon:     internal/daemon — socket server, sweeps, the policy gate
+socket:     internal/client dials it · internal/protocol is the line format
+                          │
+daemon:     internal/daemon — socket server, sweeps, and internal/gate, the
+            policy check every world-changing verb passes through (§9)
                           │
 domain:     internal/tasks — the pure state machine, no I/O
             internal/store — SQLite, migrations, append-only event tables
