@@ -7,6 +7,8 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.8.1 — 2026-08-27
+
 `htask mcp --project <path>` is now the board the MCP door serves. The flag was
 accepted and then ignored: every tool call that named no `project` resolved
 against the door's own working directory, which for a server started by a
@@ -15,6 +17,21 @@ repository answered about another. A call that passes `project` still wins
 (§4.2), and `all_projects` is unchanged. A client that worked around this by
 passing `project` on every call has nothing to change; one that set the flag
 and expected it to hold now gets what it asked for.
+
+Two refusals and a guard, all correctness, and nothing shipped changes shape.
+A call the §9 gate parks now carries its `base_updated_at` guard on the parked
+row, so the re-run a resolve performs is checked against the version the caller
+wrote the call against; the guard rode on the request alone, the re-run carried
+0, and a deferred update overwrote whatever had moved while the call sat
+parked. A resolve whose parked payload names an argument the verb no longer
+declares is refused with `USAGE` instead of being re-run with that argument
+dropped, which reported a call that did not happen as one that did; it is the
+same refusal a live call gets. And `htask note fold` into a task that is `done`
+or `cancelled` is refused with `CONFLICT`: a fold ends the note on the task that
+carries it, an unfold will not bring it back, so the idea would be gone for
+good — fold into a task that will still be worked, or keep the note. A caller
+folding into open tasks and resolving calls parked by this daemon has nothing
+to change.
 
 ## 0.8.0 — 2026-08-25
 
