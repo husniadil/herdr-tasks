@@ -7,6 +7,8 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.8.3 — 2026-08-27
+
 The `failed` event a `parked resolve` writes when the re-run errors now carries
 `detail.on_behalf_of_operator: true` on the same terms its `resolved` and
 `rejected` siblings already did (§3.7): the mark is there when the principal

@@ -306,8 +306,8 @@ Deviations worth naming up front:
   where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
-  The binary is **0.8.2**, a patch that left every name on both doors where
-  it was, as **0.8.1** did; it was **0.8.0** when the CLI spelled its task
+  The binary is **0.8.3**, a patch that left every name on both doors where
+  it was, as **0.8.2** and **0.8.1** did; it was **0.8.0** when the CLI spelled its task
   verbs flat, and **0.7.0** when `stop` came to both doors; the names already
   on the list have not moved since 0.2.0.
 - **§3.7 / §7.5** — `human` is not what a door falls back to when it knows
