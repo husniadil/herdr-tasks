@@ -19,10 +19,19 @@ func newMCPCmd() *cobra.Command {
 			"are both first-class surfaces (§7.3).\n\n" +
 			"A door standing in a Herdr pane is that pane's agent. A door standing in no\n" +
 			"pane has NO principal and is refused the operator's verbs, unless it was\n" +
-			"started with --operator (§3.7).",
+			"started with --operator (§3.7).\n\n" +
+			"--project sets the board this door serves when a tool call does not name one;\n" +
+			"a call that passes `project` still wins (§4.2).",
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
+			// The root's persistent --project, which every CLI verb already
+			// honours, means the same thing here: the board this door serves
+			// when a tool call does not name one. A door is started from the
+			// client's working directory, so without this a `htask mcp
+			// --project <path>` entry was accepted and then ignored on every
+			// call.
+			opt.Project = g.projectPath
 			return mcpdoor.Serve(ctx, nil, opt)
 		},
 	}

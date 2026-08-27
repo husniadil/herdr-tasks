@@ -52,14 +52,25 @@ const Instructions = "herdr-tasks is the task backlog and notes board for agents
 type Caller func(protocol.Request) (json.RawMessage, error)
 
 // Options is what the door was STARTED with, which under the process-bound
-// identity rule (§3.2) is the only place a door's identity may come from.
-// There is one option and it is not a general-purpose bag: everything else a
-// door needs, it derives per call.
+// identity rule (§3.2) is the only place a door's identity may come from. It
+// is not a general-purpose bag: everything else a door needs, it derives per
+// call.
 type Options struct {
 	// Operator is §7.5's declaration: this door speaks for the operator.
 	// Read once from `htask mcp --operator` and never from a tool call, which
 	// is what keeps it from being --as with a different spelling.
 	Operator bool
+
+	// Project is `htask mcp --project`, the board this door serves when a
+	// call does not name one. A door is started by a client's server
+	// configuration, from a working directory that is the CLIENT's rather
+	// than the operator's, so os.Getwd() is the wrong answer for it far more
+	// often than it is for a CLI process. Unlike Operator this is a DEFAULT
+	// and not a declaration: a call that passes `project` still wins, because
+	// §4.2 makes the explicit project the top of the resolution order and a
+	// startup flag that overrode it would take reaching other boards away
+	// from every tool.
+	Project string
 }
 
 // New builds the MCP server with the pinned tool list.
@@ -118,7 +129,8 @@ func tool(v verbs.Verb) *mcp.Tool {
 	// absent: §3.2 says agent and human principals are derived, never
 	// declared, and an MCP caller has no pane to derive one from.
 	props[argProject] = map[string]any{"type": "string",
-		"description": "The project to act in; defaults to the directory this server runs in (§4.2)"}
+		"description": "The project to act in; defaults to this server's --project, " +
+			"or to the directory it runs in (§4.2)"}
 	props[argAllProjects] = map[string]any{"type": "boolean",
 		"description": "Act across every project rather than this one"}
 	if v.Mutates {
@@ -160,6 +172,11 @@ func handlerFor(v verbs.Verb, call Caller, opt Options) mcp.ToolHandler {
 			return errorResult(err), nil
 		}
 		explicit, _ := args[argProject].(string)
+		if strings.TrimSpace(explicit) == "" {
+			// The door's own --project (§4.2), used only where the call is
+			// silent. Empty leaves resolution exactly where it was.
+			explicit = opt.Project
+		}
 		allProjects, _ := args[argAllProjects].(bool)
 		baseUpdatedAt, _ := args[argBaseUpdatedAt].(float64)
 		delete(args, argProject)

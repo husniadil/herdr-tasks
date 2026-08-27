@@ -7,6 +7,15 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+`htask mcp --project <path>` is now the board the MCP door serves. The flag was
+accepted and then ignored: every tool call that named no `project` resolved
+against the door's own working directory, which for a server started by a
+client is the CLIENT's directory and not the operator's, so a door wired to one
+repository answered about another. A call that passes `project` still wins
+(§4.2), and `all_projects` is unchanged. A client that worked around this by
+passing `project` on every call has nothing to change; one that set the flag
+and expected it to hold now gets what it asked for.
+
 ## 0.8.0 — 2026-08-25
 
 Breaking, CLI only. The task verbs are spelled flat: `htask claim 12`, not

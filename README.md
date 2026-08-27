@@ -315,7 +315,14 @@ Deviations worth naming up front:
   ```
 
   It is read when the server starts and never from a tool call, so no request
-  can claim it. A door carrying `HERDR_PANE_ID` is that pane's agent whatever
+  can claim it. `htask mcp --project <path>` goes in the same place and answers
+  the other question a wired-in door has: which board it serves. A door is
+  started by the client, from the CLIENT's working directory, so without it a
+  call that names no `project` scoped itself to wherever that happened to be.
+  Unlike `--operator` this is a DEFAULT, not a declaration — a tool call that
+  passes `project` still wins, because §4.2 puts the explicit project at the
+  top of the resolution order and a door that overrode it could never reach
+  another board. A door carrying `HERDR_PANE_ID` is that pane's agent whatever
   it was declared, because the daemon resolves the pane first; on top of that
   a declared door inside a pane refuses to START, so an ambiguous door fails
   loudly once instead of running all day. A CLI invocation needs nothing: one

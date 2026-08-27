@@ -1461,3 +1461,82 @@ func TestTheInstructionsOpenBySayingWhatThePluginIs(t *testing.T) {
 		}
 	}
 }
+
+// §4.2 through the MCP door: `htask mcp --project <path>` is the board a tool
+// call lands on when it does not name one. A door is started by a client's
+// server configuration, from the CLIENT's working directory, so before this
+// the flag was accepted and then ignored and every silent call scoped itself
+// to wherever the client happened to be.
+func TestTheDoorsProjectFlagIsTheDefaultForACallThatNamesNone(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	_, call := inProcessDaemon(t)
+	door := canonProject(t, "/tmp/door")
+	sess := mcpSessionWith(t, call, Options{Project: door})
+
+	res := callTool(t, sess, "create", map[string]any{"title": "no project named"})
+	if res.IsError {
+		t.Fatalf("create: %s", text(res))
+	}
+	var made struct {
+		Task struct{ ID, Project string } `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &made); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if made.Task.Project != door {
+		t.Fatalf("a call naming no project landed on %q, want the door's %q", made.Task.Project, door)
+	}
+
+	// And the board it landed on is the one the door serves on reads too, so
+	// the default is the door's whole scope rather than one verb's.
+	list := callTool(t, sess, "list", map[string]any{})
+	if list.IsError {
+		t.Fatalf("list: %s", text(list))
+	}
+	var here struct{ Count int }
+	if err := json.Unmarshal([]byte(text(list)), &here); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if here.Count != 1 {
+		t.Fatalf("the door's own board lists %d tasks, want 1: %s", here.Count, text(list))
+	}
+}
+
+// §4.2's order, kept: the explicit project is the top of it, so a call that
+// names one still wins over the door's default. A startup flag that overrode
+// it would take reaching another board away from every tool.
+func TestAPerCallProjectStillBeatsTheDoorsFlag(t *testing.T) {
+	testenv.SkipUnlessFull(t)
+	_, call := inProcessDaemon(t)
+	door, other := canonProject(t, "/tmp/door"), canonProject(t, "/tmp/other")
+	sess := mcpSessionWith(t, call, Options{Project: door})
+
+	res := callTool(t, sess, "create", map[string]any{"title": "filed elsewhere", "project": other})
+	if res.IsError {
+		t.Fatalf("create: %s", text(res))
+	}
+	var made struct {
+		Task struct{ ID, Project string } `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(text(res)), &made); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if made.Task.Project != other {
+		t.Fatalf("an explicit project landed on %q, want %q", made.Task.Project, other)
+	}
+
+	var scoped struct{ Count int }
+	if err := json.Unmarshal([]byte(text(callTool(t, sess, "list", map[string]any{}))), &scoped); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if scoped.Count != 0 {
+		t.Fatalf("the door's board lists %d tasks, want 0", scoped.Count)
+	}
+	var there struct{ Count int }
+	if err := json.Unmarshal([]byte(text(callTool(t, sess, "list", map[string]any{"project": other}))), &there); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if there.Count != 1 {
+		t.Fatalf("the named board lists %d tasks, want 1", there.Count)
+	}
+}
