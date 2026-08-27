@@ -7,6 +7,8 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.8.2 — 2026-08-27
+
 The declared contract revision is now 0.10.1, up from 0.10.0. It is the value
 `doctor --json` reports as `contract`, and 0.10.1 asks nothing new of this
 plugin: it writes down what the plugins already do, and the two divergences it

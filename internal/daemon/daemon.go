@@ -40,7 +40,7 @@ import (
 // id, a filter value outside the vocabulary; 0.8.0 flattens the CLI task
 // verbs to the top level, `htask claim 12`. All are major-shaped changes
 // carried in the minor, as a 0.x version is allowed to.
-const Version = "0.8.1"
+const Version = "0.8.2"
 
 // ReleasedSurface is `verbs.CallerSurface()` as it stood at Version: the CLI
 // paths, the MCP tool names, the arguments and the refusal-shaping flags that
