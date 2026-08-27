@@ -180,20 +180,20 @@ func (s *Store) ResolveParked(project, id, state string, by tasks.Actor, now int
 // errored is not proof it had no effect, and because re-opening it reopens the
 // window this ordering exists to close. The operator sees why and decides
 // again, deliberately.
-func (s *Store) FailParked(project, id, message string, now int64) error {
+//
+// by is the principal that resolved it, the same Actor the caller passed to
+// ResolveParked a moment earlier. It is the whole Actor for the reason
+// ResolveParked's is: a failed re-run is the tail of one operator verb, so its
+// event carries the same §3.7 mark as the `resolved` event it follows, and a
+// trail that marked the resolve but not the failure would say the authority
+// was the caller's own for the half of the story that says the verb did not
+// run.
+func (s *Store) FailParked(project, id, message string, by tasks.Actor, now int64) error {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return wrap(err)
 	}
 	defer tx.Rollback()
-	// Who decided it is on the row, put there by the resolve this call is
-	// reporting the failure of. Reading it inside the transaction is the only
-	// way the event names the decider rather than the deferred subject.
-	var by string
-	if err := tx.QueryRow("SELECT COALESCE(resolved_by, '') FROM parked WHERE project = ? AND id = ?",
-		project, id).Scan(&by); err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return wrap(err)
-	}
 	res, err := tx.Exec(
 		"UPDATE parked SET state = 'failed', error = ?, resolved_at = ? WHERE project = ? AND id = ? AND state = 'resolved'",
 		message, now, project, id)
@@ -204,8 +204,8 @@ func (s *Store) FailParked(project, id, message string, now int64) error {
 		return codes.Errorf(codes.Conflict, "parked action %s is not one this call resolved", id)
 	}
 	if err := appendEvent(tx, "parked_events", id, project, tasks.Event{
-		Kind: KindFailed, Actor: tasks.Principal(by), At: now,
-		Detail: map[string]any{"error": message},
+		Kind: KindFailed, Actor: by.Principal, At: now,
+		Detail: tasks.MarkOperatorVerb(by, map[string]any{"error": message}),
 	}); err != nil {
 		return wrap(err)
 	}

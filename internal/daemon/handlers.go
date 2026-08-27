@@ -722,7 +722,7 @@ func hParkedResolve(d *Daemon, req protocol.Request, by tasks.Actor) (any, error
 		// The decision stands; the verb did not run. Say why, in the verb's
 		// own words — the caller needs to know their approve was refused, not
 		// that a queue row was busy.
-		if ferr := d.Store.FailParked(req.Project, p.ID, err.Error(), d.Now()); ferr != nil {
+		if ferr := d.Store.FailParked(req.Project, p.ID, err.Error(), by, d.Now()); ferr != nil {
 			return nil, ferr
 		}
 		d.emitted(req.Project, "parked", p.ID)

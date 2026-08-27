@@ -67,7 +67,7 @@ func TestRejectingAndFailingLeaveATrail(t *testing.T) {
 	if err := s.ResolveParked(proj, failed, "resolved", tasks.Actor{Principal: tasks.PrincipalHuman}, tick(t)); err != nil {
 		t.Fatalf("ResolveParked: %v", err)
 	}
-	if err := s.FailParked(proj, failed, "the task is not in review", tick(t)); err != nil {
+	if err := s.FailParked(proj, failed, "the task is not in review", tasks.Actor{Principal: tasks.PrincipalHuman}, tick(t)); err != nil {
 		t.Fatalf("FailParked: %v", err)
 	}
 	for _, c := range []struct {
@@ -135,6 +135,64 @@ func TestResolvingMarksAnOperatorVerbAnAgentPerformed(t *testing.T) {
 				if err := json.Unmarshal(evs[1].Detail, &detail); err != nil {
 					t.Fatalf("detail %s: %v", evs[1].Detail, err)
 				}
+			}
+			if got := detail[tasks.OnBehalfOfOperator] == true; got != c.marked {
+				t.Errorf("detail = %v, %s = %v, want %v: %s resolved it",
+					detail, tasks.OnBehalfOfOperator, got, c.marked, c.name)
+			}
+		})
+	}
+}
+
+// §3.7 again, on the other end of a resolve: when the re-run errors, the
+// `failed` event is the last thing the trail says about that deferral, and it
+// is written on the same authority as the `resolved` event before it. So it
+// carries the same mark beside the error it already reported, and a failure
+// after the operator's own resolve carries nothing extra.
+func TestFailingMarksAnOperatorVerbAnAgentPerformed(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		by     tasks.Actor
+		marked bool
+	}{
+		{"an agent", tasks.Actor{Principal: "agent:wF:p1"}, true},
+		{"the operator", tasks.Actor{Principal: tasks.PrincipalHuman}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			s := open(t)
+			id, err := s.Park(Parked{Project: proj, Subject: "agent:wF:p2", Verb: "tasks.approve",
+				Target: "1", Payload: "{}"}, tick(t))
+			if err != nil {
+				t.Fatalf("Park: %v", err)
+			}
+			if err := s.ResolveParked(proj, id, "resolved", c.by, tick(t)); err != nil {
+				t.Fatalf("ResolveParked: %v", err)
+			}
+			if err := s.FailParked(proj, id, "the task is not in review", c.by, tick(t)); err != nil {
+				t.Fatalf("FailParked: %v", err)
+			}
+			evs, err := s.Events(EventFilter{Project: proj, Entity: "parked", EntityID: id})
+			if err != nil {
+				t.Fatalf("Events: %v", err)
+			}
+			if len(evs) != 3 || evs[2].Kind != KindFailed {
+				t.Fatalf("%d events, last %q; want a parked, a resolved then a failed",
+					len(evs), evs[len(evs)-1].Kind)
+			}
+			if evs[2].Actor != c.by.Principal {
+				t.Fatalf("the failure was recorded as %q, want %q: the trail names who acted",
+					evs[2].Actor, c.by.Principal)
+			}
+			detail := map[string]any{}
+			if len(evs[2].Detail) > 0 {
+				if err := json.Unmarshal(evs[2].Detail, &detail); err != nil {
+					t.Fatalf("detail %s: %v", evs[2].Detail, err)
+				}
+			}
+			// The mark is added to the error detail, never in place of it: the
+			// operator resolving again needs to read why the verb did not run.
+			if detail["error"] != "the task is not in review" {
+				t.Errorf("detail = %v, want the error the re-run reported", detail)
 			}
 			if got := detail[tasks.OnBehalfOfOperator] == true; got != c.marked {
 				t.Errorf("detail = %v, %s = %v, want %v: %s resolved it",

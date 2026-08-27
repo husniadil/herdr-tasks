@@ -1041,22 +1041,32 @@ never-claimed task or an inbox note on any project's board. They are now
 `tasks.delete` and `tasks.note_delete`, and no verb outside the gate destroys
 anything.
 
-## §3.7 — `parked resolve` carries the operator mark
+## §3.7 — `parked resolve` carries the operator mark on all three of its events
 
 Closed, and closed by implementing it rather than by an amendment. The five
 note verbs 0.10.0 turned from refusals into marks write
 `on_behalf_of_operator` through `operatorVerb` (`internal/tasks/note.go`), and
 the resolution event now writes the same detail through the same function:
-`ResolveParked` in `internal/store/parked.go` takes the whole Actor and passes
-it to `tasks.MarkOperatorVerb`, which is `operatorVerb` under an exported name
-for the one operator verb whose event is written outside `internal/tasks`. So
-a resolve an agent performed after confirming with the operator now reads the
-way its promote or its drop does, and a resolve the operator performed carries
-nothing extra. `parked.resolved_by` still answers who resolved it, which is a
-different question from on whose authority.
-`TestResolvingMarksAnOperatorVerbAnAgentPerformed` in `internal/store` fails
-in both directions §3.7 asks a plugin to pin: dropping the mark fails its
-agent case, and marking a resolve the operator performed fails its human one.
+`ResolveParked` and `FailParked` in `internal/store/parked.go` take the whole
+Actor and pass it to `tasks.MarkOperatorVerb`, which is `operatorVerb` under an
+exported name for the one operator verb whose events are written outside
+`internal/tasks`. So a resolve an agent performed after confirming with the
+operator now reads the way its promote or its drop does, and a resolve the
+operator performed carries nothing extra. All three events the verb can write
+carry it: `resolved`, `rejected`, and the `failed` that follows a resolve whose
+re-run errored, where the mark is merged into the error detail rather than
+replacing it. Marking two of the three would have said the authority was the
+caller's own for exactly the outcome in which the deferred verb did not run.
+`FailParked` is told who resolved it rather than reading `resolved_by` back off
+the row, because the caller resolved it a moment earlier and already holds the
+Actor — and the row keeps only the principal, not the fact §3.7 asks for.
+`parked.resolved_by` still answers who resolved it, which is a different
+question from on whose authority.
+`TestResolvingMarksAnOperatorVerbAnAgentPerformed` and
+`TestFailingMarksAnOperatorVerbAnAgentPerformed` in `internal/store` fail
+in both directions §3.7 asks a plugin to pin: dropping the mark fails their
+agent case, and marking a resolution the operator performed fails their human
+one.
 
 ## §4.4 — `parked list` stays project-scoped (recorded against 0.10.0; amended in 0.10.1)
 

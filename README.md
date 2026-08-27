@@ -374,8 +374,9 @@ answer — unreachable, non-zero, malformed, oversized, slow — is a deny.** A
 `defer` parks the action and returns `DENIED` with a `parked_id`; resolving it
 is the operator's authority, which an agent exercises after confirming with
 them (§3.7), and the re-run happens under the original subject. The parked row
-carries `resolved_by`, the principal that ran or rejected it, and the
-resolution event names that principal as its actor and carries
+carries `resolved_by`, the principal that ran or rejected it, and every event
+the resolution writes — `resolved`, `rejected`, and the `failed` that follows a
+re-run that errored — names that principal as its actor and carries
 `detail.on_behalf_of_operator: true` when it is not the operator — the same
 mark `note promote`, `note fold`, `note unfold`, `note keep` and `note drop`
 write, because the trail is the whole accountability for a verb nothing

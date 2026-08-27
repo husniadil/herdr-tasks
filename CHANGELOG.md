@@ -7,6 +7,14 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+The `failed` event a `parked resolve` writes when the re-run errors now carries
+`detail.on_behalf_of_operator: true` on the same terms its `resolved` and
+`rejected` siblings already did (§3.7): the mark is there when the principal
+that resolved it is not the operator, and absent when the operator resolved it
+themselves. The key sits beside the existing `error` detail rather than
+replacing it, and the actor is the deciding principal as it was. A consumer
+reading the trail sees one added field on an event it already receives.
+
 ## 0.8.2 — 2026-08-27
 
 The declared contract revision is now 0.10.1, up from 0.10.0. It is the value
