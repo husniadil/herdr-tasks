@@ -152,6 +152,12 @@ type Model struct {
 	Err    string
 	Quit   bool
 
+	// full is the selected task as `get` answered it: the one row whose
+	// bodies the model holds, because the detail panel draws them and the
+	// listing does not carry them. It is replaced, never accumulated — a
+	// board of finished tasks is exactly what must not sit in memory in full.
+	full *tasks.Task
+
 	// homed says the cursor has been placed once. The board opens on the first
 	// column that has work in it, but only once: after that the cursor is the
 	// operator's, and a poll that finds their column empty must leave them
@@ -235,6 +241,13 @@ type ErrMsg struct {
 // DoneMsg is a call that succeeded, with the line to show for it.
 type DoneMsg struct{ Status string }
 
+// TaskMsg is one task read in full: `list` is a listing and carries no
+// description, report, evidence or feedback (tasks.Summary), so the detail
+// panel's bodies come from a `get` of the ONE task the cursor is on. The
+// runtime asks for it when the selection moves and on every refresh; the model
+// fills the row in.
+type TaskMsg struct{ Task *tasks.Task }
+
 func (KeyMsg) isMsg()   {}
 func (MouseMsg) isMsg() {}
 func (WheelMsg) isMsg() {}
@@ -242,6 +255,7 @@ func (SizeMsg) isMsg()  {}
 func (DataMsg) isMsg()  {}
 func (ErrMsg) isMsg()   {}
 func (DoneMsg) isMsg()  {}
+func (TaskMsg) isMsg()  {}
 
 // Update is the whole of the TUI's logic: a model and a message in, the next
 // model and at most one daemon call out. Pure, so the tests below drive it
@@ -256,7 +270,13 @@ func Update(m Model, msg Msg) (Model, *Call) {
 	case DataMsg:
 		m.Tasks, m.Notes, m.Parked = v.Tasks, v.Notes, v.Parked
 		m.BoardElsewhere, m.NotesElsewhere = v.BoardElsewhere, v.NotesElsewhere
-		return m.clampCursors().follow(), nil
+		// The fresh listing has no bodies on it, so the task already read in
+		// full goes back onto its row rather than being dropped for the two
+		// seconds until the next `get` answers.
+		return m.filled().clampCursors().follow(), nil
+	case TaskMsg:
+		m.full = v.Task
+		return m.filled(), nil
 	case ErrMsg:
 		m.Err = v.Code + ": " + v.Message
 		m.Status = ""
@@ -836,6 +856,39 @@ func (m Model) SelectedTask() *tasks.Task {
 		return nil
 	}
 	return col[m.Row[m.Col]]
+}
+
+// SelectedTaskID is the id of the board selection, and empty when the board
+// is not what is on screen or the column has nothing in it. It is what the
+// runtime reads a task in full FOR.
+func (m Model) SelectedTaskID() string {
+	if m.View != ViewBoard {
+		return ""
+	}
+	if t := m.SelectedTask(); t != nil {
+		return t.ID
+	}
+	return ""
+}
+
+// filled puts the task read in full back on its row. It matches by id, so a
+// cursor that has moved on shows the new row as the listing has it rather than
+// the previous task's bodies under the new task's title.
+func (m Model) filled() Model {
+	if m.full == nil {
+		return m
+	}
+	for i, t := range m.Tasks {
+		if t == nil || t.ID != m.full.ID {
+			continue
+		}
+		next := make([]*tasks.Task, len(m.Tasks))
+		copy(next, m.Tasks)
+		next[i] = m.full
+		m.Tasks = next
+		return m
+	}
+	return m
 }
 
 // SelectedNote is the note under the notes cursor.

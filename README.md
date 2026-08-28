@@ -224,6 +224,16 @@ directory wants, and `--all-projects` opts out of scoping for one watching
 several repositories at once. `htask list --ready` is the unblocked, unclaimed
 work.
 
+**`list` is a listing; `get` carries the bodies.** A list row answers what a
+caller selects, sorts, routes and renders on — the ids, the project, the
+status, the priority, the criteria, the claim and its lease, the submission and
+review stamps, the dependency facts and the Herdr pane, tab and workspace — and
+none of the free text: `description`, `report`, `evidence`, `evidence_for`,
+`feedback` and `release_note` are on `htask get <id>`, one call for the one
+task a caller opens. Since 0.9.0: a board of 92 finished tasks answered 1.6 MB
+with the bodies on every row, and a consumer reading `list` across several
+projects paid that for each.
+
 A task's 26-character id is its address across boards: it is minted once and
 names one task anywhere, so `htask get <id> --all-projects` reads a task filed
 on any project's board and the answer names the project it was found in. The
@@ -306,10 +316,11 @@ Deviations worth naming up front:
   where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
-  The binary is **0.8.3**, a patch that left every name on both doors where
-  it was, as **0.8.2** and **0.8.1** did; it was **0.8.0** when the CLI spelled its task
-  verbs flat, and **0.7.0** when `stop` came to both doors; the names already
-  on the list have not moved since 0.2.0.
+  The binary is **0.9.0**, a minor that took the free-text bodies off a `list`
+  row — `get` answers them, and every name on both doors stayed where it was,
+  as it did through **0.8.3**, **0.8.2** and **0.8.1**; it was **0.8.0** when
+  the CLI spelled its task verbs flat, and **0.7.0** when `stop` came to both
+  doors; the names already on the list have not moved since 0.2.0.
 - **§3.7 / §7.5** — `human` is not what a door falls back to when it knows
   nothing. A `htask mcp` door standing in a Herdr pane is that pane's agent;
   one standing in no pane has NO principal — `htask doctor` through it prints

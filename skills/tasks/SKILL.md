@@ -19,6 +19,11 @@ tasks — so a number with `--all-projects` is refused rather than guessed at.
 You never say who you are. Your principal is derived from the Herdr pane you
 run in, and the harness is read from Herdr, not from you.
 
+`list` is a listing: a row carries the status, the priority, the criteria, the
+claim and the stamps, and none of the free text. The description, the report,
+the evidence, the feedback and the release note are on `get`, so read the list
+to find the task and `get` the one you are going to work.
+
 ## Reach for the tools, not the shell
 
 Every verb here is an MCP tool on the `herdr-tasks` server AND an `htask`

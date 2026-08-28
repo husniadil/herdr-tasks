@@ -137,7 +137,7 @@ func renderHuman(v verbs.Verb, raw json.RawMessage, now int64) error {
 	return nil
 }
 
-func taskLine(t *tasks.Task, now int64) string {
+func taskLine(t *tasks.Summary, now int64) string {
 	mark := " "
 	switch {
 	case t.Blocked:
@@ -147,7 +147,7 @@ func taskLine(t *tasks.Task, now int64) string {
 	}
 	line := fmt.Sprintf("%s #%-4d %-9s %s", mark, t.Seq, t.Status, t.Title)
 	if t.ClaimedBy != "" {
-		line += fmt.Sprintf("  (held by %s%s)", t.ClaimedBy, reviewWait(t, now))
+		line += fmt.Sprintf("  (held by %s%s)", t.ClaimedBy, waitedInReview(t.Status, t.SubmittedAt, now))
 	}
 	return line
 }
@@ -351,10 +351,16 @@ func live(b bool) string {
 // prints a time — its lease — and a row that came back from review is working
 // again, not waiting, however old its last submission is.
 func reviewWait(t *tasks.Task, now int64) string {
-	if t.Status != tasks.StatusReview || t.SubmittedAt == 0 {
+	return waitedInReview(t.Status, t.SubmittedAt, now)
+}
+
+// waitedInReview is that clause over the two facts it reads, so the listing
+// row and the task in full say it the same way from different shapes.
+func waitedInReview(status tasks.Status, submittedAt, now int64) string {
+	if status != tasks.StatusReview || submittedAt == 0 {
 		return ""
 	}
-	return ", submitted " + waited(t.SubmittedAt, now)
+	return ", submitted " + waited(submittedAt, now)
 }
 
 // waited says a duration in the largest unit that still has a whole number in

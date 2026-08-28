@@ -136,7 +136,7 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case editedMsg:
 		return p, p.afterEditor(v)
-	case DataMsg, ErrMsg, DoneMsg:
+	case DataMsg, ErrMsg, DoneMsg, TaskMsg:
 		// A read is over either way it ended, and only a read clears the flag.
 		switch msg.(type) {
 		case DataMsg, ErrMsg:
@@ -153,11 +153,17 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return p, nil
 	}
+	before := p.model.SelectedTaskID()
 	next, call := Update(p.model, in)
 	p.model = next
 	if p.model.Quit {
 		return p, tea.Quit
 	}
+	// The listing carries no bodies, so the panel's report, description and
+	// evidence are read for the selection alone: when the cursor lands on
+	// another task, and again on each refresh, because a submission that
+	// landed since the last one is exactly what the operator is waiting for.
+	detail := p.detailCmd(before, in)
 	// An asked-for editor is taken once: the model records the request, the
 	// runtime is what runs a process (§12.1).
 	if e := p.model.Edit; e != nil {
@@ -165,18 +171,56 @@ func (p *program) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return p, p.edit(*e)
 	}
 	if call == nil {
-		return p, nil
+		return p, detail
 	}
 	// A read verb IS the refresh; run() would throw its body away.
 	if strings.HasSuffix(call.Verb, ".list") {
-		return p, p.startLoad()
+		return p, tea.Batch(p.startLoad(), detail)
 	}
 	// A mutation is only real to the operator once the board shows it, so the
 	// write is followed by the read rather than waiting for the next tick.
-	return p, tea.Sequence(p.run(*call), p.startLoad())
+	return p, tea.Batch(tea.Sequence(p.run(*call), p.startLoad()), detail)
 }
 
 func (p *program) View() string { return Render(p.model, time.Now().UnixMilli()) }
+
+// detailCmd reads the selected task in full when the selection has moved, or
+// when the message that just landed was a fresh listing — nothing else can
+// have changed what the panel draws. It answers nil when there is nothing
+// selected, so a board view with an empty column costs no call.
+func (p *program) detailCmd(before string, in Msg) tea.Cmd {
+	id := p.model.SelectedTaskID()
+	if id == "" {
+		return nil
+	}
+	if _, refreshed := in.(DataMsg); !refreshed && id == before {
+		return nil
+	}
+	return p.loadTask(id)
+}
+
+// loadTask reads one task in full, which is where the bodies `list` leaves out
+// live (§6.1: the two verbs answer different shapes).
+func (p *program) loadTask(id string) tea.Cmd {
+	return func() tea.Msg {
+		req := p.base
+		req.Verb, req.Args = "task.get", map[string]any{"id": id}
+		raw, err := p.send.Call(req)
+		if err != nil {
+			return errMsg(err)
+		}
+		var out struct {
+			Task *tasks.Task `json:"task"`
+		}
+		if err := json.Unmarshal(raw, &out); err != nil {
+			return ErrMsg{Code: codes.Unexpected, Message: err.Error()}
+		}
+		if out.Task == nil {
+			return nil
+		}
+		return TaskMsg{Task: out.Task}
+	}
+}
 
 // run performs one daemon call off the draw loop and folds the answer back in
 // as a message, so Update stays pure.

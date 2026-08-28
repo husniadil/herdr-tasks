@@ -38,9 +38,12 @@ import (
 // `task amend`; 0.7.0 adds `stop` and turns three accepted calls into
 // refusals — `--all-projects` on a verb that does not read it, `--as` with no
 // id, a filter value outside the vocabulary; 0.8.0 flattens the CLI task
-// verbs to the top level, `htask claim 12`. All are major-shaped changes
-// carried in the minor, as a 0.x version is allowed to.
-const Version = "0.8.3"
+// verbs to the top level, `htask claim 12`; 0.9.0 takes the free-text bodies —
+// `description`, `report`, `evidence`, `evidence_for`, `feedback` and
+// `release_note` — off a `task list` row, where `get` still answers them. All
+// are major-shaped changes carried in the minor, as a 0.x version is allowed
+// to.
+const Version = "0.9.0"
 
 // ReleasedSurface is `verbs.CallerSurface()` as it stood at Version: the CLI
 // paths, the MCP tool names, the arguments and the refusal-shaping flags that

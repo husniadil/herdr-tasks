@@ -141,11 +141,15 @@ func hTaskCreate(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 // has twice been read as data loss. Elsewhere counts what the SAME filter
 // matches outside this project, so it is never a promise the suggested
 // command cannot keep, and it is only computed when there is nothing to show.
+//
+// The rows are tasks.Summary, not tasks.Task: a listing carries what a caller
+// selects, sorts, routes and renders on, and `get` carries the bodies. See
+// tasks.Summary for what that is worth and what it costs.
 type TaskListResult struct {
-	Tasks     []*tasks.Task `json:"tasks"`
-	Count     int           `json:"count"`
-	Project   string        `json:"project,omitempty"`
-	Elsewhere int           `json:"elsewhere,omitempty"`
+	Tasks     []*tasks.Summary `json:"tasks"`
+	Count     int              `json:"count"`
+	Project   string           `json:"project,omitempty"`
+	Elsewhere int              `json:"elsewhere,omitempty"`
 }
 
 func hTaskList(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
@@ -171,7 +175,7 @@ func hTaskList(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	// §4.4: an --all-projects answer was not scoped to a project, so it does
 	// not claim one. Naming the project that merely happened to resolve would
 	// describe a scope the caller did not ask for.
-	res := TaskListResult{Tasks: list, Count: len(list)}
+	res := TaskListResult{Tasks: tasks.SummarizeAll(list), Count: len(list)}
 	if !req.AllProjects {
 		res.Project = req.Project
 	}

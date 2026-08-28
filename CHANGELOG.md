@@ -7,6 +7,30 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.9.0 — 2026-08-28
+
+`list` is a listing. A row of `task list` — `htask list`, the `list` MCP tool,
+`htask list --json` — no longer carries `description`, `report`, `evidence`,
+`evidence_for`, `feedback` or `release_note`. Those are free text and they were
+almost all of a finished board's bytes: 92 done tasks answered 1.6 MB, and a
+consumer reading `list` across several projects paid that for each of them.
+
+Everything else on the row is where it was, under the same keys: `id`, `seq`,
+`project`, `title`, `status`, `priority`, `validation`, `discovered_from`,
+`deps`, `blocked`, `blocked_by_cancelled`, `created_by`, `created_at`,
+`updated_at`, the `claimed_by*` snapshot with `claimed_at`, `lease_until` and
+`ever_claimed`, `released_at`, the `submitted_by*` snapshot with `submitted_at`,
+`amended_at`, `amend_count`, `reviewed_by`, `completed_at`, `cancelled_at`,
+`archived_at`, and `pane_id`, `tab_id` and `workspace_id`. The envelope keeps
+`count`, `project` and `elsewhere`, and `--ready`, `--mine`, `--status`,
+`--query`, `--archived` and `--limit` filter exactly as they did — `--query`
+still matches the description, which is read on the board rather than answered.
+
+`get` is unchanged and answers the task in full, so a caller that reads a body
+off a listing reads it with one `get` for the task it opens. That is the whole
+migration: nothing was renamed, no verb moved, and the six keys exist on `get`
+as they always did.
+
 ## 0.8.3 — 2026-08-27
 
 The `failed` event a `parked resolve` writes when the re-run errors now carries

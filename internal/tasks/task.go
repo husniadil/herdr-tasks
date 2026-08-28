@@ -223,6 +223,95 @@ type Task struct {
 	WorkspaceID string `json:"workspace_id,omitempty"`
 }
 
+// Summary is one row of a listing: everything a caller selects, sorts, routes
+// or renders a task on, and none of its free-text bodies. `list` answers these
+// and `get` answers the Task in full (§6.1 — the shape is per verb, and the
+// two verbs answer different questions).
+//
+// The bodies are what made a listing cost a read: a board of 92 finished tasks
+// answered 1.6 MB, because every row carried the description it was written
+// with, the report and the evidence its submission put on it, the feedback a
+// rejection wrote and the note a release left — and a hub reading `list` over
+// several boxes and projects paid that for each one. Dropping them from the
+// listing costs a caller that wants one of them a `get` for the ONE task it
+// opens; keeping them cost every caller all of them, every time.
+//
+// Every field here is a field of Task under the same JSON name, so a consumer
+// that reads a summary fact off a listing reads the same key it reads off a
+// `get`. A field added to Task that is not a body belongs here too.
+type Summary struct {
+	ID             string      `json:"id"`
+	Seq            int64       `json:"seq"`
+	Project        string      `json:"project"`
+	Title          string      `json:"title"`
+	Status         Status      `json:"status"`
+	Priority       int64       `json:"priority"`
+	Validation     []Criterion `json:"validation,omitempty"`
+	DiscoveredFrom string      `json:"discovered_from,omitempty"`
+	Deps           []string    `json:"deps,omitempty"`
+	Blocked        bool        `json:"blocked"`
+	Abandoned      []int64     `json:"blocked_by_cancelled,omitempty"`
+
+	CreatedBy Principal `json:"created_by"`
+	CreatedAt int64     `json:"created_at"`
+	UpdatedAt int64     `json:"updated_at"`
+
+	ClaimedBy        Principal `json:"claimed_by,omitempty"`
+	ClaimedByName    string    `json:"claimed_by_name,omitempty"`
+	ClaimedByHarness string    `json:"claimed_by_harness,omitempty"`
+	ClaimedBySession string    `json:"claimed_by_session,omitempty"`
+	ClaimedAt        int64     `json:"claimed_at,omitempty"`
+	LeaseUntil       int64     `json:"lease_until,omitempty"`
+	EverClaimed      bool      `json:"ever_claimed"`
+	ReleasedAt       int64     `json:"released_at,omitempty"`
+
+	SubmittedBy        Principal `json:"submitted_by,omitempty"`
+	SubmittedByHarness string    `json:"submitted_by_harness,omitempty"`
+	SubmittedBySession string    `json:"submitted_by_session,omitempty"`
+	SubmittedAt        int64     `json:"submitted_at,omitempty"`
+	AmendedAt          int64     `json:"amended_at,omitempty"`
+	AmendCount         int64     `json:"amend_count,omitempty"`
+
+	ReviewedBy  Principal `json:"reviewed_by,omitempty"`
+	CompletedAt int64     `json:"completed_at,omitempty"`
+	CancelledAt int64     `json:"cancelled_at,omitempty"`
+	ArchivedAt  int64     `json:"archived_at,omitempty"`
+
+	PaneID      string `json:"pane_id,omitempty"`
+	TabID       string `json:"tab_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"`
+}
+
+// Summarize is the one place a Task becomes a listing row.
+func Summarize(t *Task) *Summary {
+	return &Summary{
+		ID: t.ID, Seq: t.Seq, Project: t.Project, Title: t.Title,
+		Status: t.Status, Priority: t.Priority, Validation: t.Validation,
+		DiscoveredFrom: t.DiscoveredFrom, Deps: t.Deps, Blocked: t.Blocked,
+		Abandoned: t.Abandoned,
+		CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		ClaimedBy: t.ClaimedBy, ClaimedByName: t.ClaimedByName,
+		ClaimedByHarness: t.ClaimedByHarness, ClaimedBySession: t.ClaimedBySession,
+		ClaimedAt: t.ClaimedAt, LeaseUntil: t.LeaseUntil, EverClaimed: t.EverClaimed,
+		ReleasedAt:  t.ReleasedAt,
+		SubmittedBy: t.SubmittedBy, SubmittedByHarness: t.SubmittedByHarness,
+		SubmittedBySession: t.SubmittedBySession, SubmittedAt: t.SubmittedAt,
+		AmendedAt: t.AmendedAt, AmendCount: t.AmendCount,
+		ReviewedBy: t.ReviewedBy, CompletedAt: t.CompletedAt,
+		CancelledAt: t.CancelledAt, ArchivedAt: t.ArchivedAt,
+		PaneID: t.PaneID, TabID: t.TabID, WorkspaceID: t.WorkspaceID,
+	}
+}
+
+// SummarizeAll is Summarize over a listing.
+func SummarizeAll(list []*Task) []*Summary {
+	out := make([]*Summary, 0, len(list))
+	for _, t := range list {
+		out = append(out, Summarize(t))
+	}
+	return out
+}
+
 // NewTaskInput is everything a caller may set at creation.
 type NewTaskInput struct {
 	ID             string
