@@ -1,6 +1,6 @@
 id = "herdr-tasks"
 name = "Tasks"
-version = "0.9.0"
+version = "0.9.1"
 min_herdr_version = "0.8.0"
 description = "A task backlog and notes board for agents: claims with leases, evidence, review, and ideas a human promotes or drops"
 platforms = ["macos", "linux"]

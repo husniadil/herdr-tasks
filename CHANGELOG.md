@@ -7,6 +7,12 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.9.1 — 2026-08-28
+
+`validation` is off a `list` row too: the criteria are sentences, and on a
+board of 92 tasks they were two thirds of what was left after 0.9.0. `get`
+answers them, as it answers the other bodies.
+
 ## 0.9.0 — 2026-08-28
 
 `list` is a listing. A row of `task list` — `htask list`, the `list` MCP tool,

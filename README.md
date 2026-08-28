@@ -226,10 +226,10 @@ work.
 
 **`list` is a listing; `get` carries the bodies.** A list row answers what a
 caller selects, sorts, routes and renders on — the ids, the project, the
-status, the priority, the criteria, the claim and its lease, the submission and
+status, the priority, the claim and its lease, the submission and
 review stamps, the dependency facts and the Herdr pane, tab and workspace — and
-none of the free text: `description`, `report`, `evidence`, `evidence_for`,
-`feedback` and `release_note` are on `htask get <id>`, one call for the one
+none of the free text: `description`, `validation`, `report`, `evidence`,
+`evidence_for`, `feedback` and `release_note` are on `htask get <id>`, one call for the one
 task a caller opens. Since 0.9.0: a board of 92 finished tasks answered 1.6 MB
 with the bodies on every row, and a consumer reading `list` across several
 projects paid that for each.
@@ -316,8 +316,8 @@ Deviations worth naming up front:
   where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
-  The binary is **0.9.0**, a minor that took the free-text bodies off a `list`
-  row — `get` answers them, and every name on both doors stayed where it was,
+  The binary is **0.9.1**, which took `validation` off a `list` row as **0.9.0**
+  took the other free-text bodies off it — `get` answers them, and every name on both doors stayed where it was,
   as it did through **0.8.3**, **0.8.2** and **0.8.1**; it was **0.8.0** when
   the CLI spelled its task verbs flat, and **0.7.0** when `stop` came to both
   doors; the names already on the list have not moved since 0.2.0.

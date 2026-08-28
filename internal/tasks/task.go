@@ -240,17 +240,16 @@ type Task struct {
 // that reads a summary fact off a listing reads the same key it reads off a
 // `get`. A field added to Task that is not a body belongs here too.
 type Summary struct {
-	ID             string      `json:"id"`
-	Seq            int64       `json:"seq"`
-	Project        string      `json:"project"`
-	Title          string      `json:"title"`
-	Status         Status      `json:"status"`
-	Priority       int64       `json:"priority"`
-	Validation     []Criterion `json:"validation,omitempty"`
-	DiscoveredFrom string      `json:"discovered_from,omitempty"`
-	Deps           []string    `json:"deps,omitempty"`
-	Blocked        bool        `json:"blocked"`
-	Abandoned      []int64     `json:"blocked_by_cancelled,omitempty"`
+	ID             string   `json:"id"`
+	Seq            int64    `json:"seq"`
+	Project        string   `json:"project"`
+	Title          string   `json:"title"`
+	Status         Status   `json:"status"`
+	Priority       int64    `json:"priority"`
+	DiscoveredFrom string   `json:"discovered_from,omitempty"`
+	Deps           []string `json:"deps,omitempty"`
+	Blocked        bool     `json:"blocked"`
+	Abandoned      []int64  `json:"blocked_by_cancelled,omitempty"`
 
 	CreatedBy Principal `json:"created_by"`
 	CreatedAt int64     `json:"created_at"`
@@ -286,7 +285,7 @@ type Summary struct {
 func Summarize(t *Task) *Summary {
 	return &Summary{
 		ID: t.ID, Seq: t.Seq, Project: t.Project, Title: t.Title,
-		Status: t.Status, Priority: t.Priority, Validation: t.Validation,
+		Status: t.Status, Priority: t.Priority,
 		DiscoveredFrom: t.DiscoveredFrom, Deps: t.Deps, Blocked: t.Blocked,
 		Abandoned: t.Abandoned,
 		CreatedBy: t.CreatedBy, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,

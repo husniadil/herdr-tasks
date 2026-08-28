@@ -113,7 +113,7 @@ func TestListRowsKeepEverySummaryFact(t *testing.T) {
 		t.Fatalf("the listing has %d rows, want 3: %s", len(rows), raw)
 	}
 	for seq, keys := range map[string][]string{
-		"1": {"id", "seq", "project", "title", "status", "priority", "validation", "blocked",
+		"1": {"id", "seq", "project", "title", "status", "priority", "blocked",
 			"created_by", "created_at", "updated_at", "claimed_by", "claimed_by_name",
 			"claimed_by_harness", "claimed_by_session", "claimed_at", "lease_until",
 			"ever_claimed", "pane_id", "tab_id", "workspace_id"},

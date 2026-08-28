@@ -1,3 +1,5 @@
+// Enforces §13.3: a JSON shape is semver-bound, so the list row is pinned here
+// against the task it summarizes.
 package tasks
 
 import (
@@ -11,6 +13,7 @@ import (
 // Task is a summary fact and belongs on Summary under the same JSON name.
 var bodies = map[string]string{
 	"description":  "the brief the task was written with",
+	"validation":   "the criteria the brief set, each a sentence of its own",
 	"report":       "what the submission said",
 	"evidence":     "what the submission ran",
 	"evidence_for": "which criterion each of those proves",

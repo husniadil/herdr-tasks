@@ -1,3 +1,5 @@
+// Enforces §6.2: the bodies a list row no longer carries are read by get, and
+// the TUI reads them that way.
 package tui
 
 import (
