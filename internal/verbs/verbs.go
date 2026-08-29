@@ -432,7 +432,7 @@ var All = []Verb{
 		Name: "sweep", CLI: []string{"sweep"}, MCP: "sweep",
 		Short:   "Release leases that have lapsed, or every lease a pane holds",
 		Long:    "The daemon does this on a timer (§11.5). Run it by hand, or from a Herdr\nevent reaction, when a pane died and its work should return to the queue now.",
-		Who:     "With --pane: that pane, or the operator — another pane's leases are still REFUSED, because they are that holder's, not the operator's to grant on their behalf. Without: anyone, and it releases only leases that are already expired.",
+		Who:     "With --pane: that pane, or the operator, or a plugin principal for a pane HERDR NO LONGER LISTS (§11.7) — a live pane's leases are still REFUSED, because they are that holder's, not the operator's to grant on their behalf, and a Herdr that cannot be asked refuses too. Without: anyone, and it releases only leases that are already expired.",
 		Ungated: "the daemon's own §11.5 timer calls it, and a gate that parked the timer would stop leases coming back at all",
 		Mutates: true,
 		Args: []Arg{

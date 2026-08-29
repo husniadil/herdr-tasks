@@ -9,10 +9,14 @@ import (
 	"testing"
 )
 
-// fakeHerdr answers the two calls the plugin makes: `agent get <pane> --json`
-// (§3.4) and `api schema --json` (§11.2). Everything else exits non-zero, so a
-// test that reaches for an unmodelled call fails loudly rather than silently
-// getting an empty answer.
+// fakeHerdr answers the three calls the plugin makes: `agent get <pane>`
+// (§3.4), `pane list` (§11.7) and `api schema --json` (§11.2). Everything else
+// exits non-zero, so a test that reaches for an unmodelled call fails loudly
+// rather than silently getting an empty answer.
+//
+// `pane list` lists wF:p1 and wF:p2 and does NOT list wF:gone, which is the
+// same pane `agent get` answers "no such pane" for: one fake world where one
+// pane is gone and the others are live.
 const fakeHerdr = `#!/bin/sh
 case "$1 $2" in
   "agent get")
@@ -26,6 +30,16 @@ case "$1 $2" in
     printf '{"id":"cli:agent:get","result":{"type":"agent_info","agent":{"pane_id":"%s","name":"%s","agent":"%s","agent_status":"working","agent_session":{"kind":"id","value":"sess-%s"}}}}\n' \
       "$pane" "$name" "$harness" "$pane"
     ;;
+  "pane list")
+    # The envelope real herdr prints for pane.list, trimmed to the one field
+    # this plugin reads. pane list takes no --json: it already prints JSON
+    # and rejects the flag.
+    cat <<'JSON'
+{"id":"cli:pane:list","result":{"type":"pane_list","panes":[
+  {"pane_id":"wF:p1","terminal_id":"t1","workspace_id":"wF","tab_id":"wF:t1","focused":true},
+  {"pane_id":"wF:p2","terminal_id":"t2","workspace_id":"wF","tab_id":"wF:t1","focused":false}]}}
+JSON
+    ;;
   "api schema")
     # The shape real herdr prints: a JSON Schema whose request branch is a
     # oneOf over method constants and whose event branch is an EventKind enum.
@@ -34,7 +48,8 @@ case "$1 $2" in
   "request":{"oneOf":[
     {"properties":{"method":{"const":"agent.get"}}},
     {"properties":{"method":{"const":"agent.prompt"}}},
-    {"properties":{"method":{"const":"pane.run"}}}]},
+    {"properties":{"method":{"const":"pane.run"}}},
+    {"properties":{"method":{"const":"pane.list"}}}]},
   "event":{"$defs":{"EventKind":{"enum":["pane_exited","pane_closed","pane_agent_status_changed"]}}}}}
 JSON
     ;;

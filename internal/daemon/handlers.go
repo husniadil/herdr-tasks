@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -765,6 +767,41 @@ func hEvents(d *Daemon, req protocol.Request, _ tasks.Actor) (any, error) {
 	return EventsResult{Events: list, Count: len(list)}, nil
 }
 
+// paneExitedNote is the release note every other path writes: the pane hook,
+// the operator, the pane itself. §11.7's plugin path writes its own, because
+// the reason it was allowed at all is a fact only that path knows.
+const paneExitedNote = "pane exited"
+
+// paneIsGone answers nil when Herdr does not list the pane, and the refusal
+// otherwise (§11.7). Herdr is the only witness this accepts: a pane the plugin
+// merely believes is gone is a live rival's lease.
+func (d *Daemon) paneIsGone(by tasks.Actor, pane string) error {
+	panes, err := d.Herdr.PaneList()
+	if err != nil {
+		// The code Herdr's own failure carries is kept — UNAVAILABLE for a
+		// Herdr that is not there, TIMEOUT for one that did not answer in
+		// time, UNSUPPORTED for one too old to list panes — because "try
+		// again" and "this will never work" are different answers and a
+		// caller acts on them differently.
+		code := codes.Unavailable
+		var ce *codes.Error
+		if errors.As(err, &ce) {
+			code = ce.Code
+		}
+		return codes.Errorf(code,
+			"%s may release the leases of pane %s only where herdr says that pane is gone, and herdr "+
+				"could not be asked: %v", by.Principal, pane, err)
+	}
+	for _, id := range panes {
+		if id == pane {
+			return codes.Errorf(codes.Forbidden,
+				"herdr still lists pane %s, so %s does not release its leases; that pane or the "+
+					"operator releases them", pane, by.Principal)
+		}
+	}
+	return nil
+}
+
 // SweepResult says which leases came back (§11.5).
 type SweepResult struct {
 	Released []string `json:"released"`
@@ -774,15 +811,28 @@ type SweepResult struct {
 func hSweep(d *Daemon, req protocol.Request, by tasks.Actor) (any, error) {
 	if pane := argString(req.Args, "pane"); pane != "" {
 		// A pane's leases are that pane's to give back, or the operator's to
-		// take. Any principal could strip every lease a LIVE rival held, with
-		// one flag and no id. Herdr is not consulted for liveness: it can be
-		// unreachable, and a rule that silently allows when it cannot answer
-		// is worse than one that never asks.
+		// take. Any principal could otherwise strip every lease a LIVE rival
+		// held, with one flag and no id.
+		note := paneExitedNote
 		if !by.IsHuman() && by.Principal != tasks.Principal("agent:"+pane) {
-			return nil, codes.Errorf(codes.Forbidden,
-				"%s holds the leases of pane %s; that pane or the operator releases them", by.Principal, pane)
+			// The one exception is §11.7's: a plugin principal, for a pane
+			// HERDR ITSELF no longer lists. A pane dies with the box it ran
+			// on and cannot sweep itself, and the plugin that put a worker
+			// there is the only party left watching; without this the claim
+			// sits `doing` under a dead principal until the lease lapses.
+			// Herdr's answer is the whole authority, so a Herdr that cannot
+			// be asked refuses: a rule that allowed when it could not ask
+			// would be the live-rival case wearing a different coat.
+			if by.Principal.Kind() != "plugin" {
+				return nil, codes.Errorf(codes.Forbidden,
+					"%s holds the leases of pane %s; that pane or the operator releases them", by.Principal, pane)
+			}
+			if err := d.paneIsGone(by, pane); err != nil {
+				return nil, err
+			}
+			note = fmt.Sprintf("pane %s is gone from herdr; released by %s", pane, by.Principal)
 		}
-		released, err := d.Store.ReleaseByPane(pane, d.Now())
+		released, err := d.Store.ReleaseByPane(pane, note, d.Now())
 		if err != nil {
 			return nil, err
 		}

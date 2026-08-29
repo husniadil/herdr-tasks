@@ -1,6 +1,16 @@
 # The shared plugin contract
 
-Status: binding. Version: 0.10.1. Date: 2026-08-27.
+Status: binding. Version: 0.11.0. Date: 2026-08-29.
+
+Changes in 0.11.0: §11.7 is added, and nothing else moves. A pane dies with
+the machine it ran on and cannot sweep its own leases; the plugin that put a
+worker there is the only party still watching, and §11.5 gave it no way to
+hand the claim back — the work sat held by a principal that no longer exists
+until the lease lapsed. §11.7 opens exactly one door: a `plugin` principal may
+release the leases of a pane HERDR ITSELF no longer lists, and Herdr's answer
+is the whole authority, so a live pane and a Herdr that cannot be asked are
+both refused. It is additive: every rule of §11.5 and every other refusal
+stands where it stood.
 
 Changes in 0.10.1: the contract catches up with what all four plugins already
 do. §4.4 names the entity list verbs that take `--all-projects` and says
@@ -657,6 +667,19 @@ pane's process receives `HERDR_PLUGIN_CONTEXT_JSON` (workspace, tab, and
 focused-pane ids and cwds — the §4.2 scope source) and `HERDR_PLUGIN_ROOT`,
 but no `HERDR_PANE_ID`: a plugin pane is therefore the `human` principal, and
 a pane that offers verbs MUST offer human verbs only.
+
+§11.7 A pane cannot sweep itself when it is gone. Liveness in §11.5 is read
+by whoever is still there to read it, and for a pane that died with its
+machine that is neither the pane nor, in time, the operator. A plugin with
+leases MUST therefore allow a `plugin` principal (§3.1) to release the leases
+of a named pane when Herdr's own pane list does not contain that pane, and
+MUST refuse it when the list does contain it. Herdr's answer is the authority
+and nothing else is: a plugin that cannot reach Herdr, or reaches a Herdr too
+old to list panes, MUST be refused with the reason said out loud, because a
+rule that allows when it cannot ask takes a live worker's claim. The release
+MUST be recorded as a sweep (§11.5) whose reason names the pane Herdr no
+longer lists and the principal that asked. This clause grants no authority
+over a live pane's lease, which stays the holder's under §3.7.
 
 ## §12 Testing and conformance
 

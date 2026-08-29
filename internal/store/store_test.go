@@ -744,7 +744,7 @@ func TestReleaseByPaneLeavesATaskAnotherPaneReclaimed(t *testing.T) {
 		claimBy(t, s, id, next, now, 900_000)
 	}
 
-	released, err := s.ReleaseByPane("wF:p1", now)
+	released, err := s.ReleaseByPane("wF:p1", "pane exited", now)
 	if err != nil {
 		t.Fatalf("ReleaseByPane: %v", err)
 	}
@@ -1435,7 +1435,7 @@ func TestReleaseByPaneCannotReachASubmittedTask(t *testing.T) {
 			t.Fatalf("step %d: %v", i, err)
 		}
 	}
-	released, err := s.ReleaseByPane("wF:p1", tick(t))
+	released, err := s.ReleaseByPane("wF:p1", "pane exited", tick(t))
 	if err != nil {
 		t.Fatalf("ReleaseByPane: %v", err)
 	}
@@ -1858,7 +1858,7 @@ func TestReleaseByPaneChecksTheRowsError(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("claim: %v", err)
 	}
-	released, err := s.ReleaseByPane("wF:p9", tick(t))
+	released, err := s.ReleaseByPane("wF:p9", "pane exited", tick(t))
 	if err != nil || len(released) != 1 {
 		t.Fatalf("ReleaseByPane = %v, %v; want the one lease", released, err)
 	}

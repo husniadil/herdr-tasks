@@ -329,8 +329,11 @@ func (s *Store) SweepLeases(now int64) ([]string, error) {
 }
 
 // ReleaseByPane releases every claim held by a pane, which is what a
-// pane.exited event means for a lease (§11.5).
-func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
+// pane.exited event means for a lease (§11.5). note is the swept event's
+// reason, and it is the caller's because the caller is the only one that knows
+// it: a pane hook says the pane exited, while §11.7's plugin path says which
+// pane Herdr no longer lists and who asked.
+func (s *Store) ReleaseByPane(paneID, note string, now int64) ([]string, error) {
 	principal := "agent:" + paneID
 	// lease_until > 0 is the same reach the timer sweep has (SweepLeases): a
 	// dead pane gives back the lease it was holding, and submit already ended
@@ -373,7 +376,7 @@ func (s *Store) ReleaseByPane(paneID string, now int64) ([]string, error) {
 				return tasks.Event{}, codes.Errorf(codes.Conflict,
 					"the lease on %s ended after the scan", r.id)
 			}
-			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, "pane exited", now, tasks.KindSwept)
+			return tasks.Release(t, tasks.Actor{Principal: tasks.PrincipalPlugin}, note, now, tasks.KindSwept)
 		}); err == nil {
 			out = append(out, r.id)
 		}

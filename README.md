@@ -291,6 +291,24 @@ racing it is exactly the bug the single-writer rule exists to prevent. Use
 `htask sweep --pane <pane id>` when something should be released now rather
 than when its lease runs out.
 
+**Who may sweep a pane.** That pane, the operator — and a plugin principal for
+a pane **Herdr no longer lists** (§11.7). A pane dies with the machine it ran
+on and cannot sweep itself, so a plugin that put a worker there asks the board
+to take the claim back:
+
+```sh
+htask sweep --pane wF:p1 --as plugin:hdis@wF:p2
+```
+
+The daemon answers that by asking Herdr — `herdr pane list` — and Herdr's
+answer is the whole authority. A pane Herdr still lists is `FORBIDDEN`, exactly
+as before: a live holder's lease is nobody else's to hand back. A Herdr that
+cannot be asked is refused as well, with the reason said out loud, since a rule
+that allowed when it could not ask would take a live worker's claim on a
+network blip. What comes back is a swept event whose reason names the pane
+Herdr no longer lists and the principal that asked, so a released claim is
+never one nobody can account for.
+
 ## The shared plugin contract
 
 This plugin conforms to the **shared plugin contract**, revision 0.10.1,

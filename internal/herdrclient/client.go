@@ -129,6 +129,61 @@ func (c *Client) AgentGet(pane string) (Agent, error) {
 	return a, nil
 }
 
+// paneListEnvelope is what `herdr pane list` prints: the CLI's envelope around
+// a pane_list result. Only the pane id is read — §11.7 asks one question of
+// this call, whether Herdr still lists a pane, and a struct that named the
+// rest would fail to decode on a Herdr that changed a field this plugin never
+// uses.
+type paneListEnvelope struct {
+	Result struct {
+		Panes []rawPane `json:"panes"`
+	} `json:"result"`
+	// Panes is the flat form, read for the same reason toSchema reads one:
+	// feature detection, not shape pinning.
+	Panes []rawPane `json:"panes"`
+}
+
+type rawPane struct {
+	PaneID string `json:"pane_id"`
+}
+
+// PaneList is every pane id this Herdr lists (§11.7). It is the evidence a
+// plugin principal offers for a pane being gone, so it answers an error rather
+// than an empty list whenever Herdr did not plainly say: a caller cannot tell
+// "no panes" from "the answer was unreadable", and one of those two must not
+// free a live pane's lease.
+//
+// The call carries no --json, for the reason AgentGet carries none: `pane
+// list` already prints JSON and rejects the flag, and the usage error would
+// arrive here as a Herdr that answered nothing.
+func (c *Client) PaneList() ([]string, error) {
+	if err := c.Require("pane.list"); err != nil {
+		return nil, err
+	}
+	out, err := c.run(2*time.Second, "pane", "list")
+	if err != nil {
+		return nil, err
+	}
+	var env paneListEnvelope
+	if err := json.Unmarshal(out, &env); err != nil {
+		return nil, codes.Errorf(codes.Unavailable, "herdr pane list: unreadable answer: %v", err)
+	}
+	raw := env.Result.Panes
+	if len(raw) == 0 {
+		raw = env.Panes
+	}
+	ids := make([]string, 0, len(raw))
+	for _, p := range raw {
+		if p.PaneID != "" {
+			ids = append(ids, p.PaneID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil, codes.New(codes.Unavailable, "herdr pane list named no pane")
+	}
+	return ids, nil
+}
+
 // Schema is what `herdr api schema --json` says this Herdr can do (§11.2).
 // Requests are the request methods (`agent.get`, `pane.run`) and Events the
 // event kinds Herdr publishes. The protocol number is read for doctor output

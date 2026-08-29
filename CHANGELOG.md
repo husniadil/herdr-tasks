@@ -7,6 +7,23 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+`sweep --pane <pane>` answers a plugin principal for a pane Herdr no longer
+lists. A pane dies with the machine it ran on and cannot sweep itself: before
+this, a claim held by that pane sat `doing` under a principal that no longer
+existed until its lease lapsed, because `release` refused everyone but the
+holder and `sweep --pane` refused everyone but that pane and the operator. A
+caller declaring `--as plugin:<id>` now gets the lease back with
+`htask sweep --pane <pane> --as plugin:<id>`, and the released task is `todo`
+again with a swept event whose reason names the gone pane and who asked.
+
+Nothing that was allowed is refused and no shape moved. The daemon asks
+`herdr pane list` and Herdr's answer decides: a pane Herdr still lists is
+`FORBIDDEN` exactly as it was, and a Herdr that cannot be asked — unreachable,
+timed out, or too old to offer `pane.list` — is refused with the code Herdr's
+own failure carried (`UNAVAILABLE`, `TIMEOUT`, `UNSUPPORTED`) rather than
+allowed. A consumer that sweeps another pane must therefore handle a refusal
+it can retry as well as one it cannot.
+
 ## 0.9.1 — 2026-08-28
 
 `validation` is off a `list` row too: the criteria are sentences, and on a

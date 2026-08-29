@@ -1288,6 +1288,76 @@ func TestOnlyThatPaneOrTheOperatorSweepsAPane(t *testing.T) {
 	mustCall(t, d, protocol.Request{Verb: "sweep", Args: map[string]any{"pane": "wF:p1"}})
 }
 
+// §11.7: a worker pane dies with the box it ran on, and the plugin that put it
+// there is the only party still watching. It cannot be the holder and it is
+// not the operator, so before this the claim sat `doing` under a principal
+// that no longer exists until the lease ran out. The pane being GONE from
+// Herdr's own list is what turns the refusal off: Herdr is asked, and the
+// answer is the authority.
+func TestAPluginSweepsAPaneHerdrNoLongerLists(t *testing.T) {
+	d := newDaemon(t, nil)
+	const plugin = "plugin:hdis@wF:p1"
+
+	// The fake herdr lists wF:p1 and wF:p2 and does not list wF:gone.
+	dead := createTask(t, d, "held by a pane that died").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:gone", Args: map[string]any{"id": dead}})
+	raw := mustCall(t, d, protocol.Request{Verb: "sweep", As: plugin,
+		Args: map[string]any{"pane": "wF:gone"}})
+	if !strings.Contains(string(raw), dead) {
+		t.Fatalf("the sweep released %s, want the lease on %s", raw, dead)
+	}
+	raw = mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": dead}})
+	var got TaskResult
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Task.Status != tasks.StatusTodo || got.Task.ClaimedBy != "" {
+		t.Fatalf("task is %s claimed by %q, want todo and unclaimed", got.Task.Status, got.Task.ClaimedBy)
+	}
+	// The trail says the pane is gone and who asked, because a swept lease
+	// nobody can account for is the thing the event exists to prevent.
+	note := got.Task.ReleaseNote
+	if !strings.Contains(note, "wF:gone") || !strings.Contains(note, "gone") || !strings.Contains(note, plugin) {
+		t.Fatalf("release note = %q, want it to name the gone pane and %s", note, plugin)
+	}
+	events := mustCall(t, d, protocol.Request{Verb: "events", Args: map[string]any{"entity": "task"}})
+	if !strings.Contains(string(events), "swept") || !strings.Contains(string(events), plugin) {
+		t.Fatalf("the trail must record the sweep and its asker: %s", events)
+	}
+
+	// A pane Herdr still lists is refused exactly as before: a live rival's
+	// lease is not a plugin's to take.
+	live := createTask(t, d, "held by a live pane").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p2", Args: map[string]any{"id": live}})
+	mustFail(t, d, protocol.Request{Verb: "sweep", As: plugin,
+		Args: map[string]any{"pane": "wF:p2"}}, codes.Forbidden)
+	raw = mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": live}})
+	if !strings.Contains(string(raw), "agent:wF:p2") {
+		t.Fatalf("the refused sweep took a live pane's claim: %s", raw)
+	}
+}
+
+// The other half of §11.7, and the reason it is a rule rather than a
+// convenience: a Herdr that cannot be asked has not said the pane is gone. The
+// sweep refuses and says why, because a rule that allows when it cannot ask is
+// how a live pane loses its work.
+func TestAPluginSweepIsRefusedWhenHerdrCannotBeAsked(t *testing.T) {
+	d := newDaemon(t, nil)
+	id := createTask(t, d, "held by a pane nobody can ask about").Task.ID
+	mustCall(t, d, protocol.Request{Verb: "task.claim", PaneID: "wF:p1", Args: map[string]any{"id": id}})
+
+	d.Herdr = herdrclient.New(testenv.MissingHerdr(t))
+	err := mustFail(t, d, protocol.Request{Verb: "sweep", As: "plugin:hdis@wF:p1",
+		Args: map[string]any{"pane": "wF:p1"}}, codes.Unavailable)
+	if !strings.Contains(err.Message, "wF:p1") || !strings.Contains(strings.ToLower(err.Message), "herdr") {
+		t.Fatalf("message = %q, want it to name the pane and say Herdr could not be asked", err.Message)
+	}
+	raw := mustCall(t, d, protocol.Request{Verb: "task.get", Args: map[string]any{"id": id}})
+	if !strings.Contains(string(raw), "agent:wF:p1") {
+		t.Fatalf("the refused sweep took the claim: %s", raw)
+	}
+}
+
 // §4.2: the warning is the DOOR's, said once where the variable is read. The
 // daemon must not repeat it on the operator's behalf — it answers many
 // requests from many doors, its stderr is the operator's log, and a warning

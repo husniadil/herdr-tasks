@@ -693,6 +693,34 @@ CLI-only for a reason of its own. herdr-mail has taken this direction: every
 verb it serves is on its door, `dump` included, with the confidentiality
 boundary that verb crosses enforced in its daemon where both doors reach it.
 
+## §11.7 — a plugin sweeps a pane Herdr no longer lists (amendment drafted here, declaration stays at 0.10.1)
+
+A live fleet found the gap: a box restarts, the worker pane's process dies,
+and herdr-dispatch — a `plugin:hdis@<pane>` principal — sees the pane gone
+from Herdr and can do nothing about the claim. `release` refuses it as not the
+holder, `sweep --pane` refuses it as not that pane and not the operator, and
+the task sits `doing` under a principal that no longer exists until the 900s
+lease lapses and someone notices.
+
+The vendored text here is at **0.11.0**, which adds §11.7 for exactly that
+case, while `daemon.ContractVersion` and the README stay at **0.10.1**. The
+lag is deliberate and this is the entry that records it: the amendment is
+drafted in this repository against a live failure, and the contract is
+maintained in agamemnon and vendored byte-identical to four plugins, so the
+declaration moves only once §11.7 has been amended there and re-vendored to
+the siblings. Until then this plugin implements §11.7 and declares the
+revision it was brought to.
+
+What is implemented: `sweep --pane <pane>` from a `plugin` principal asks
+`herdr pane list`; a pane the list does not name is released, a pane it names
+is refused as before, and a Herdr that cannot be asked — unreachable, timed
+out, or too old to offer `pane.list` — is refused with the reason said out
+loud rather than allowed. The swept event's reason names the gone pane and the
+principal that asked. `TestAPluginSweepsAPaneHerdrNoLongerLists` and
+`TestAPluginSweepIsRefusedWhenHerdrCannotBeAsked` are the two halves; the
+operator's and the pane's own paths are unchanged and still pinned by
+`TestOnlyThatPaneOrTheOperatorSweepsAPane`.
+
 ## 0.10.1 catches the contract up, and the declaration moves to it
 
 0.10.1 asks nothing new of this plugin. It writes down what four plugins
