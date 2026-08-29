@@ -334,7 +334,7 @@ Deviations worth naming up front:
   where a client reads it. That tool list is semver-bound — `htask version` and `htask doctor` print the
   binary version, and a client with
   the older tool names wired in calls names this server no longer answers to.
-  The binary is **0.9.1**, which took `validation` off a `list` row as **0.9.0**
+  The binary is **0.10.0**, which took `validation` off a `list` row as **0.9.0**
   took the other free-text bodies off it — `get` answers them, and every name on both doors stayed where it was,
   as it did through **0.8.3**, **0.8.2** and **0.8.1**; it was **0.8.0** when
   the CLI spelled its task verbs flat, and **0.7.0** when `stop` came to both

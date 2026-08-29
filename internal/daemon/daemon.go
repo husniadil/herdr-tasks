@@ -44,7 +44,7 @@ import (
 // `release_note` — off a `task list` row, where `get` still answers them. All
 // are major-shaped changes carried in the minor, as a 0.x version is allowed
 // to.
-const Version = "0.9.1"
+const Version = "0.10.0"
 
 // ReleasedSurface is `verbs.CallerSurface()` as it stood at Version: the CLI
 // paths, the MCP tool names, the arguments and the refusal-shaping flags that
