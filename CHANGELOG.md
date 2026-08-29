@@ -7,6 +7,10 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+The declared contract revision is now 0.11.0, up from 0.10.1. It is the value
+`doctor --json` reports. 0.11.0 adds §11.7, which this release implements:
+a plugin principal may sweep the leases of a pane Herdr no longer lists.
+
 `sweep --pane <pane>` answers a plugin principal for a pane Herdr no longer
 lists. A pane dies with the machine it ran on and cannot sweep itself: before
 this, a claim held by that pane sat `doing` under a principal that no longer
