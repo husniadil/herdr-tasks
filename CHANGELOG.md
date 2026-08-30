@@ -7,6 +7,11 @@ entry here, so every entry says what moved and what a caller does about it.
 
 ## Unreleased
 
+## 0.10.1 — 2026-08-30
+
+Release assets for darwin and linux (amd64, arm64), so `agamemnon box join
+--install` can fetch the binary at a pinned version.
+
 ## 0.10.0 — 2026-08-29
 
 The declared contract revision is now 0.11.0, up from 0.10.1. It is the value

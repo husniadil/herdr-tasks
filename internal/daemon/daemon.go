@@ -44,7 +44,12 @@ import (
 // `release_note` — off a `task list` row, where `get` still answers them. All
 // are major-shaped changes carried in the minor, as a 0.x version is allowed
 // to.
-const Version = "0.10.0"
+//
+// It is a var rather than a const because a release build stamps it: the
+// tag goreleaser is cutting is written over this default with
+// `-X ...internal/daemon.Version`, so a published binary reports its tag and a
+// build from a checkout reports what is written here.
+var Version = "0.10.1"
 
 // ReleasedSurface is `verbs.CallerSurface()` as it stood at Version: the CLI
 // paths, the MCP tool names, the arguments and the refusal-shaping flags that
